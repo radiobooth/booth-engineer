@@ -101,3 +101,21 @@ def test_library_choice():
     assert catalog["source"]["library"] == "Vinyl"
     with pytest.raises(plex.PlexError, match="No music library"):
         plex.build_catalog(FakePlex(two), library="Tapes")
+
+
+def test_non_json_answer_explains_the_port(monkeypatch):
+    class Resp:
+        headers = {"Content-Type": "text/html"}
+
+        def read(self):
+            return b"<html>NAS login</html>"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(plex.urllib.request, "urlopen", lambda req, timeout: Resp())
+    with pytest.raises(plex.PlexError, match="32400"):
+        plex.PlexClient("http://nas.local", "t").get("/library/sections")

@@ -38,11 +38,18 @@ class PlexClient:
         req = urllib.request.Request(url, headers={"Accept": "application/json", "X-Plex-Token": self.token})
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                return json.loads(resp.read())
+                body, ctype = resp.read(), resp.headers.get("Content-Type", "")
         except urllib.error.HTTPError as e:
             raise PlexError(f"Plex returned HTTP {e.code} for {path}") from None
         except urllib.error.URLError as e:
             raise PlexError(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
+        try:
+            return json.loads(body)
+        except ValueError:
+            raise PlexError(
+                f"{self.base_url} answered with {ctype or 'something'} instead of Plex JSON."
+                " Check PLEX_URL, including the port (Plex usually listens on 32400)."
+            ) from None
 
 
 def music_sections(client: Getter) -> list[dict]:
