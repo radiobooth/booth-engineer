@@ -72,7 +72,7 @@ class FakePlex:
                 }
             }
         if path.endswith("/refresh"):
-            self.folder = params["path"].rsplit("/", 1)[1]
+            self.folder = "2026-11-03-wipers-on-long-way-home-123456"
             return {}
         if path == "/library/sections/7/all":
             self.listings += 1
@@ -101,7 +101,7 @@ def test_deliver_copies_scans_and_builds_playlist_in_order(tmp_path):
     assert sorted(p.name for p in (dest / folder).iterdir()) == ["01.mp3", "02.mp3", "03.mp3"]
     refresh = next(c for c in plex.calls if c[1].endswith("/refresh"))
     assert refresh[1] == "/library/sections/7/refresh"
-    assert refresh[2] == {"path": f"/volume1/audio/radiobooth/{folder}"}
+    assert refresh[2] is None  # whole library: Plex ignored folder-scoped scans in practice
     method, _, params = plex.calls[-1]
     assert method == "POST" and params["type"] == "audio" and params["smart"] == 0
     assert params["uri"] == (

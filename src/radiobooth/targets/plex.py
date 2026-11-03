@@ -90,9 +90,10 @@ def deliver(client, show_dir: Path, library: str, dest_root: Path, *, wait=SCAN_
     folder = folder_name(package)
     names = copy_breaks(show_dir, package, dest_root / folder)
 
+    # Scan the whole breaks library: Plex (1.43, on a NAS) ignored a scan scoped to the new folder, and this
+    # library only holds breaks, so a full scan stays quick.
     locations = [loc["path"] for loc in section.get("Location", [])]
-    params = {"path": f"{locations[0].rstrip('/')}/{folder}"} if len(locations) == 1 else {}
-    client.get(f"/library/sections/{section['key']}/refresh", params)
+    client.get(f"/library/sections/{section['key']}/refresh")
 
     deadline, found = time.monotonic() + wait, {}
     while True:
