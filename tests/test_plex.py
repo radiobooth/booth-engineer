@@ -119,3 +119,12 @@ def test_non_json_answer_explains_the_port(monkeypatch):
     monkeypatch.setattr(plex.urllib.request, "urlopen", lambda req, timeout: Resp())
     with pytest.raises(plex.PlexError, match="32400"):
         plex.PlexClient("http://nas.local", "t").get("/library/sections")
+
+
+def test_index_can_skip_the_breaks_library():
+    two = [
+        {"key": "4", "type": "artist", "title": "Music"},
+        {"key": "7", "type": "artist", "title": "Radio Booth"},
+    ]
+    catalog, _ = plex.build_catalog(FakePlex(two), exclude="Radio Booth")
+    assert catalog["source"]["library"] == "Music"
