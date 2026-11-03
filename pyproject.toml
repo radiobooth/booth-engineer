@@ -12,7 +12,12 @@ dependencies = []
 booth = "radiobooth.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.15"]
+dev = [
+    "jsonschema>=4.23",
+    "pytest>=8",
+    "referencing>=0.35",
+    "ruff>=0.15",
+]
 
 [build-system]
 requires = ["uv_build>=0.9,<0.12"]

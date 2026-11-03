@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radiobooth.fm/protocol/0/show-package.schema.json",
+  "title": "Show package",
+  "description": "A finished show: the running order of the user's own tracks and the DJ breaks between them.",
+  "type": "object",
+  "required": ["protocol", "show_id", "request_id", "created_at", "title", "dj", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {"const": "radiobooth/show-package@0"},
+    "show_id": {"type": "string", "minLength": 1},
+    "request_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "title": {"type": "string", "minLength": 1, "description": "Playlist name, e.g. \"Rainy drive home\"."},
+    "dj": {"$ref": "show-request.schema.json#/$defs/dj"},
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Running order.",
+      "items": {"oneOf": [{"$ref": "#/$defs/track"}, {"$ref": "#/$defs/break"}]}
+    }
+  },
+  "$defs": {
+    "track": {
+      "type": "object",
+      "required": ["type", "track_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "track"},
+        "track_id": {"type": "string", "description": "A track id from the user's catalog."}
+      }
+    },
+    "break": {
+      "type": "object",
+      "required": ["type", "id", "file", "duration_ms", "sha256", "transcript"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "break"},
+        "id": {"type": "string", "minLength": 1},
+        "file": {
+          "type": "string",
+          "pattern": "^breaks/[A-Za-z0-9._-]+\\.mp3$",
+          "description": "Path of the audio inside the package."
+        },
+        "url": {"type": "string", "format": "uri", "description": "Download URL when the package is fetched from the service."},
+        "duration_ms": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "transcript": {"type": "string", "description": "What the DJ says."},
+        "sources": {
+          "type": "array",
+          "description": "Where the facts in this break were checked.",
+          "items": {
+            "type": "object",
+            "required": ["url"],
+            "additionalProperties": false,
+            "properties": {"url": {"type": "string", "format": "uri"}, "title": {"type": "string"}}
+          }
+        }
+      }
+    }
+  }
+}

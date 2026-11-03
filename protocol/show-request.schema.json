@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radiobooth.fm/protocol/0/show-request.schema.json",
+  "title": "Show request",
+  "description": "A request for one show, made from the phone page or the booth command.",
+  "type": "object",
+  "required": ["protocol", "request_id", "prompt", "target_minutes", "dj"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {"const": "radiobooth/show-request@0"},
+    "request_id": {"type": "string", "minLength": 1},
+    "prompt": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "target_minutes": {"type": "integer", "minimum": 10, "maximum": 240},
+    "dj": {"$ref": "#/$defs/dj"},
+    "station_name": {"type": "string", "maxLength": 80, "description": "The user's station name, said on air."},
+    "seed_track_ids": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Catalog track ids the user wants in the show."
+    }
+  },
+  "$defs": {
+    "dj": {
+      "type": "object",
+      "required": ["personality", "voice"],
+      "additionalProperties": false,
+      "properties": {
+        "personality": {"type": "string", "description": "Roster personality id, e.g. \"penrose\"."},
+        "voice": {"type": "string", "description": "Roster voice slot, e.g. \"A\"."},
+        "name": {"type": "string", "maxLength": 40, "description": "On-air name if the user renamed this DJ."}
+      }
+    }
+  }
+}

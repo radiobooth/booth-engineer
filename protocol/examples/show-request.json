@@ -1,0 +1,9 @@
+{
+  "protocol": "radiobooth/show-request@0",
+  "request_id": "req_01",
+  "prompt": "rainy drive home, 40 min",
+  "target_minutes": 40,
+  "dj": {"personality": "quade", "voice": "C"},
+  "station_name": "Back Porch Radio",
+  "seed_track_ids": ["51007"]
+}
