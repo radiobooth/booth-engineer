@@ -1,0 +1,30 @@
+{
+  "protocol": "radiobooth/show-package@0",
+  "show_id": "show_01",
+  "request_id": "req_01",
+  "created_at": "2026-11-03T05:02:00Z",
+  "title": "Rainy drive home",
+  "dj": {"personality": "quade", "voice": "C"},
+  "items": [
+    {
+      "type": "break",
+      "id": "b01",
+      "file": "breaks/01.mp3",
+      "duration_ms": 21000,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transcript": "This is Back Porch Radio. Wipers on. Here's L7."
+    },
+    {"type": "track", "track_id": "51007"},
+    {"type": "track", "track_id": "48211"},
+    {
+      "type": "break",
+      "id": "b02",
+      "file": "breaks/02.mp3",
+      "duration_ms": 34000,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "transcript": "The Butthole Surfers, Pepper. Number 1 on the modern rock chart in 1996.",
+      "sources": [{"url": "https://en.wikipedia.org/wiki/Pepper_(Butthole_Surfers_song)"}]
+    },
+    {"type": "track", "track_id": "60433"}
+  ]
+}

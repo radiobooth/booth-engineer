@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radiobooth.fm/protocol/0/catalog.schema.json",
+  "title": "Catalog",
+  "description": "What Booth Engineer sends about a music library: track metadata only. Never audio, never file paths.",
+  "type": "object",
+  "required": ["protocol", "generated_at", "source", "tracks"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {"const": "radiobooth/catalog@0"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "source": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["plex", "navidrome", "folder"]},
+        "library": {"type": "string", "description": "Library or section name, e.g. \"Music\"."}
+      }
+    },
+    "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}}
+  },
+  "$defs": {
+    "track": {
+      "type": "object",
+      "required": ["id", "title", "artist", "duration_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque id, unique within this catalog. Booth Engineer maps it back to the file locally."
+        },
+        "title": {"type": "string"},
+        "artist": {"type": "string"},
+        "album_artist": {"type": "string"},
+        "album": {"type": "string"},
+        "disc_number": {"type": "integer", "minimum": 1},
+        "track_number": {"type": "integer", "minimum": 1},
+        "year": {"type": "integer", "minimum": 1800, "maximum": 2200},
+        "genres": {"type": "array", "items": {"type": "string"}},
+        "duration_ms": {"type": "integer", "minimum": 1},
+        "added_at": {"type": "string", "format": "date-time", "description": "When the track joined the library."},
+        "play_count": {"type": "integer", "minimum": 0},
+        "last_played_at": {"type": "string", "format": "date-time"},
+        "rating": {"type": "number", "minimum": 0, "maximum": 1, "description": "User rating scaled to 0..1."},
+        "musicbrainz_id": {"type": "string"},
+        "sonic": {
+          "type": "object",
+          "description": "Sonic analysis if the music server has it. Shape depends on the provider.",
+          "required": ["provider"],
+          "properties": {"provider": {"type": "string"}}
+        }
+      }
+    }
+  }
+}
