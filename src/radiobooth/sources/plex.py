@@ -33,16 +33,22 @@ class PlexClient:
         self.timeout = timeout
 
     def get(self, path: str, params: dict | None = None) -> dict:
+        return self.request("GET", path, params)
+
+    def request(self, method: str, path: str, params: dict | None = None) -> dict:
         query = urllib.parse.urlencode(params or {})
         url = f"{self.base_url}{path}" + (f"?{query}" if query else "")
-        req = urllib.request.Request(url, headers={"Accept": "application/json", "X-Plex-Token": self.token})
+        headers = {"Accept": "application/json", "X-Plex-Token": self.token}
+        req = urllib.request.Request(url, method=method, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body, ctype = resp.read(), resp.headers.get("Content-Type", "")
         except urllib.error.HTTPError as e:
-            raise PlexError(f"Plex returned HTTP {e.code} for {path}") from None
+            raise PlexError(f"Plex returned HTTP {e.code} for {method} {path}") from None
         except urllib.error.URLError as e:
             raise PlexError(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
+        if not body.strip():
+            return {}
         try:
             return json.loads(body)
         except ValueError:
@@ -141,9 +147,12 @@ def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
     return tracks, skipped
 
 
-def build_catalog(client: Getter, library: str | None = None) -> tuple[dict, int]:
-    """The catalog for one music library (by name, or the only one), and the skipped-track count."""
-    sections = music_sections(client)
+def build_catalog(client: Getter, library: str | None = None, exclude: str | None = None) -> tuple[dict, int]:
+    """The catalog for one music library (by name, or the only one), and the skipped-track count.
+
+    `exclude` names a library to leave out, normally the one that holds Radio Booth's own breaks.
+    """
+    sections = [s for s in music_sections(client) if not exclude or s.get("title") != exclude]
     if library:
         sections = [s for s in sections if s.get("title") == library]
         if not sections:
