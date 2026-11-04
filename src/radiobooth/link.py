@@ -8,6 +8,7 @@ one, and the outcome of each delivery.
 from __future__ import annotations
 
 import gzip
+import http.client
 import json
 import shutil
 import tempfile
@@ -16,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from radiobooth import __version__
@@ -30,6 +31,13 @@ class LinkError(Exception):
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
+
+
+class PackageError(Exception):
+    """Booth DJ sent a show package this machine won't use (reported back as a failed delivery)."""
+
+
+GENERIC_FAILURE = "Delivery failed on this machine; details are in the booth run log there."
 
 
 class Link:
@@ -54,7 +62,7 @@ class Link:
             except ValueError:
                 message = f"HTTP {e.code}"
             raise LinkError(f"Booth DJ: {message}", e.code) from None
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+        except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
             raise LinkError(f"Could not reach Booth DJ at {self.server}: {getattr(e, 'reason', e)}") from None
 
     def post(self, path: str, data: dict) -> tuple[int, dict]:
@@ -88,15 +96,15 @@ class Link:
         """Fetch a show package from its signed URLs (no token: they're signed already)."""
         for name, url in files.items():
             rel = Path(name)
-            if rel.is_absolute() or ".." in rel.parts:
-                raise LinkError(f"Refusing package file name {name!r}.")
+            if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+                raise PackageError(f"Refusing package file name {name!r}.")
             dest = into / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp, dest.open("wb") as f:
                     shutil.copyfileobj(resp, f)
-            except (urllib.error.URLError, TimeoutError, OSError) as e:
+            except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
                 raise LinkError(f"Couldn't download {name}: {getattr(e, 'reason', e)}") from None
 
 
@@ -126,6 +134,8 @@ class Station:
     catalog: Callable[[], dict]
     deliver: Callable[[Path], str]  # show folder -> playlist title
     log: Callable[[str], None]
+    # Outcomes not yet accepted by Booth DJ, so a lost report is retried instead of delivering twice.
+    unreported: dict[str, dict] = field(default_factory=dict)
 
 
 def handle(link: Link, station: Station, item: dict) -> None:
@@ -141,19 +151,28 @@ def handle(link: Link, station: Station, item: dict) -> None:
                 raise
         station.log(f"{show_id}: sent {len(catalog['tracks'])} tracks; the DJ is on it.")
     elif action == "deliver":
-        station.log(f"{show_id}: {item.get('title')!r} is ready, delivering...")
-        with tempfile.TemporaryDirectory(prefix="booth-show-") as tmp:
-            try:
-                link.download(item["files"], Path(tmp))
-                playlist = station.deliver(Path(tmp))
-            except LinkError:
-                raise  # a network problem: try again on the next check-in
-            except Exception as e:
-                station.log(f"{show_id}: delivery failed: {e}")
-                link.report(show_id, error=str(e))
-                return
-        link.report(show_id, playlist=playlist)
-        station.log(f"{show_id}: playlist {playlist!r} is ready to play.")
+        if show_id not in station.unreported:
+            station.unreported[show_id] = deliver(link, station, item)
+        link.report(show_id, **station.unreported[show_id])  # LinkError: kept, retried next check-in
+        del station.unreported[show_id]
+
+
+def deliver(link: Link, station: Station, item: dict) -> dict:
+    """Fetch and deliver one show; returns what to report. Only network trouble raises."""
+    show_id = item["show_id"]
+    station.log(f"{show_id}: {item.get('title')!r} is ready, delivering...")
+    with tempfile.TemporaryDirectory(prefix="booth-show-") as tmp:
+        try:
+            link.download(item["files"], Path(tmp))
+            playlist = station.deliver(Path(tmp))
+        except LinkError:
+            raise  # a network problem: try again on the next check-in
+        except Exception as e:
+            # The details can name local paths or the Plex address, so they stay in the local log.
+            station.log(f"{show_id}: delivery failed: {e}")
+            return {"error": GENERIC_FAILURE}
+    station.log(f"{show_id}: playlist {playlist!r} is ready to play.")
+    return {"playlist": playlist}
 
 
 def run(link: Link, station: Station, *, once: bool = False, sleep=None) -> None:

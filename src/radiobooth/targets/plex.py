@@ -33,9 +33,12 @@ def load_package(show_dir: Path) -> dict:
     package = json.loads((show_dir / "show.json").read_text(encoding="utf-8"))
     if package.get("protocol") != "radiobooth/show-package@0":
         raise PlexError(f"{show_dir / 'show.json'} is not a radiobooth/show-package@0 file.")
+    root = show_dir.resolve()
     for item in package["items"]:
         if item["type"] == "break":
             path = show_dir / item["file"]
+            if not path.resolve().is_relative_to(root):
+                raise PlexError(f"Refusing break file {item['file']!r} outside the show folder.")
             if not path.is_file():
                 raise PlexError(f"Missing break file {path}.")
             if hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
@@ -44,8 +47,11 @@ def load_package(show_dir: Path) -> dict:
 
 
 def folder_name(package: dict) -> str:
+    """A plain folder name (letters, digits, dashes only), whatever the package says."""
     slug = re.sub(r"[^a-z0-9]+", "-", package["title"].lower()).strip("-")[:40] or "show"
-    return f"{package['created_at'][:10]}-{slug}-{package['show_id'][-6:]}"
+    date = re.sub(r"[^0-9-]", "", str(package["created_at"])[:10]) or "undated"
+    tail = re.sub(r"[^a-z0-9]", "", str(package["show_id"]).lower())[-6:] or "show"
+    return f"{date}-{slug}-{tail}"
 
 
 def section_named(client, name: str) -> dict:

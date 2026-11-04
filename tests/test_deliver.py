@@ -137,3 +137,15 @@ def test_cli_deliver_needs_settings(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("PLEX_TOKEN", "t")
     assert main(["deliver", str(tmp_path), "--library", "Radio Booth", "--dest", str(tmp_path / "nope")]) == 1
     assert "isn't a folder" in capsys.readouterr().err
+
+
+def test_package_fields_cannot_steer_paths(tmp_path):
+    package = {"title": "../../Up", "created_at": "../../evil", "show_id": "show_/../.."}
+    name = target.folder_name(package)
+    assert "/" not in name and ".." not in name
+    show = make_show(tmp_path)
+    data = json.loads((show / "show.json").read_text())
+    data["items"][0]["file"] = "../show.json"
+    (show / "show.json").write_text(json.dumps(data))
+    with pytest.raises(PlexError, match="outside the show folder"):
+        target.load_package(show)

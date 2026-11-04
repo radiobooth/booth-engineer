@@ -127,7 +127,10 @@ def pair(args: argparse.Namespace) -> int:
         return 1
 
     def show(start: dict) -> None:
-        print(f"On your phone, open {start['pair_url']} and enter this code:\n\n    {start['code']}\n")
+        print(
+            f"On your phone, open {start['pair_url']} and enter this code:\n\n    {start['code']}\n",
+            flush=True,
+        )
         print("Waiting (the code works for 10 minutes)...", file=sys.stderr)
 
     try:

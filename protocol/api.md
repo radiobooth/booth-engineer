@@ -48,7 +48,10 @@ every break against its `sha256` in [`show.json`](show-package.schema.json), and
 server. Then it reports how that went:
 
 `POST /v0/shows/{show_id}/result` with `{"ok": true, "playlist": "Playlist title"}` or
-`{"ok": false, "error": "What went wrong"}` → `204`. Booth DJ deletes its copy of the package after this.
+`{"ok": false, "error": "Delivery failed on this machine; ..."}` → `204`. The error sent is always that fixed
+sentence: the real reason can name local folders or your Plex address, so it stays in Booth Engineer's own
+log. Booth DJ deletes its copy of the package after this. If the report itself doesn't get through, Booth
+Engineer sends it again on the next check-in without delivering the show twice.
 
 ## What Booth DJ does with the rest
 

@@ -13,7 +13,7 @@ from test_deliver import make_show
 
 from radiobooth import config
 from radiobooth.cli import main
-from radiobooth.link import Link, LinkError, Station, handle, pair, run
+from radiobooth.link import GENERIC_FAILURE, Link, LinkError, PackageError, Station, handle, pair, run
 
 
 class FakeDJ:
@@ -98,12 +98,16 @@ def test_pair_waits_for_the_phone(dj):
 
 def test_pair_command_saves_private_config(dj, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "cfg" / "config.json"))
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg" / "config.tmp").write_text("old")  # a stale, readable temp file is ignored
+    os.chmod(tmp_path / "cfg" / "config.tmp", 0o644)
     monkeypatch.setattr("radiobooth.link.time.sleep", lambda s: None)
     assert main(["pair", "--server", dj.url, "--name", "linus"]) == 0
     assert "ABCD-2345" in capsys.readouterr().out
     saved = config.load()
     assert saved == {"server": dj.url, "device_token": "be_secret", "name": "linus"}
     assert stat.S_IMODE(os.stat(config.path()).st_mode) == 0o600
+    assert sorted(p.name for p in (tmp_path / "cfg").iterdir()) == ["config.json", "config.tmp"]
 
 
 def station(log, delivered=None, fail=None):
@@ -161,12 +165,51 @@ def test_failed_delivery_is_reported(dj, tmp_path):
         station(log, fail="Plex is asleep"),
         {"show_id": "show_2", "action": "deliver", "files": files},
     )
-    assert dj.results == [("show_2", {"ok": False, "error": "Plex is asleep"})]
+    # The details (which could name local paths or the Plex address) stay in the local log.
+    assert dj.results == [("show_2", {"ok": False, "error": GENERIC_FAILURE})]
+    assert any("Plex is asleep" in line for line in log)
 
 
-def test_package_names_cannot_escape_the_folder(tmp_path):
-    with pytest.raises(LinkError, match="Refusing"):
+def test_package_names_cannot_escape_the_folder(dj, tmp_path):
+    with pytest.raises(PackageError, match="Refusing"):
         Link("http://dj.test").download({"../evil": "http://dj.test/x"}, tmp_path)
+    # In a check-in it counts as a failed delivery, reported once, and the next show still runs.
+    log, delivered = [], []
+    dj.queue = [
+        [
+            {"show_id": "bad", "action": "deliver", "files": {"../evil": f"{dj.url}/files/x"}},
+            {"show_id": "next", "action": "send_catalog", "catalog_url": "/v0/shows/next/catalog"},
+        ]
+    ]
+    run(Link(dj.url, "be_secret"), station(log, delivered), once=True)
+    assert dj.results == [("bad", {"ok": False, "error": GENERIC_FAILURE})] and len(dj.catalogs) == 1
+
+
+def test_lost_report_is_retried_without_delivering_again(dj, tmp_path, monkeypatch):
+    files = serve_show(dj, tmp_path)
+    item = {"show_id": "show_3", "status": "ready", "action": "deliver", "title": "W", "files": files}
+    dj.queue = [[item], [item]]
+    log, delivered = [], []
+    st, link = station(log, delivered), Link(dj.url, "be_secret")
+    real = link.report
+    monkeypatch.setattr(link, "report", lambda *a, **k: (_ for _ in ()).throw(LinkError("network down")))
+    run(link, st, once=True)
+    assert delivered and st.unreported == {"show_3": {"playlist": "Wipers On, Long Way Home"}}
+    monkeypatch.setattr(link, "report", real)
+    run(link, st, once=True)
+    assert len(delivered) == 1 and st.unreported == {}
+    assert dj.results == [("show_3", {"ok": True, "playlist": "Wipers On, Long Way Home"})]
+
+
+def test_truncated_response_backs_off(monkeypatch):
+    import http.client
+
+    def boom(*a, **k):
+        raise http.client.IncompleteRead(b"{", 10)
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    with pytest.raises(LinkError, match="Could not reach"):
+        Link("http://dj.test", "t").checkin()
 
 
 def test_run_backs_off_when_unreachable_and_stops_when_unpaired(dj):
