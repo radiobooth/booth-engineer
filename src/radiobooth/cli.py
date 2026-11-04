@@ -31,7 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help_text, description=help_text)
         if name == "index":
             p.add_argument("-o", "--output", default="catalog.json", help="where to write the catalog")
-            p.add_argument("--library", help="Plex music library name, if the server has more than one")
+            p.add_argument(
+                "--library",
+                default=os.environ.get("BOOTH_MUSIC_LIBRARY") or None,
+                help="Plex music library, if the server has more than one (default $BOOTH_MUSIC_LIBRARY)",
+            )
         if name == "deliver":
             p.add_argument("show", help="show folder from Booth DJ (with show.json and breaks/)")
             p.add_argument("--library", help="Plex library for breaks (default $BOOTH_BREAKS_LIBRARY)")
@@ -42,7 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER)")
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
         if name == "run":
-            p.add_argument("--library", help="Plex music library name, if the server has more than one")
+            p.add_argument(
+                "--library",
+                default=os.environ.get("BOOTH_MUSIC_LIBRARY") or None,
+                help="Plex music library, if the server has more than one (default $BOOTH_MUSIC_LIBRARY)",
+            )
             p.add_argument("--once", action="store_true", help="check in once and exit")
     return parser
 

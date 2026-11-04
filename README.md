@@ -17,6 +17,7 @@ library's folder reachable from where Booth Engineer runs.
 
 ```sh
 export PLEX_URL=http://your-server:32400 PLEX_TOKEN=...      # your Plex server
+export BOOTH_MUSIC_LIBRARY="Music"                             # if Plex has more than one music library
 export BOOTH_BREAKS_LIBRARY="Radio Booth"                      # the Plex library for breaks
 export BOOTH_BREAKS_DIR=/path/to/that/library/folder           # the same folder, as seen from here
 
