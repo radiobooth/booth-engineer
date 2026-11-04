@@ -370,3 +370,14 @@ def test_local_disk_trouble_fails_the_delivery_not_the_checkin(dj, tmp_path, mon
     run(Link(dj.url, "be_secret"), station(log, []), once=True)
     assert dj.results == [("full", {"ok": False, "error": GENERIC_FAILURE})] and len(dj.catalogs) == 1
     assert any("No space left" in line for line in log)
+
+
+def test_music_library_comes_from_the_environment(monkeypatch):
+    from radiobooth.cli import build_parser
+
+    monkeypatch.setenv("BOOTH_MUSIC_LIBRARY", "Music")
+    assert build_parser().parse_args(["run"]).library == "Music"
+    assert build_parser().parse_args(["index"]).library == "Music"
+    assert build_parser().parse_args(["run", "--library", "Other"]).library == "Other"
+    monkeypatch.delenv("BOOTH_MUSIC_LIBRARY")
+    assert build_parser().parse_args(["run"]).library is None
