@@ -21,7 +21,7 @@ export BOOTH_MUSIC_LIBRARY="Music"                             # if Plex has mor
 export BOOTH_BREAKS_LIBRARY="Radio Booth"                      # the Plex library for breaks
 export BOOTH_BREAKS_DIR=/path/to/that/library/folder           # the same folder, as seen from here
 
-booth pair --server https://...   # shows a code to enter on your phone, once
+booth pair --server https://...   # once: asks for the code from the Booth page on your phone
 booth run                         # stays connected; leave it running
 ```
 

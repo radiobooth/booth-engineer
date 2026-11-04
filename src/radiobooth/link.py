@@ -102,13 +102,13 @@ class Link:
 
     # Pairing
 
-    def start_pairing(self, name: str) -> dict:
-        return self.post("/v0/pair/start", {"name": name})[1]
-
-    def claim(self, poll_token: str) -> str | None:
-        """The device token once the code is confirmed on the phone; None while waiting."""
-        status, data = self.post("/v0/pair/claim", {"poll_token": poll_token})
-        return data["device_token"] if status == 200 else None
+    def redeem(self, code: str, name: str) -> str:
+        """Trade a pairing code from the phone for this machine's device token."""
+        _, data = self.post("/v0/pair", {"code": code, "name": name})
+        token = data.get("device_token")
+        if not isinstance(token, str) or not token:
+            raise LinkError("Booth DJ accepted the code but sent no device token.")
+        return token
 
     # Shows
 
@@ -161,25 +161,6 @@ class Link:
                         f.write(chunk)
                 if expected is not None and f.tell() != int(expected):
                     raise LinkError(f"Download of {name} was cut short; will try again.")
-
-
-def pair(link: Link, name: str, *, show: Callable[[dict], None], sleep=None, poll_s: float = 3) -> str:
-    """Start pairing, show the code, wait until it's confirmed on the phone; returns the device token."""
-    sleep = sleep or time.sleep
-    start = link.start_pairing(name)
-    show(start)
-    deadline = time.monotonic() + start.get("expires_in", 600)
-    while time.monotonic() < deadline:
-        sleep(poll_s)
-        try:
-            if token := link.claim(start["poll_token"]):
-                return token
-        except LinkError as e:
-            if e.status == 410:
-                break
-            if e.status is not None:
-                raise
-    raise LinkError("The pairing code expired before it was entered. Run `booth pair` again.")
 
 
 @dataclass
