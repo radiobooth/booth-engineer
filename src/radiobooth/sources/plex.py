@@ -160,7 +160,8 @@ def build_catalog(client: Getter, library: str | None = None, exclude: str | Non
     elif len(sections) > 1:
         names = ", ".join(repr(s.get("title")) for s in sections)
         raise PlexError(
-            f"This Plex server has several music libraries ({names}); pick one with --library or $BOOTH_MUSIC_LIBRARY."
+            f"This Plex server has several music libraries ({names}); "
+            "pick one with --library or $BOOTH_MUSIC_LIBRARY."
         )
     elif not sections:
         raise PlexError("This Plex server has no music library.")
