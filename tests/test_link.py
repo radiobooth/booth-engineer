@@ -342,3 +342,31 @@ def test_odd_checkin_replies_are_retryable(reply, monkeypatch):
 def test_checkin_wait_is_sane(wait, expect, monkeypatch):
     monkeypatch.setattr(Link, "post", lambda self, path, data: (200, {"next_checkin_s": wait}))
     assert Link("https://dj.test", "t").checkin()["next_checkin_s"] == expect
+
+
+@pytest.mark.parametrize("url", ["http://storage.example.com/show.json", "file:///etc/passwd", None])
+def test_package_downloads_need_https(url, dj, tmp_path):
+    with pytest.raises(PackageError, match="insecure"):
+        Link(dj.url).download({"show.json": url}, tmp_path)
+
+
+def test_local_disk_trouble_fails_the_delivery_not_the_checkin(dj, tmp_path, monkeypatch):
+    files = serve_show(dj, tmp_path / "src")
+    dj.queue = [
+        [
+            {"show_id": "full", "action": "deliver", "files": files},
+            {"show_id": "next", "action": "send_catalog", "catalog_url": "/v0/shows/next/catalog"},
+        ]
+    ]
+    real_open = Path.open
+
+    def full_disk(self, mode="r", *a, **k):
+        if "w" in mode and "booth-show-" in str(self):
+            raise OSError(28, "No space left on device")
+        return real_open(self, mode, *a, **k)
+
+    monkeypatch.setattr(Path, "open", full_disk)
+    log = []
+    run(Link(dj.url, "be_secret"), station(log, []), once=True)
+    assert dj.results == [("full", {"ok": False, "error": GENERIC_FAILURE})] and len(dj.catalogs) == 1
+    assert any("No space left" in line for line in log)

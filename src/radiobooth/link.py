@@ -10,7 +10,6 @@ from __future__ import annotations
 import gzip
 import http.client
 import json
-import shutil
 import tempfile
 import time
 import urllib.error
@@ -50,12 +49,17 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 _api = urllib.request.build_opener(_NoRedirects)
 
 
+def secure_url(url: str) -> bool:
+    """https anywhere, or http to this machine (local development)."""
+    parts = urllib.parse.urlsplit(url)
+    local = parts.hostname in ("localhost", "127.0.0.1", "::1")
+    return bool(parts.hostname) and (parts.scheme == "https" or (parts.scheme == "http" and local))
+
+
 class Link:
     def __init__(self, server: str, token: str | None = None, timeout: float = 60):
-        url = urllib.parse.urlsplit(server)
         # The device token rides on every call, so plain http is only for a DJ on this machine.
-        local = url.hostname in ("localhost", "127.0.0.1", "::1")
-        if not url.hostname or url.scheme not in ("https", "http") or (url.scheme == "http" and not local):
+        if not secure_url(server):
             raise LinkError(f"Booth DJ's address must start with https:// (got {server!r}).")
         self.server = server.rstrip("/")
         self.token = token
@@ -132,17 +136,31 @@ class Link:
             rel = Path(name)
             if rel.is_absolute() or ".." in rel.parts or not rel.parts:
                 raise PackageError(f"Refusing package file name {name!r}.")
+            if not isinstance(url, str) or not secure_url(url):
+                # show.json says which breaks to trust, so it must not be swappable on the way here.
+                raise PackageError(f"Refusing to download {name} over an insecure link.")
             dest = into / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp, dest.open("wb") as f:
-                    shutil.copyfileobj(resp, f)
+            network = (urllib.error.URLError, http.client.HTTPException, OSError)
+            # Network trouble is a LinkError (retried); a local OSError (disk full...) fails the delivery.
+            with dest.open("wb") as f:
+                try:
+                    resp = urllib.request.urlopen(req, timeout=self.timeout)
+                except network as e:
+                    raise LinkError(f"Couldn't download {name}: {getattr(e, 'reason', e)}") from None
+                with resp:
                     expected = resp.headers.get("Content-Length")
-                    if expected is not None and f.tell() != int(expected):
-                        raise LinkError(f"Download of {name} was cut short; will try again.")
-            except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
-                raise LinkError(f"Couldn't download {name}: {getattr(e, 'reason', e)}") from None
+                    while True:
+                        try:
+                            chunk = resp.read(1 << 16)
+                        except network as e:
+                            raise LinkError(f"Couldn't download {name}: {e}") from None
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                if expected is not None and f.tell() != int(expected):
+                    raise LinkError(f"Download of {name} was cut short; will try again.")
 
 
 def pair(link: Link, name: str, *, show: Callable[[dict], None], sleep=None, poll_s: float = 3) -> str:
