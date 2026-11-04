@@ -94,6 +94,8 @@ def deliver(client, show_dir: Path, library: str, dest_root: Path, *, wait=SCAN_
     package = load_package(show_dir)
     section = section_named(client, library)
     folder = folder_name(package)
+    if not (dest_root / folder).resolve().is_relative_to(dest_root.resolve()):
+        raise PlexError(f"Refusing to write outside {dest_root}.")
     names = copy_breaks(show_dir, package, dest_root / folder)
 
     # Scan the whole breaks library: Plex (1.43, on a NAS) ignored a scan scoped to the new folder, and this

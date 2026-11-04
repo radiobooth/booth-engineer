@@ -174,7 +174,8 @@ def run(args: argparse.Namespace) -> int:
     try:
         run_link(Link(settings["server"], settings["device_token"]), station, once=args.once)
     except LinkError as e:
-        print(f"booth run: {e}", file=sys.stderr)
+        hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
+        print(f"booth run: {e}.{hint}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 0

@@ -207,9 +207,78 @@ def test_truncated_response_backs_off(monkeypatch):
     def boom(*a, **k):
         raise http.client.IncompleteRead(b"{", 10)
 
-    monkeypatch.setattr("urllib.request.urlopen", boom)
+    monkeypatch.setattr("radiobooth.link._api.open", boom)
     with pytest.raises(LinkError, match="Could not reach"):
         Link("http://dj.test", "t").checkin()
+
+
+@pytest.mark.parametrize("url", ["http://evil.test/collect", "//evil.test/collect", "evil"])
+def test_token_and_catalog_only_go_to_the_paired_server(url, monkeypatch):
+    monkeypatch.setattr("radiobooth.link._api.open", lambda *a, **k: pytest.fail("sent somewhere"))
+    with pytest.raises(LinkError, match="Refusing"):
+        Link("http://dj.test", "be_secret").send_catalog(url, {"tracks": []})
+
+
+def test_api_calls_do_not_follow_redirects(dj):
+    class Redirect(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.send_response(307)
+            self.send_header("Location", f"{dj.url}/v0/checkin")
+            self.end_headers()
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(LinkError) as e:
+            Link(f"http://127.0.0.1:{srv.server_port}", "be_secret").checkin()
+        assert e.value.status == 307 and not [c for c in dj.calls if c[1] == "/v0/checkin"]
+    finally:
+        srv.shutdown()
+
+
+@pytest.mark.parametrize("body", [b'{"next_checkin_s": 1', b"[1, 2]"])
+def test_malformed_replies_are_retryable(body, monkeypatch):
+    import io
+
+    class Resp(io.BytesIO):
+        status = 200
+
+    monkeypatch.setattr("radiobooth.link._api.open", lambda *a, **k: Resp(body))
+    with pytest.raises(LinkError):
+        Link("http://dj.test", "t").checkin()
+
+
+def test_short_download_is_retryable(dj, tmp_path):
+    class Short(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "100")
+            self.end_headers()
+            self.wfile.write(b"only ten b")
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Short)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(LinkError):
+            Link(dj.url).download({"show.json": f"http://127.0.0.1:{srv.server_port}/x"}, tmp_path)
+    finally:
+        srv.shutdown()
+
+
+def test_run_explains_how_to_fix_an_unknown_engineer(dj, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    config.save({"server": dj.url, "device_token": "be_wrong"})
+    for k, v in {"PLEX_URL": "http://plex", "PLEX_TOKEN": "t", "BOOTH_BREAKS_LIBRARY": "RB"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("BOOTH_BREAKS_DIR", str(tmp_path))
+    assert main(["run", "--once"]) == 1
+    assert "booth pair" in capsys.readouterr().err
 
 
 def test_run_backs_off_when_unreachable_and_stops_when_unpaired(dj):

@@ -40,6 +40,16 @@ class PackageError(Exception):
 GENERIC_FAILURE = "Delivery failed on this machine; details are in the booth run log there."
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """API calls carry the device token, so they never follow a redirect anywhere."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_api = urllib.request.build_opener(_NoRedirects)
+
+
 class Link:
     def __init__(self, server: str, token: str | None = None, timeout: float = 60):
         self.server = server.rstrip("/")
@@ -47,15 +57,17 @@ class Link:
         self.timeout = timeout
 
     def _call(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None):
-        url = path if path.startswith("http") else f"{self.server}{path}"
+        # Only paths on the paired server: a URL from a reply must never carry the token elsewhere.
+        if not path.startswith("/") or path.startswith("//"):
+            raise LinkError(f"Refusing to send to {path!r}: not a path on {self.server}.")
+        url = f"{self.server}{path}"
         h = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
         req = urllib.request.Request(url, data=body, method=method, headers=h)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read()
-                return resp.status, (json.loads(raw) if raw.strip() else {})
+            with _api.open(req, timeout=self.timeout) as resp:
+                status, raw = resp.status, resp.read()
         except urllib.error.HTTPError as e:
             try:
                 message = json.loads(e.read()).get("error") or f"HTTP {e.code}"
@@ -64,6 +76,13 @@ class Link:
             raise LinkError(f"Booth DJ: {message}", e.code) from None
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
             raise LinkError(f"Could not reach Booth DJ at {self.server}: {getattr(e, 'reason', e)}") from None
+        try:
+            data = json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            raise LinkError("Booth DJ sent a reply that isn't JSON (cut short?).") from None
+        if not isinstance(data, dict):
+            raise LinkError("Booth DJ sent an unexpected reply.")
+        return status, data
 
     def post(self, path: str, data: dict) -> tuple[int, dict]:
         body = json.dumps(data).encode()
@@ -104,6 +123,9 @@ class Link:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp, dest.open("wb") as f:
                     shutil.copyfileobj(resp, f)
+                    expected = resp.headers.get("Content-Length")
+                    if expected is not None and f.tell() != int(expected):
+                        raise LinkError(f"Download of {name} was cut short; will try again.")
             except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
                 raise LinkError(f"Couldn't download {name}: {getattr(e, 'reason', e)}") from None
 
