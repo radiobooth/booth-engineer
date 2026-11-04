@@ -290,3 +290,26 @@ def test_run_backs_off_when_unreachable_and_stops_when_unpaired(dj):
     with pytest.raises(LinkError) as e:
         run(Link(dj.url, "be_wrong"), station(log), once=True)
     assert e.value.status == 401
+
+
+@pytest.mark.parametrize("body", [b"[]", b'{"error": 5}', b"not json", "truncated"])
+def test_odd_error_bodies_keep_the_status(body, monkeypatch):
+    import http.client
+    import io
+    import urllib.error
+
+    class Body(io.BytesIO):
+        def read(self, *a):
+            if body == "truncated":
+                raise http.client.IncompleteRead(b"{")
+            return super().read(*a)
+
+    def fail(req, timeout):
+        raise urllib.error.HTTPError(
+            req.full_url, 503, "busy", {}, Body(b"" if body == "truncated" else body)
+        )
+
+    monkeypatch.setattr("radiobooth.link._api.open", fail)
+    with pytest.raises(LinkError) as e:
+        Link("http://dj.test", "t").checkin()
+    assert e.value.status == 503 and "HTTP 503" in str(e.value)

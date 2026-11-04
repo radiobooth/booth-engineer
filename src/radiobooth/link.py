@@ -69,10 +69,13 @@ class Link:
             with _api.open(req, timeout=self.timeout) as resp:
                 status, raw = resp.status, resp.read()
         except urllib.error.HTTPError as e:
-            try:
-                message = json.loads(e.read()).get("error") or f"HTTP {e.code}"
-            except ValueError:
-                message = f"HTTP {e.code}"
+            message = f"HTTP {e.code}"
+            try:  # the DJ's own message if it sent one; any odd or cut-short body keeps the status
+                body = json.loads(e.read())
+                if isinstance(body, dict) and isinstance(body.get("error"), str) and body["error"]:
+                    message = body["error"]
+            except (ValueError, http.client.HTTPException, OSError):
+                pass
             raise LinkError(f"Booth DJ: {message}", e.code) from None
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
             raise LinkError(f"Could not reach Booth DJ at {self.server}: {getattr(e, 'reason', e)}") from None
