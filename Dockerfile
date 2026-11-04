@@ -6,3 +6,7 @@ COPY src ./src
 RUN uv sync --locked --no-dev
 ENV PATH="/app/.venv/bin:$PATH"
 ENTRYPOINT ["booth"]
+# Pairing settings live here; mount a volume so they survive restarts.
+ENV BOOTH_CONFIG=/config/config.json
+VOLUME /config
+CMD ["run"]

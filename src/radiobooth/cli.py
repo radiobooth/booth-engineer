@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -16,7 +18,9 @@ COMMANDS = {
     "deliver": "Put a finished show's breaks where your music server sees them and build the playlist.",
     "pair": "Connect this machine to your Radio Booth account with a pairing code.",
 }
-UNBUILT = {"pair"}
+COMMANDS["run"] = (
+    "Stay connected to Booth DJ: send the catalog when you ask for a show, deliver it when ready."
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument(
                 "--dest", help="that library's folder as seen from here (default $BOOTH_BREAKS_DIR)"
             )
+        if name == "pair":
+            p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER)")
+            p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
+        if name == "run":
+            p.add_argument("--library", help="Plex music library name, if the server has more than one")
+            p.add_argument("--once", action="store_true", help="check in once and exit")
     return parser
 
 
@@ -69,24 +79,30 @@ def index(args: argparse.Namespace) -> int:
     return 0
 
 
+def delivery_settings(command: str, library: str | None, dest: str | None):
+    """(PLEX_URL, PLEX_TOKEN, breaks library, breaks folder), or None after explaining what's missing."""
+    url, token = os.environ.get("PLEX_URL"), os.environ.get("PLEX_TOKEN")
+    library = library or os.environ.get("BOOTH_BREAKS_LIBRARY")
+    dest = dest or os.environ.get("BOOTH_BREAKS_DIR")
+    pairs = [("PLEX_URL", url), ("PLEX_TOKEN", token), ("BOOTH_BREAKS_LIBRARY", library)]
+    missing = [n for n, v in [*pairs, ("BOOTH_BREAKS_DIR", dest)] if not v]
+    if missing:
+        print(f"booth {command}: missing {', '.join(missing)}.", file=sys.stderr)
+        return None
+    if not Path(dest).is_dir():
+        print(f"booth {command}: {dest} isn't a folder here (is the share mounted?).", file=sys.stderr)
+        return None
+    return url, token, library, dest
+
+
 def deliver(args: argparse.Namespace) -> int:
     from radiobooth.sources.plex import PlexClient, PlexError
     from radiobooth.targets.plex import deliver as deliver_to_plex
 
-    url, token = os.environ.get("PLEX_URL"), os.environ.get("PLEX_TOKEN")
-    library = args.library or os.environ.get("BOOTH_BREAKS_LIBRARY")
-    dest = args.dest or os.environ.get("BOOTH_BREAKS_DIR")
-    missing = [
-        n
-        for n, v in [("PLEX_URL", url), ("PLEX_TOKEN", token), ("--library", library), ("--dest", dest)]
-        if not v
-    ]
-    if missing:
-        print(f"booth deliver: missing {', '.join(missing)}.", file=sys.stderr)
+    settings = delivery_settings("deliver", args.library, args.dest)
+    if settings is None:
         return 1
-    if not Path(dest).is_dir():
-        print(f"booth deliver: {dest} isn't a folder here (is the share mounted?).", file=sys.stderr)
-        return 1
+    url, token, library, dest = settings
     try:
         result = deliver_to_plex(PlexClient(url, token), Path(args.show), library, Path(dest))
     except PlexError as e:
@@ -100,6 +116,72 @@ def deliver(args: argparse.Namespace) -> int:
     return 0
 
 
+def pair(args: argparse.Namespace) -> int:
+    from radiobooth import config
+    from radiobooth.link import Link, LinkError
+    from radiobooth.link import pair as pair_with
+
+    server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server")
+    if not server:
+        print("booth pair: say which Booth DJ to pair with: --server URL or $BOOTH_SERVER.", file=sys.stderr)
+        return 1
+
+    def show(start: dict) -> None:
+        print(
+            f"On your phone, open {start['pair_url']} and enter this code:\n\n    {start['code']}\n",
+            flush=True,
+        )
+        print("Waiting (the code works for 10 minutes)...", file=sys.stderr)
+
+    try:
+        token = pair_with(Link(server), args.name, show=show)
+    except LinkError as e:
+        print(f"booth pair: {e}", file=sys.stderr)
+        return 1
+    saved = config.save({**config.load(), "server": server, "device_token": token, "name": args.name})
+    print(f"Paired as {args.name!r}. Settings saved in {saved}. Next: booth run", file=sys.stderr)
+    return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    from radiobooth import config
+    from radiobooth.link import Link, LinkError, Station
+    from radiobooth.link import run as run_link
+    from radiobooth.sources.plex import PlexClient, build_catalog
+    from radiobooth.targets.plex import deliver as deliver_to_plex
+
+    settings = config.load()
+    if not settings.get("device_token"):
+        print("booth run: not paired yet. Run `booth pair` first.", file=sys.stderr)
+        return 1
+    plex_settings = delivery_settings("run", None, None)
+    if plex_settings is None:
+        return 1
+    url, token, library, dest = plex_settings
+    plex = PlexClient(url, token)
+
+    def catalog() -> dict:
+        return build_catalog(plex, args.library, exclude=library)[0]
+
+    def deliver_show(show_dir: Path) -> str:
+        return deliver_to_plex(plex, show_dir, library, Path(dest)).title
+
+    def log(msg: str) -> None:
+        print(f"{time.strftime('%H:%M:%S')} {msg}", file=sys.stderr, flush=True)
+
+    station = Station(catalog=catalog, deliver=deliver_show, log=log)
+    log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
+    try:
+        run_link(Link(settings["server"], settings["device_token"]), station, once=args.once)
+    except LinkError as e:
+        hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
+        print(f"booth run: {e}.{hint}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 0
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -108,10 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "index":
         return index(args)
-    if args.command == "deliver":
-        return deliver(args)
-    print(f"booth {args.command}: not built yet.", file=sys.stderr)
-    return 2
+    return {"deliver": deliver, "pair": pair, "run": run}[args.command](args)
 
 
 if __name__ == "__main__":
