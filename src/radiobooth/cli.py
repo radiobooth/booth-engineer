@@ -43,6 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
                 "--dest", help="that library's folder as seen from here (default $BOOTH_BREAKS_DIR)"
             )
         if name == "pair":
+            p.add_argument(
+                "code", nargs="?", help="the code from the Booth page on your phone (asked for if left out)"
+            )
             p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER)")
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
         if name == "run":
@@ -127,22 +130,29 @@ def deliver(args: argparse.Namespace) -> int:
 def pair(args: argparse.Namespace) -> int:
     from radiobooth import config
     from radiobooth.link import Link, LinkError
-    from radiobooth.link import pair as pair_with
 
     server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server")
     if not server:
         print("booth pair: say which Booth DJ to pair with: --server URL or $BOOTH_SERVER.", file=sys.stderr)
         return 1
-
-    def show(start: dict) -> None:
-        print(
-            f"On your phone, open {start['pair_url']} and enter this code:\n\n    {start['code']}\n",
-            flush=True,
-        )
-        print("Waiting (the code works for 10 minutes)...", file=sys.stderr)
-
     try:
-        token = pair_with(Link(server), args.name, show=show)
+        link = Link(server)
+    except LinkError as e:
+        print(f"booth pair: {e}", file=sys.stderr)
+        return 1
+    code = args.code
+    if not code:
+        print(f"On your phone, open {link.server}/ and tap Get a pairing code.", file=sys.stderr)
+        try:
+            code = input("Pairing code: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nbooth pair: no code entered.", file=sys.stderr)
+            return 1
+    if not code.strip():
+        print("booth pair: no code entered.", file=sys.stderr)
+        return 1
+    try:
+        token = link.redeem(code.strip(), args.name)
     except LinkError as e:
         print(f"booth pair: {e}", file=sys.stderr)
         return 1

@@ -13,14 +13,14 @@ from test_deliver import make_show
 
 from radiobooth import config
 from radiobooth.cli import main
-from radiobooth.link import GENERIC_FAILURE, Link, LinkError, PackageError, Station, handle, pair, run
+from radiobooth.link import GENERIC_FAILURE, Link, LinkError, PackageError, Station, handle, run
 
 
 class FakeDJ:
     """Answers like Booth DJ and records what it was sent."""
 
     def __init__(self):
-        self.calls, self.claims_until_paired, self.queue = [], 2, []
+        self.calls, self.queue, self.pairs = [], [], []
         self.catalogs, self.results, self.files = [], [], {}
         dj = self
 
@@ -46,21 +46,11 @@ class FakeDJ:
             def do_POST(self):
                 data = json.loads(self.body() or b"{}")
                 dj.calls.append(("POST", self.path, self.headers.get("Authorization")))
-                if self.path == "/v0/pair/start":
-                    return self.reply(
-                        200,
-                        {
-                            "code": "ABCD-2345",
-                            "poll_token": "bp_x",
-                            "expires_in": 600,
-                            "pair_url": "http://dj.test/",
-                        },
-                    )
-                if self.path == "/v0/pair/claim":
-                    dj.claims_until_paired -= 1
-                    if dj.claims_until_paired > 0:
-                        return self.reply(202, {"status": "waiting"})
-                    return self.reply(200, {"device_token": "be_secret"})
+                if self.path == "/v0/pair":
+                    dj.pairs.append(data)
+                    if data.get("code") != "ABCD-2345":
+                        return self.reply(404, {"error": "That code didn't work."})
+                    return self.reply(200, {"device_token": "be_secret", "name": data["name"]})
                 if self.path == "/v0/checkin":
                     if self.headers.get("Authorization") != "Bearer be_secret":
                         return self.reply(401, {"error": "Unknown Booth Engineer"})
@@ -89,25 +79,45 @@ def dj():
     d.server.shutdown()
 
 
-def test_pair_waits_for_the_phone(dj):
-    shown = []
-    token = pair(Link(dj.url), "linus", show=shown.append, sleep=lambda s: None)
-    assert token == "be_secret" and shown[0]["code"] == "ABCD-2345"
-    assert [c[1] for c in dj.calls] == ["/v0/pair/start", "/v0/pair/claim", "/v0/pair/claim"]
+def test_redeem_trades_the_code_for_a_token(dj):
+    assert Link(dj.url).redeem("ABCD-2345", "linus") == "be_secret"
+    assert dj.pairs == [{"code": "ABCD-2345", "name": "linus"}] and dj.calls[0][2] is None
+    with pytest.raises(LinkError, match="didn't work") as exc:
+        Link(dj.url).redeem("WXYZ-2345", "linus")
+    assert exc.value.status == 404
 
 
-def test_pair_command_saves_private_config(dj, tmp_path, monkeypatch, capsys):
+@pytest.fixture
+def cfg(tmp_path, monkeypatch):
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "cfg" / "config.json"))
     (tmp_path / "cfg").mkdir()
-    (tmp_path / "cfg" / "config.tmp").write_text("old")  # a stale, readable temp file is ignored
-    os.chmod(tmp_path / "cfg" / "config.tmp", 0o644)
-    monkeypatch.setattr("radiobooth.link.time.sleep", lambda s: None)
-    assert main(["pair", "--server", dj.url, "--name", "linus"]) == 0
-    assert "ABCD-2345" in capsys.readouterr().out
+    return tmp_path / "cfg"
+
+
+def test_pair_command_saves_private_config(dj, cfg):
+    (cfg / "config.tmp").write_text("old")  # a stale, readable temp file is ignored
+    os.chmod(cfg / "config.tmp", 0o644)
+    assert main(["pair", "ABCD-2345", "--server", dj.url, "--name", "linus"]) == 0
     saved = config.load()
     assert saved == {"server": dj.url, "device_token": "be_secret", "name": "linus"}
     assert stat.S_IMODE(os.stat(config.path()).st_mode) == 0o600
-    assert sorted(p.name for p in (tmp_path / "cfg").iterdir()) == ["config.json", "config.tmp"]
+    assert sorted(p.name for p in cfg.iterdir()) == ["config.json", "config.tmp"]
+
+
+def test_pair_command_asks_for_the_code(dj, cfg, monkeypatch, capsys):
+    monkeypatch.setattr("builtins.input", lambda prompt: " abcd-2345 ".upper())
+    assert main(["pair", "--server", dj.url, "--name", "linus"]) == 0
+    assert f"open {dj.url}/" in capsys.readouterr().err
+    assert config.load()["device_token"] == "be_secret"
+
+
+def test_pair_command_with_a_bad_or_missing_code(dj, cfg, monkeypatch, capsys):
+    assert main(["pair", "WXYZ-2345", "--server", dj.url]) == 1
+    assert "didn't work" in capsys.readouterr().err
+    monkeypatch.setattr("builtins.input", lambda prompt: (_ for _ in ()).throw(EOFError))
+    assert main(["pair", "--server", dj.url]) == 1
+    assert "no code" in capsys.readouterr().err
+    assert config.load() == {}
 
 
 def station(log, delivered=None, fail=None):

@@ -10,12 +10,16 @@ HTTP status.
 
 ## Pairing
 
-1. `POST /v0/pair/start` `{"name": "linus"}` (what to call this machine; it defaults to the host name)
-   → `{"code": "ABCD-2345", "poll_token": "...", "expires_in": 600, "pair_url": "https://..."}`.
-   Booth Engineer shows the code; you enter it on the Booth page on your phone.
-2. `POST /v0/pair/claim` `{"poll_token": "..."}`, every few seconds:
-   `202 {"status": "waiting"}` until you've entered the code, then `200 {"device_token": "..."}` once,
-   or `410` when the code expired.
+Pairing starts on your phone, where you're signed in. The Booth page gives you a code (`ABCD-2345`) that
+works once, for 10 minutes; asking for a new one cancels the old one. You type it into `booth pair`, which
+trades it for this machine's device token:
+
+`POST /v0/pair` `{"code": "ABCD-2345", "name": "linus"}` (`name` is what to call this machine; it defaults
+to the host name) → `200 {"device_token": "...", "name": "linus"}`, or `404` when the code is wrong, used or
+expired.
+
+This is the only call made without a token. It creates nothing unless the code is right, so nobody can
+block pairing for others by sending made-up requests.
 
 ## Check-in
 
