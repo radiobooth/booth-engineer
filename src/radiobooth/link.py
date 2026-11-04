@@ -52,6 +52,11 @@ _api = urllib.request.build_opener(_NoRedirects)
 
 class Link:
     def __init__(self, server: str, token: str | None = None, timeout: float = 60):
+        url = urllib.parse.urlsplit(server)
+        # The device token rides on every call, so plain http is only for a DJ on this machine.
+        local = url.hostname in ("localhost", "127.0.0.1", "::1")
+        if not url.hostname or url.scheme not in ("https", "http") or (url.scheme == "http" and not local):
+            raise LinkError(f"Booth DJ's address must start with https:// (got {server!r}).")
         self.server = server.rstrip("/")
         self.token = token
         self.timeout = timeout
@@ -104,7 +109,14 @@ class Link:
     # Shows
 
     def checkin(self) -> dict:
-        return self.post("/v0/checkin", {"version": __version__})[1]
+        """{"next_checkin_s": 5..3600, "shows": [entries with a show_id]}; anything else is a LinkError."""
+        reply = self.post("/v0/checkin", {"version": __version__})[1]
+        shows, wait = reply.get("shows", []), reply.get("next_checkin_s", 60)
+        if not isinstance(shows, list) or not all(isinstance(s, dict) and s.get("show_id") for s in shows):
+            raise LinkError("Booth DJ sent a check-in reply this version doesn't understand.")
+        if isinstance(wait, bool) or not isinstance(wait, int | float) or wait != wait:
+            wait = 60
+        return {**reply, "shows": shows, "next_checkin_s": min(max(float(wait), 5.0), 3600.0)}
 
     def send_catalog(self, url: str, catalog: dict) -> None:
         body = gzip.compress(json.dumps(catalog, ensure_ascii=False).encode())
@@ -206,14 +218,14 @@ def run(link: Link, station: Station, *, once: bool = False, sleep=None) -> None
     while True:
         try:
             reply = link.checkin()
-            for item in reply.get("shows", []):
+            for item in reply["shows"]:
                 try:
                     handle(link, station, item)
                 except LinkError:
                     raise
                 except Exception as e:  # e.g. Plex unreachable while reading the library
                     station.log(f"{item['show_id']}: {e}")
-            wait, backoff = float(reply.get("next_checkin_s", 60)), 0.0
+            wait, backoff = reply["next_checkin_s"], 0.0
         except LinkError as e:
             if e.status == 401:
                 raise

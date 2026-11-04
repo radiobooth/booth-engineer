@@ -1,7 +1,8 @@
 # Booth DJ API, version 0
 
 Everything Booth Engineer says to the Booth DJ service, and everything it hears back. Booth Engineer only
-makes outbound HTTPS requests; nothing on your network listens. Bodies are JSON unless noted.
+makes outbound HTTPS requests (plain HTTP only to a DJ on localhost, for development); nothing on your
+network listens. Bodies are JSON unless noted.
 
 After pairing, every call below carries `Authorization: Bearer <device token>`. The token is kept in
 Booth Engineer's local config file, readable only by you. Errors come back as `{"error": "..."}` with an
@@ -33,7 +34,7 @@ HTTP status.
 }
 ```
 
-`next_checkin_s` is 60 when nothing is going on and 10 while a show is in progress.
+`next_checkin_s` is 60 when nothing is going on and 10 while a show is in progress. The Engineer keeps it between 5 and 3600 s, and treats a reply whose `shows` isn't a list of objects with a `show_id` as a failed check-in.
 
 ## Sending the catalog for a show
 

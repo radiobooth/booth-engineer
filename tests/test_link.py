@@ -172,7 +172,7 @@ def test_failed_delivery_is_reported(dj, tmp_path):
 
 def test_package_names_cannot_escape_the_folder(dj, tmp_path):
     with pytest.raises(PackageError, match="Refusing"):
-        Link("http://dj.test").download({"../evil": "http://dj.test/x"}, tmp_path)
+        Link("https://dj.test").download({"../evil": "http://dj.test/x"}, tmp_path)
     # In a check-in it counts as a failed delivery, reported once, and the next show still runs.
     log, delivered = [], []
     dj.queue = [
@@ -209,14 +209,14 @@ def test_truncated_response_backs_off(monkeypatch):
 
     monkeypatch.setattr("radiobooth.link._api.open", boom)
     with pytest.raises(LinkError, match="Could not reach"):
-        Link("http://dj.test", "t").checkin()
+        Link("https://dj.test", "t").checkin()
 
 
 @pytest.mark.parametrize("url", ["http://evil.test/collect", "//evil.test/collect", "evil"])
 def test_token_and_catalog_only_go_to_the_paired_server(url, monkeypatch):
     monkeypatch.setattr("radiobooth.link._api.open", lambda *a, **k: pytest.fail("sent somewhere"))
     with pytest.raises(LinkError, match="Refusing"):
-        Link("http://dj.test", "be_secret").send_catalog(url, {"tracks": []})
+        Link("https://dj.test", "be_secret").send_catalog(url, {"tracks": []})
 
 
 def test_api_calls_do_not_follow_redirects(dj):
@@ -248,7 +248,7 @@ def test_malformed_replies_are_retryable(body, monkeypatch):
 
     monkeypatch.setattr("radiobooth.link._api.open", lambda *a, **k: Resp(body))
     with pytest.raises(LinkError):
-        Link("http://dj.test", "t").checkin()
+        Link("https://dj.test", "t").checkin()
 
 
 def test_short_download_is_retryable(dj, tmp_path):
@@ -311,5 +311,34 @@ def test_odd_error_bodies_keep_the_status(body, monkeypatch):
 
     monkeypatch.setattr("radiobooth.link._api.open", fail)
     with pytest.raises(LinkError) as e:
-        Link("http://dj.test", "t").checkin()
+        Link("https://dj.test", "t").checkin()
     assert e.value.status == 503 and "HTTP 503" in str(e.value)
+
+
+@pytest.mark.parametrize("server", ["http://dj.example.com", "ftp://dj.test", "dj.test", "https://"])
+def test_token_only_travels_over_https(server):
+    with pytest.raises(LinkError):
+        Link(server, "be_secret")
+
+
+@pytest.mark.parametrize("server", ["https://dj.test", "http://localhost:8080", "http://127.0.0.1:8080"])
+def test_https_or_this_machine_is_fine(server):
+    Link(server, "be_secret")
+
+
+@pytest.mark.parametrize(
+    "reply", [{"shows": "nope"}, {"shows": [1]}, {"shows": [{"action": "deliver"}]}, {"shows": {"a": 1}}]
+)
+def test_odd_checkin_replies_are_retryable(reply, monkeypatch):
+    monkeypatch.setattr(Link, "post", lambda self, path, data: (200, reply))
+    log = []
+    run(Link("https://dj.test", "t"), station(log), once=True)
+    assert "doesn't understand" in log[-1] and "trying again" in log[-1]
+
+
+@pytest.mark.parametrize(
+    "wait,expect", [("soon", 60), (None, 60), (0, 5), (10**9, 3600), (True, 60), (30, 30)]
+)
+def test_checkin_wait_is_sane(wait, expect, monkeypatch):
+    monkeypatch.setattr(Link, "post", lambda self, path, data: (200, {"next_checkin_s": wait}))
+    assert Link("https://dj.test", "t").checkin()["next_checkin_s"] == expect
