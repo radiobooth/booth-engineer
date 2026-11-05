@@ -6,11 +6,16 @@ repo so anyone can read exactly what leaves your machine. Version 0: expect chan
 
 | Schema | Direction | What it is |
 |---|---|---|
-| [`catalog`](catalog.schema.json) | your machine → service | Track metadata: title, artist, album, year, genres, length, when you added it, play count and rating if your server has them, sonic analysis if your server has it. |
+| [`catalog`](catalog.schema.json) | your machine → service | Track metadata: title, artist, album, year, genres, length, when you added it, play count and rating if your server has them, sonic analysis if your server has it, and when each track was last in one of your Booth shows. |
 | [`show-request`](show-request.schema.json) | you → service | The prompt, show length, DJ (personality, voice, your name for them) and your station name. |
 | [`show-package`](show-package.schema.json) | service → your machine | The running order: your track ids and the DJ breaks between them, each break with its audio file, transcript and fact sources. |
 
 The catalog is sent only when you ask for a show, and Booth DJ never stores it.
+
+Your show history (which tracks were in which delivered show, so new shows don't repeat them) is kept by
+Booth Engineer on your machine, in `history.json` next to its config file. It travels only inside the
+catalog, as each track's `last_in_show_at`, so Booth DJ forgets it along with the catalog. Delete the file
+to start the history over.
 
 What never leaves your machine: audio, file paths, your music server's address or token. Track ids are
 opaque; Booth Engineer maps them back to files locally.

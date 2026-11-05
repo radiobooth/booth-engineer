@@ -1,0 +1,71 @@
+"""Which tracks have been in Booth shows delivered to this machine, so new shows can skip them.
+
+Kept on this machine only, next to the config file (history.json), and yours to read or delete. It travels
+to Booth DJ only inside a show's catalog, as each track's `last_in_show_at`, and Booth DJ keeps it no longer
+than the catalog itself. Deleting the file starts the history over.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from pathlib import Path
+
+from radiobooth import config
+
+
+def path() -> Path:
+    return config.path().with_name("history.json")
+
+
+def stamp(when: datetime | None = None) -> str:
+    when = when or datetime.now(UTC)
+    return when.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def load() -> dict[str, str]:
+    """track id -> when it was last in a delivered show. A missing or unreadable file is an empty history."""
+    try:
+        data = json.loads(path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    tracks = data.get("tracks") if isinstance(data, dict) else None
+    if not isinstance(tracks, dict):
+        return {}
+    return {k: v for k, v in tracks.items() if isinstance(k, str) and k and isinstance(v, str)}
+
+
+def record(track_ids: Iterable[str], when: datetime | None = None) -> Path:
+    """Note that these tracks were just in a delivered show."""
+    tracks = load()
+    at = stamp(when)
+    tracks.update({t: at for t in track_ids if isinstance(t, str) and t})
+    p = path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".history-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "tracks": tracks}, f, indent=0, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, p)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return p
+
+
+def record_package(package: dict, when: datetime | None = None) -> Path:
+    """Note the tracks of a show package that was just delivered."""
+    return record((i.get("track_id") for i in package.get("items", []) if i.get("type") == "track"), when)
+
+
+def annotate(catalog: dict) -> dict:
+    """The catalog with `last_in_show_at` on each track that has been in a show here."""
+    seen = load()
+    for t in catalog["tracks"]:
+        if t["id"] in seen:
+            t["last_in_show_at"] = seen[t["id"]]
+    return catalog

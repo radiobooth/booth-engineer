@@ -61,11 +61,23 @@ def build_parser() -> argparse.ArgumentParser:
 def coverage(tracks: list[dict]) -> str:
     counts = Counter(k for t in tracks for k in t)
     fields = ["album", "year", "genres", "added_at", "play_count", "rating", "musicbrainz_id"]
+    fields += ["last_in_show_at"]
     total = len(tracks) or 1
     return ", ".join(f"{f} {100 * counts[f] // total}%" for f in fields)
 
 
+def remember(show_dir: Path, log) -> None:
+    """Note a delivered show's tracks so later shows skip them. Never fails the delivery."""
+    from radiobooth import history
+
+    try:
+        history.record_package(json.loads((show_dir / "show.json").read_text(encoding="utf-8")))
+    except Exception as e:
+        log(f"Couldn't update the show history ({e}); later shows may repeat these tracks.")
+
+
 def index(args: argparse.Namespace) -> int:
+    from radiobooth import history
     from radiobooth.sources.plex import PlexClient, PlexError, build_catalog
 
     url, token = os.environ.get("PLEX_URL"), os.environ.get("PLEX_TOKEN")
@@ -75,6 +87,7 @@ def index(args: argparse.Namespace) -> int:
     try:
         exclude = os.environ.get("BOOTH_BREAKS_LIBRARY")
         catalog, skipped = build_catalog(PlexClient(url, token), args.library, exclude=exclude)
+        history.annotate(catalog)
     except PlexError as e:
         print(f"booth index: {e}", file=sys.stderr)
         return 1
@@ -119,6 +132,7 @@ def deliver(args: argparse.Namespace) -> int:
     except PlexError as e:
         print(f"booth deliver: {e}", file=sys.stderr)
         return 1
+    remember(Path(args.show), lambda msg: print(f"booth deliver: {msg}", file=sys.stderr))
     print(
         f"Playlist {result.title!r} is in Plex: {result.tracks} tracks and {result.breaks} breaks"
         f" (breaks in {result.folder}).",
@@ -162,7 +176,7 @@ def pair(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
-    from radiobooth import config
+    from radiobooth import config, history
     from radiobooth.link import Link, LinkError, Station
     from radiobooth.link import run as run_link
     from radiobooth.sources.plex import PlexClient, build_catalog
@@ -179,10 +193,12 @@ def run(args: argparse.Namespace) -> int:
     plex = PlexClient(url, token)
 
     def catalog() -> dict:
-        return build_catalog(plex, args.library, exclude=library)[0]
+        return history.annotate(build_catalog(plex, args.library, exclude=library)[0])
 
     def deliver_show(show_dir: Path) -> str:
-        return deliver_to_plex(plex, show_dir, library, Path(dest)).title
+        title = deliver_to_plex(plex, show_dir, library, Path(dest)).title
+        remember(show_dir, log)
+        return title
 
     def log(msg: str) -> None:
         print(f"{time.strftime('%H:%M:%S')} {msg}", file=sys.stderr, flush=True)
