@@ -43,6 +43,11 @@
         "added_at": {"type": "string", "format": "date-time", "description": "When the track joined the library."},
         "play_count": {"type": "integer", "minimum": 0},
         "last_played_at": {"type": "string", "format": "date-time"},
+        "last_in_show_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this track was last in a Booth show delivered to this machine, from Booth Engineer's local history. Lets new shows skip recent picks."
+        },
         "rating": {"type": "number", "minimum": 0, "maximum": 1, "description": "User rating scaled to 0..1."},
         "musicbrainz_id": {"type": "string"},
         "sonic": {

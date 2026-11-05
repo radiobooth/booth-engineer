@@ -28,6 +28,10 @@ booth run                         # stays connected; leave it running
 `booth index` writes your catalog to a file so you can see exactly what would be sent, and
 `booth deliver` puts a show folder into Plex by hand.
 
+So new shows don't repeat what you've just heard, Booth Engineer remembers which tracks were in the shows it
+delivered, in `history.json` next to its config file (normally `~/.config/radiobooth/`). That history stays
+on your machine except inside a show's catalog. Delete the file to start over.
+
 ## Development
 
 ```sh
