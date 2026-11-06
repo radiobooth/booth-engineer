@@ -22,7 +22,8 @@ your home screen or bookmark it. The link is yours alone; please don't share it.
 Go to the [latest release](https://github.com/radiobooth/booth-engineer/releases/latest) and download:
 
 - **Windows:** `RadioBooth-Windows.exe`
-- **Mac:** `RadioBooth-macOS.zip`, then double-click it to unzip. You get `Radio Booth.command`.
+- **Mac:** `RadioBooth-macOS.zip`, then double-click it to unzip. You get `Radio Booth.command`. It
+  needs a Mac with Apple silicon (M1 or later); for an older Intel Mac, ask the person who invited you.
 
 ## 3. Open it
 

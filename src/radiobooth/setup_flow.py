@@ -97,7 +97,7 @@ def plex_step(settings: dict, *, ask, open_browser) -> dict:
     say(f"Using {chosen.get('title')!r}.")
 
     if breaks is None and here:
-        folder = onboard.default_breaks_dir()
+        folder = onboard.default_breaks_dir(onboard.library_folders(plex))
         breaks = onboard.make_breaks_library(plex, folder)
         say(f"Made a Plex library called {onboard.BREAKS_LIBRARY!r} for the DJ's breaks, in {folder}.")
         say("It keeps the DJ out of your own music.")

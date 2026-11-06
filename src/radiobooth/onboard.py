@@ -8,6 +8,8 @@ pairs with Booth and saves it all in the local config file. Every connection is 
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -29,8 +31,41 @@ class SetupError(Exception):
     """Something setup can't get past, in words for the person at the keyboard."""
 
 
-def default_breaks_dir() -> Path:
-    return Path.home() / "Music" / "Radio Booth"
+def breaks_dir_candidates() -> list[Path]:
+    """Where the breaks folder may go, best first. Not under Music: a Plex music library often watches
+    that whole folder, and would then show the DJ's breaks as songs in the listener's own music."""
+    home = Path.home()
+    if os.name == "nt":
+        data = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        data = home / "Library" / "Application Support"
+    else:
+        data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+    return [home / "Radio Booth", data / "Radio Booth" / "breaks"]
+
+
+def library_folders(client) -> list[str]:
+    """Every folder any Plex library watches."""
+    sections = client.get("/library/sections")["MediaContainer"].get("Directory", [])
+    return [loc["path"] for s in sections for loc in s.get("Location") or [] if loc.get("path")]
+
+
+def overlaps(folder: Path, other: str) -> bool:
+    """One folder is inside the other (or they're the same), comparing the way this system does."""
+    a = os.path.normcase(os.path.abspath(folder))
+    b = os.path.normcase(os.path.abspath(other))
+    return os.path.commonpath([a, b]) in (a, b)
+
+
+def default_breaks_dir(watched: list[str]) -> Path:
+    """The first candidate folder that no Plex library already watches, and that holds no library's folder."""
+    for folder in breaks_dir_candidates():
+        if not any(overlaps(folder, w) for w in watched):
+            return folder
+    raise SetupError(
+        "Couldn't find a folder for the DJ's breaks that your Plex libraries don't already use. In Plex,"
+        f" add a Music library named {BREAKS_LIBRARY!r} for an empty folder of its own, then run setup again."
+    )
 
 
 def new_client_id() -> str:

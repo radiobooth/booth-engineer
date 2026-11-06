@@ -98,6 +98,32 @@ def test_breaks_library_is_made_for_its_own_folder(tmp_path):
     assert params["type"] == "artist" and params["location"] == str(tmp_path / "Radio Booth")
 
 
+def test_breaks_folder_stays_out_of_watched_folders(tmp_path, monkeypatch):
+    home, data = tmp_path / "home", tmp_path / "data"
+    first, second = home / "Radio Booth", data / "Radio Booth" / "breaks"
+    monkeypatch.setattr(onboard, "breaks_dir_candidates", lambda: [first, second])
+    assert onboard.default_breaks_dir([str(home / "Music")]) == first
+    assert onboard.default_breaks_dir([str(home)]) == second  # a library watching the whole home
+    assert onboard.default_breaks_dir([str(first / "old")]) == second  # a library inside it
+    with pytest.raises(SetupError, match="empty folder of its own"):
+        onboard.default_breaks_dir([str(data), str(first)])
+
+
+def test_library_folders_lists_every_watched_folder():
+    plex = FakePlex(
+        [
+            {"title": "Music", "Location": [{"path": "/m1"}, {"path": "/m2"}]},
+            {"title": "Films", "Location": [{"path": "/films"}]},
+            {"title": "Empty"},
+        ]
+    )
+    assert onboard.library_folders(plex) == ["/m1", "/m2", "/films"]
+
+
+def test_breaks_candidates_are_never_under_music():
+    assert all("Music" not in folder.parts for folder in onboard.breaks_dir_candidates())
+
+
 def test_choose_asks_only_when_there_is_a_choice():
     said = []
     assert onboard.choose("?", ["a"], str, ask=None, say=said.append) == "a"
@@ -109,7 +135,7 @@ def test_choose_asks_only_when_there_is_a_choice():
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "cfg" / "config.json"))
-    monkeypatch.setattr(onboard, "default_breaks_dir", lambda: tmp_path / "Music" / "Radio Booth")
+    monkeypatch.setattr(onboard, "breaks_dir_candidates", lambda: [tmp_path / "Radio Booth"])
     monkeypatch.setattr(onboard, "sign_in", lambda client_id, **k: "acct-token")
     monkeypatch.setattr(onboard, "owned_servers", lambda token, client_id: [SERVER])
     monkeypatch.setattr(onboard, "reach", lambda server, token: (onboard.LOCAL_PLEX, True))
@@ -140,7 +166,7 @@ def test_guided_setup_end_to_end(home, monkeypatch, capsys):
     saved = config.load()
     assert saved["plex_url"] == onboard.LOCAL_PLEX and saved["plex_token"] == "server-token"
     assert saved["music_library"] == "Music" and saved["breaks_library"] == "Radio Booth"
-    assert saved["breaks_dir"] == str(tmp_path / "Music" / "Radio Booth")
+    assert saved["breaks_dir"] == str(tmp_path / "Radio Booth")
     assert saved["device_token"] == "be_device" and saved["server"] == "https://booth.example"
     assert saved["plex_client_id"].startswith("radiobooth-")
     assert codes == ["WRONG-CODE", "ABCD-2345"]
@@ -150,12 +176,12 @@ def test_guided_setup_end_to_end(home, monkeypatch, capsys):
 
 def test_setup_keeps_what_works_and_stops_cleanly(home, monkeypatch, capsys):
     tmp_path, plex, _ = home
-    (tmp_path / "Music" / "Radio Booth").mkdir(parents=True)
+    (tmp_path / "Radio Booth").mkdir(parents=True)
     plex.sections.append(
         {
             "title": "Radio Booth",
             "type": "artist",
-            "Location": [{"path": str(tmp_path / "Music" / "Radio Booth")}],
+            "Location": [{"path": str(tmp_path / "Radio Booth")}],
         }
     )
     answers = iter(["1"])
@@ -168,7 +194,7 @@ def test_setup_keeps_what_works_and_stops_cleanly(home, monkeypatch, capsys):
 
     assert setup_flow.guided("https://booth.example", "x", ask=ask, open_browser=None) == 1
     assert plex.posts == []  # the existing breaks library is used, not made again
-    assert config.load()["breaks_dir"] == str(tmp_path / "Music" / "Radio Booth")
+    assert config.load()["breaks_dir"] == str(tmp_path / "Radio Booth")
     assert "what's done so far is kept" in capsys.readouterr().out
 
 

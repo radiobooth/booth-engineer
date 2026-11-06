@@ -1,6 +1,7 @@
 name: Release
 
-# Builds the double-click apps testers download: booth.exe for Windows and booth for macOS (Apple silicon).
+# Builds the double-click apps testers download: booth.exe for Windows and booth for macOS (Apple silicon
+# only; macos-latest runners are arm64).
 # Push a tag like v0.1.0 to publish them on a GitHub release; run it by hand to just build them.
 on:
   push:
