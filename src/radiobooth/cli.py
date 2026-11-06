@@ -14,7 +14,7 @@ from pathlib import Path
 
 from radiobooth import __version__
 
-DEFAULT_SERVER = "https://booth-dj-juvsqx4frq-uc.a.run.app"
+DEFAULT_SERVER = "https://my.radiobooth.fm"
 # What `booth run` exits with when only setup can fix it, so the double-clicked app can offer setup.
 NEEDS_SETUP, NEEDS_PAIRING, ALREADY_RUNNING = 3, 4, 5
 
