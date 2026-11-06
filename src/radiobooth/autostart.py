@@ -27,7 +27,9 @@ def command() -> list[str]:
 
 def windows_script(cmd: list[str], action: str = "run", minimized: bool = True) -> str:
     args = " ".join(f'"{c}"' for c in cmd)
-    return f'@echo off\r\nstart "Radio Booth" {"/min " if minimized else ""}{args} {action}\r\n'
+    # The file is UTF-8; switch cmd.exe to that code page so a path like C:\\Users\\José reads correctly.
+    start = f'start "Radio Booth" {"/min " if minimized else ""}{args} {action}'
+    return f"@echo off\r\nchcp 65001 >nul\r\n{start}\r\n"
 
 
 def keep_app_windows(cmd: list[str], home: Path) -> list[str]:

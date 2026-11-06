@@ -271,3 +271,9 @@ def test_an_existing_pairing_can_be_replaced(home, monkeypatch):
         {"device_token": "be_old"}, "https://booth.example", "pc", ask=lambda q: next(answers)
     )
     assert out["device_token"] == "be_device" and codes == ["ABCD-2345"]
+
+
+def test_windows_scripts_read_non_ascii_paths():
+    script = autostart.windows_script([r"C:\\Users\\José\\AppData\\Local\\Radio Booth\\RadioBooth.exe"])
+    lines = script.split("\r\n")
+    assert lines[1] == "chcp 65001 >nul" and "José" in lines[2]
