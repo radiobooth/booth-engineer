@@ -266,22 +266,28 @@ def single_instance(path: Path):
 
 
 def setup(args: argparse.Namespace) -> int:
+    from radiobooth import config
     from radiobooth.setup_flow import guided
 
-    return guided(args.server or os.environ.get("BOOTH_SERVER") or DEFAULT_SERVER, args.name)
+    server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
+    return guided(server, args.name)
 
 
 def app(argv: list[str]) -> int:
-    """The app double-clicked, with nothing typed: set up if needed, then stay connected. The window stays
-    open at the end so nobody misses what went wrong."""
+    """The packaged app. Double-clicked, with nothing typed: set up if needed, then stay connected. From the
+    Start menu: the command it names. Either way the window stays open after a failure, so nobody misses
+    what went wrong."""
     from radiobooth import config
 
     try:
-        settings = config.load()
-        if settings.get("device_token") and settings.get("plex_token"):
+        if argv:
+            code = dispatch(argv)
+        elif (settings := config.load()).get("device_token") and settings.get("plex_token"):
             code = run(build_parser().parse_args(["run"]))
         else:
             code = setup(build_parser().parse_args(["setup"]))
+    except SystemExit as e:  # argparse's --help, --version and usage errors
+        code = e.code if isinstance(e.code, int) else 1
     except KeyboardInterrupt:
         code = 0
     except Exception as e:  # anything unexpected: say what, and keep the window open to read it
@@ -297,8 +303,12 @@ def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):  # Windows consoles can't print every title; never crash on one
         with contextlib.suppress(AttributeError, ValueError):
             stream.reconfigure(errors="replace")
-    if argv is None and getattr(sys, "frozen", False) and len(sys.argv) == 1:
-        return app(sys.argv)
+    if argv is None and getattr(sys, "frozen", False):
+        return app(sys.argv[1:])
+    return dispatch(argv)
+
+
+def dispatch(argv: list[str] | None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:

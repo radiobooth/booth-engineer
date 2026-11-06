@@ -41,11 +41,15 @@ def keep_app_windows(cmd: list[str], home: Path) -> list[str]:
     target = folder / "RadioBooth.exe"
     if Path(cmd[0]).resolve() != target.resolve():
         folder.mkdir(parents=True, exist_ok=True)
+        staged = folder / "RadioBooth.new.exe"
+        shutil.copy2(cmd[0], staged)  # a full copy first, so a failure never leaves a broken app behind
         try:
-            shutil.copy2(cmd[0], target)
-        except OSError:  # most likely that copy is running right now: it's already there
-            if not target.exists():
-                raise
+            os.replace(staged, target)
+        except OSError:
+            staged.unlink(missing_ok=True)
+            raise OSError(
+                "Booth is running from its own folder. Close the Booth window, then try again."
+            ) from None
     return [str(target)]
 
 

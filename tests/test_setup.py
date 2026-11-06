@@ -277,3 +277,20 @@ def test_windows_scripts_read_non_ascii_paths():
     script = autostart.windows_script([r"C:\\Users\\José\\AppData\\Local\\Radio Booth\\RadioBooth.exe"])
     lines = script.split("\r\n")
     assert lines[1] == "chcp 65001 >nul" and "José" in lines[2]
+
+
+def test_setup_reuses_the_saved_server(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.delenv("BOOTH_SERVER", raising=False)
+    config.save({"server": "https://staging.example"})
+    seen = []
+    monkeypatch.setattr(setup_flow, "guided", lambda server, name: seen.append(server) or 0)
+    assert cli.main(["setup"]) == 0 and seen == ["https://staging.example"]
+
+
+def test_start_menu_actions_keep_the_window_open_on_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    pauses = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": pauses.append(prompt) or "")
+    assert cli.app(["run"]) == 1  # not set up yet: says so, then waits
+    assert pauses and cli.app(["--version"]) == 0 and len(pauses) == 1
