@@ -18,6 +18,14 @@ dev = [
     "referencing>=0.35",
     "ruff>=0.15",
 ]
+# Only the release workflow installs this (`--group build`), so a plain `uv sync` stays light.
+build = [
+    "pyinstaller==6.22.3",
+]
+
+[tool.uv]
+# Supply-chain cooldown: never resolve a package version published in the last 7 days.
+exclude-newer = "7 days"
 
 [build-system]
 requires = ["uv_build>=0.9,<0.13"]

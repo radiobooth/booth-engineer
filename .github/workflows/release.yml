@@ -24,11 +24,13 @@ jobs:
             asset: RadioBooth-macOS.zip
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: uv sync --locked
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.13.6"  # pinned: bump only to a uv release at least 7 days old
+      - run: uv sync --locked --group build
       - run: uv run pytest
-      - run: uv run --with pyinstaller==6.22.3 pyinstaller --onefile --name booth src/radiobooth/__main__.py
+      - run: uv run --locked --group build pyinstaller --onefile --name booth src/radiobooth/__main__.py
       - run: ./dist/${{ matrix.file }} --version
         shell: bash
       - if: runner.os == 'Windows'
@@ -39,7 +41,7 @@ jobs:
         run: |
           mkdir pkg && mv dist/booth "pkg/Radio Booth.command" && chmod +x "pkg/Radio Booth.command"
           ditto -c -k "pkg/Radio Booth.command" "dist/${{ matrix.asset }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
@@ -51,7 +53,7 @@ jobs:
     permissions:
       contents: write  # only this job publishes the release
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: dist
           merge-multiple: true
