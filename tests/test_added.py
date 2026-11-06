@@ -27,3 +27,15 @@ def test_initial_import_and_later_bursts_are_dropped_real_adds_kept():
 
 def test_no_dates_is_fine():
     assert drop_bulk_dates([{"id": "1"}]) == 0
+
+
+def test_a_burst_needs_both_200_tracks_and_2_percent():
+    # Each library starts with one early track so the days below fall outside the import window.
+    small = tracks(("2010-01-01", 1), ("2015-05-05", 150), ("2016-01-01", 1849))
+    assert "2015-05-05" not in bulk_days(small)  # 7.5% of 2,000 but under 200 tracks
+
+    big = tracks(("2010-01-01", 1), ("2015-05-05", 300), ("2016-01-01", 19699))
+    assert "2015-05-05" not in bulk_days(big)  # over 200 but under 2% of 20,000 (400)
+
+    edge = tracks(("2010-01-01", 1), ("2015-05-05", 200), ("2016-01-01", 9799))
+    assert "2015-05-05" in bulk_days(edge)  # exactly 200 and exactly 2% of 10,000
