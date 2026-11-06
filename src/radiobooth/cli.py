@@ -278,6 +278,7 @@ def app(argv: list[str]) -> int:
     what went wrong."""
     from radiobooth import config
 
+    name_window()
     try:
         if argv:
             code = dispatch(argv)
@@ -298,6 +299,18 @@ def app(argv: list[str]) -> int:
         with contextlib.suppress(EOFError, KeyboardInterrupt):
             input("\nPress Enter to close this window.")
     return code
+
+
+def name_window(title: str = "Radio Booth", platform: str = sys.platform) -> None:
+    """Title the app's window "Radio Booth"; double-clicked, it would show the path to the program."""
+    if platform == "win32":
+        with contextlib.suppress(AttributeError, OSError):
+            import ctypes
+
+            ctypes.windll.kernel32.SetConsoleTitleW(title)
+    elif sys.stdout.isatty():  # Terminal on a Mac: the standard escape for a window title
+        sys.stdout.write(f"\033]0;{title}\007")
+        sys.stdout.flush()
 
 
 def offer_setup(code: int):

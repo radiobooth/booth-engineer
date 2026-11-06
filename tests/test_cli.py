@@ -1,6 +1,8 @@
+import sys
+
 import pytest
 
-from radiobooth import __version__
+from radiobooth import __version__, cli
 from radiobooth.cli import main
 
 
@@ -41,3 +43,19 @@ def test_index_needs_plex_settings(monkeypatch, capsys):
     monkeypatch.delenv("PLEX_TOKEN", raising=False)
     assert main(["index"]) == 1
     assert "PLEX_URL" in capsys.readouterr().err
+
+
+def test_name_window_titles_a_terminal(monkeypatch, capsys):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    cli.name_window(platform="darwin")
+    assert capsys.readouterr().out == "\033]0;Radio Booth\007"
+
+
+def test_name_window_leaves_pipes_alone(monkeypatch, capsys):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+    cli.name_window(platform="linux")
+    assert capsys.readouterr().out == ""
+
+
+def test_name_window_never_fails_on_windows():
+    cli.name_window(platform="win32")  # no ctypes.windll here: quietly does nothing
