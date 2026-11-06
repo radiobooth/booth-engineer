@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/logo-horizontal-on-dark.svg">
+  <img alt="Radio Booth" src="images/logo-horizontal-on-light.svg" width="280">
+</picture>
+
 # Getting started with Radio Booth
 
 Radio Booth makes radio shows from your own music, with a DJ talking between songs. You ask for a show on

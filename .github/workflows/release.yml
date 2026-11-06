@@ -19,6 +19,8 @@ jobs:
           - os: windows-latest
             file: booth.exe
             asset: RadioBooth-Windows.exe
+            # The On Air icon and the file details Explorer and Task Manager show (see packaging/).
+            brand: --icon packaging/booth.ico --version-file version_info.txt
           - os: macos-latest
             file: booth
             asset: RadioBooth-macOS.zip
@@ -30,7 +32,13 @@ jobs:
           version: "0.13.6"  # pinned: bump only to a uv release at least 7 days old
       - run: uv sync --locked --group build
       - run: uv run pytest
-      - run: uv run --locked --group build pyinstaller --onefile --name booth src/radiobooth/__main__.py
+      - if: runner.os == 'Windows'
+        run: uv run python packaging/version_info.py > version_info.txt
+        shell: bash
+      - run: >-
+          uv run --locked --group build pyinstaller --onefile --name booth ${{ matrix.brand }}
+          src/radiobooth/__main__.py
+        shell: bash
       - run: ./dist/${{ matrix.file }} --version
         shell: bash
       - if: runner.os == 'Windows'

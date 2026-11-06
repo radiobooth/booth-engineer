@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-horizontal-on-dark.svg">
+  <img alt="Radio Booth" src="docs/images/logo-horizontal-on-light.svg" width="280">
+</picture>
+
 # Booth Engineer
 
 The home client for **Radio Booth**: personal radio shows made from the music you own, with an AI DJ
