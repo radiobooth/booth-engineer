@@ -87,6 +87,14 @@ WantedBy=default.target
 """
 
 
+def checked(run, args: list[str]) -> None:
+    """Run a service command; a failure becomes an OSError, so setup falls back to running Booth itself."""
+    done = run(args, capture_output=True, text=True)
+    if getattr(done, "returncode", 0):
+        why = (getattr(done, "stderr", "") or "").strip().splitlines()
+        raise OSError(f"{' '.join(args[:2])} failed" + (f": {why[-1]}" if why else ""))
+
+
 def _xml(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -117,12 +125,13 @@ def install(platform: str = sys.platform, home: Path | None = None, run=subproce
         logs.mkdir(parents=True, exist_ok=True)
         plist = agents / "com.radiobooth.engineer.plist"
         plist.write_text(mac_plist(cmd, logs / "radiobooth.log"), encoding="utf-8")
-        run(["launchctl", "unload", str(plist)], capture_output=True)
-        run(["launchctl", "load", str(plist)], capture_output=True)
+        run(["launchctl", "unload", str(plist)], capture_output=True)  # an older copy, if any
+        checked(run, ["launchctl", "load", str(plist)])
         return "Booth now runs in the background and starts each time you sign in to this Mac."
     units = home / ".config" / "systemd" / "user"
     units.mkdir(parents=True, exist_ok=True)
     (units / f"{NAME}.service").write_text(systemd_unit(cmd), encoding="utf-8")
-    run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-    run(["systemctl", "--user", "enable", "--now", f"{NAME}.service"], capture_output=True)
+    checked(run, ["systemctl", "--user", "daemon-reload"])
+    checked(run, ["systemctl", "--user", "enable", f"{NAME}.service"])
+    checked(run, ["systemctl", "--user", "restart", f"{NAME}.service"])  # picks up new settings too
     return f"Booth now runs as the systemd user service {NAME!r} and starts when you sign in."

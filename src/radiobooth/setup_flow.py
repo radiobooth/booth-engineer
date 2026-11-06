@@ -102,7 +102,7 @@ def plex_step(settings: dict, *, ask, open_browser) -> dict:
         say(f"Made a Plex library called {onboard.BREAKS_LIBRARY!r} for the DJ's breaks, in {folder}.")
         say("It keeps the DJ out of your own music.")
         breaks_dir = str(folder)
-    elif breaks is not None and (path := onboard.section_path(breaks)) and Path(path).is_dir():
+    elif here and breaks is not None and (path := onboard.section_path(breaks)) and Path(path).is_dir():
         breaks_dir = path
     else:
         breaks_dir = remote_breaks_dir(breaks, server.get("name"), ask)
@@ -140,8 +140,9 @@ def remote_breaks_dir(breaks: dict | None, server_name: str | None, ask) -> str:
 
 def pair_step(settings: dict, server: str, name: str, *, ask) -> dict:
     say("Step 3 of 3: your Booth account")
-    if settings.get("device_token"):
-        say("This computer is already connected to your Booth account.")
+    if settings.get("device_token") and yes(
+        "This computer is already connected to your Booth account. Keep that connection?", ask
+    ):
         return settings
     try:
         link = Link(server)

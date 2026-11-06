@@ -226,7 +226,11 @@ def run(args: argparse.Namespace) -> int:
 
     lock = single_instance(config.path().parent / "run.lock")
     if lock is None:
-        print("booth run: Booth is already running on this computer.", file=sys.stderr)
+        print(
+            "booth run: Booth is already running on this computer. If you just changed its settings, close"
+            " the other Booth window and open Booth again so they take effect.",
+            file=sys.stderr,
+        )
         return 1
     station = Station(catalog=catalog, deliver=deliver_show, log=log)
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
@@ -280,6 +284,9 @@ def app(argv: list[str]) -> int:
             code = setup(build_parser().parse_args(["setup"]))
     except KeyboardInterrupt:
         code = 0
+    except Exception as e:  # anything unexpected: say what, and keep the window open to read it
+        print(f"\nSomething went wrong: {e}", file=sys.stderr)
+        code = 1
     if code:
         with contextlib.suppress(EOFError, KeyboardInterrupt):
             input("\nPress Enter to close this window.")

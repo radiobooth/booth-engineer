@@ -32,7 +32,8 @@ def test_sign_in_opens_plex_and_waits_for_the_token():
         "cid", open_browser=opened.append, say=said.append, call=call, sleep=lambda s: None
     )
     assert token == "acct-token"
-    assert calls[0] == ("POST", "/pins", {"strong": "true"}) and calls[1][1] == "/pins/7"
+    assert calls[0] == ("POST", "/pins", {"strong": "true"})
+    assert calls[1] == ("GET", "/pins/7", {"code": "pin-code"})  # strong PINs are polled with their code
     assert opened[0].startswith("https://app.plex.tv/auth#?clientID=cid&code=pin-code&context")
     assert "Radio+Booth" in opened[0] and opened[0] in said[1]
 
@@ -237,3 +238,36 @@ def test_the_windows_app_keeps_a_copy_of_itself(tmp_path, monkeypatch):
     assert kept == [str(tmp_path / "Local" / "Radio Booth" / "RadioBooth.exe")]
     assert Path(kept[0]).read_bytes() == b"MZ app"
     assert autostart.keep_app_windows(kept, tmp_path) == kept  # already there: left alone
+
+
+def test_a_failed_service_start_is_an_error(tmp_path):
+    from types import SimpleNamespace
+
+    def run(args, **k):
+        bad = args[:2] == ["launchctl", "load"]
+        return SimpleNamespace(returncode=1 if bad else 0, stderr="Load failed: 5: Input/output error\n")
+
+    with pytest.raises(OSError, match="Input/output error"):
+        autostart.install("darwin", tmp_path, run=run)
+
+
+def test_the_app_keeps_its_window_open_on_a_surprise(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+
+    def boom(args):
+        raise PermissionError("can't write there")
+
+    monkeypatch.setattr(cli, "setup", boom)
+    pauses = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": pauses.append(prompt) or "")
+    assert cli.app([]) == 1
+    assert "can't write there" in capsys.readouterr().err and pauses
+
+
+def test_an_existing_pairing_can_be_replaced(home, monkeypatch):
+    tmp_path, plex, codes = home
+    answers = iter(["n", "ABCD-2345"])
+    out = setup_flow.pair_step(
+        {"device_token": "be_old"}, "https://booth.example", "pc", ask=lambda q: next(answers)
+    )
+    assert out["device_token"] == "be_device" and codes == ["ABCD-2345"]

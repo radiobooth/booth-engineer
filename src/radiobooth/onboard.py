@@ -77,7 +77,7 @@ def sign_in(
     while waited < timeout:
         sleep(2)
         waited += 2
-        got = call("GET", f"/pins/{pin['id']}", client_id)
+        got = call("GET", f"/pins/{pin['id']}", client_id, params={"code": pin["code"]})
         if got and got.get("authToken"):
             return got["authToken"]
     raise SetupError("Plex sign-in wasn't finished in time. Run setup again when you're ready.")
