@@ -19,6 +19,10 @@ dev = [
     "ruff>=0.15",
 ]
 
+[tool.uv]
+# Supply-chain cooldown: never resolve a package version published in the last 7 days.
+exclude-newer = "7 days"
+
 [build-system]
 requires = ["uv_build>=0.9,<0.13"]
 build-backend = "uv_build"
