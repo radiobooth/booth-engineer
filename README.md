@@ -12,7 +12,14 @@ Status: early development. Exactly what is sent, and when, is in [`protocol/`](p
 
 ## Using it
 
-You need a Plex music library of its own for the DJ breaks (so they never mix into your music), and that
+**Setting it up for the first time?** Follow [docs/getting-started.md](docs/getting-started.md): download
+the app for Windows or macOS (or `booth setup` if you installed the command), and it walks you through
+signing in to Plex and connecting to your Booth account. It saves its settings in the config file below, so
+nothing needs to be set in the environment.
+
+### By hand
+
+Every setting can also come from the environment, which wins over the config file. You need a Plex music library of its own for the DJ breaks (so they never mix into your music), and that
 library's folder reachable from where Booth Engineer runs.
 
 ```sh

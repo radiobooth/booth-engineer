@@ -1,0 +1,57 @@
+name: Release
+
+# Builds the double-click apps testers download: booth.exe for Windows and booth for macOS (Apple silicon).
+# Push a tag like v0.1.0 to publish them on a GitHub release; run it by hand to just build them.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            file: booth.exe
+            asset: RadioBooth-Windows.exe
+          - os: macos-latest
+            file: booth
+            asset: RadioBooth-macOS.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run pytest
+      - run: uv run --with pyinstaller==6.22.3 pyinstaller --onefile --name booth src/radiobooth/__main__.py
+      - run: ./dist/${{ matrix.file }} --version
+        shell: bash
+      - if: runner.os == 'Windows'
+        run: mv dist/booth.exe dist/${{ matrix.asset }}
+        shell: bash
+      # A .command file opens in Terminal when double-clicked; the zip keeps it runnable after download.
+      - if: runner.os == 'macOS'
+        run: |
+          mkdir pkg && mv dist/booth "pkg/Radio Booth.command" && chmod +x "pkg/Radio Booth.command"
+          ditto -c -k "pkg/Radio Booth.command" "dist/${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Radio Booth $GITHUB_REF_NAME" --notes "Download the file for your computer. Setup steps: https://github.com/$GITHUB_REPOSITORY/blob/main/docs/getting-started.md"
+        env:
+          GH_TOKEN: ${{ github.token }}
