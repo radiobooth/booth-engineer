@@ -55,6 +55,10 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Radio Booth $GITHUB_REF_NAME" --notes "Download the file for your computer. Setup steps: https://github.com/$GITHUB_REPOSITORY/blob/main/docs/getting-started.md"
+      - run: >-
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
+          --title "Radio Booth $GITHUB_REF_NAME"
+          --notes "Download the file for your computer. Setup steps:
+          https://github.com/$GITHUB_REPOSITORY/blob/main/docs/getting-started.md"
         env:
           GH_TOKEN: ${{ github.token }}
