@@ -16,16 +16,23 @@ def test_version(capsys):
     assert __version__ in capsys.readouterr().out
 
 
-def test_pair_needs_a_server(monkeypatch, tmp_path, capsys):
+def test_pair_uses_the_same_server_as_setup(monkeypatch, tmp_path):
+    from radiobooth import cli
+    from radiobooth.link import Link
+
     monkeypatch.delenv("BOOTH_SERVER", raising=False)
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
-    assert main(["pair"]) == 1
-    assert "--server" in capsys.readouterr().err
+    seen = []
+    monkeypatch.setattr(Link, "redeem", lambda self, code, name: seen.append(self.server) or "be_x")
+    assert main(["pair", "ABCD-2345"]) == 0
+    assert seen == [cli.DEFAULT_SERVER.rstrip("/")]
 
 
 def test_run_needs_pairing(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
-    assert main(["run"]) == 1
+    from radiobooth import cli
+
+    assert main(["run"]) == cli.NEEDS_PAIRING
     assert "booth pair" in capsys.readouterr().err
 
 

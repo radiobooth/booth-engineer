@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -218,15 +219,18 @@ def test_autostart_files(tmp_path, monkeypatch):
     monkeypatch.setattr(autostart, "command", lambda: [r"C:\Users\Al\Downloads\booth.exe"])
     monkeypatch.setenv("APPDATA", str(tmp_path / "AppData"))
     ran = []
-    assert "Windows" in autostart.install("win32", tmp_path, run=lambda *a, **k: ran.append(a))
+    assert "Windows" in autostart.install("win32", tmp_path, run=lambda *a, **k: ran.append(a[0]))
     script = (tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs/Startup/Radio Booth.cmd").read_text()
-    assert r'start "Radio Booth" /min "C:\Users\Al\Downloads\booth.exe" run' in script and not ran
+    assert r'start "Radio Booth" /min "C:\Users\Al\Downloads\booth.exe" run' in script
     menu = tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs"
-    assert (menu / "Radio Booth setup.cmd").read_bytes().endswith(b'booth.exe" setup\r\n')
+    shortcuts = [args[-1] for args in ran if args[0] == "powershell"]  # the Start menu lists shortcuts
+    assert len(shortcuts) == 2 and str(menu / "Radio Booth setup.lnk") in shortcuts[1]
+    assert "$s.Arguments = 'setup'" in shortcuts[1] and "$s.WindowStyle = 7" in shortcuts[0]
 
     assert "Mac" in autostart.install("darwin", tmp_path, run=lambda *a, **k: ran.append(a[0]))
     plist = (tmp_path / "Library/LaunchAgents/com.radiobooth.engineer.plist").read_text()
     assert "<string>run</string>" in plist and ran[-1][:2] == ["launchctl", "load"]
+    assert "<key>ThrottleInterval</key>" in plist  # a Booth that can't start isn't retried every 10 s
 
     autostart.install("linux", tmp_path, run=lambda *a, **k: ran.append(a[0]))
     unit = (tmp_path / ".config/systemd/user/radiobooth.service").read_text()
@@ -268,10 +272,33 @@ def test_the_windows_app_keeps_a_copy_of_itself(tmp_path, monkeypatch):
     exe.write_bytes(b"MZ app")
     monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
-    kept = autostart.keep_app_windows([str(exe)], tmp_path)
+    kept = autostart.keep_app([str(exe)], tmp_path, "win32")
     assert kept == [str(tmp_path / "Local" / "Radio Booth" / "RadioBooth.exe")]
     assert Path(kept[0]).read_bytes() == b"MZ app"
-    assert autostart.keep_app_windows(kept, tmp_path) == kept  # already there: left alone
+    assert autostart.keep_app(kept, tmp_path, "win32") == kept  # already there: left alone
+
+
+def test_the_mac_app_runs_from_its_own_folder_not_downloads(tmp_path, monkeypatch):
+    app = tmp_path / "Downloads" / "Radio Booth.command"
+    app.parent.mkdir()
+    app.write_bytes(b"app")
+    monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(autostart, "command", lambda: [str(app)])
+    autostart.install("darwin", tmp_path, run=lambda *a, **k: None)
+    kept = tmp_path / "Library" / "Application Support" / "Radio Booth" / "Radio Booth"
+    assert kept.read_bytes() == b"app"
+    plist = (tmp_path / "Library/LaunchAgents/com.radiobooth.engineer.plist").read_text()
+    assert f"<string>{kept}</string>" in plist and "Downloads" not in plist
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="makes a real Windows shortcut")
+def test_start_menu_shortcuts_really_get_made(tmp_path):
+    import subprocess
+
+    link = tmp_path / "Radio Booth's setup.lnk"
+    script = autostart.shortcut_script(link, [r"C:\Windows\notepad.exe"], "setup", minimized=False)
+    autostart.checked(subprocess.run, ["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+    assert link.is_file()
 
 
 def test_a_failed_service_start_is_an_error(tmp_path):
@@ -326,5 +353,79 @@ def test_start_menu_actions_keep_the_window_open_on_failure(tmp_path, monkeypatc
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
     pauses = []
     monkeypatch.setattr("builtins.input", lambda prompt="": pauses.append(prompt) or "")
-    assert cli.app(["run"]) == 1  # not set up yet: says so, then waits
+    assert cli.app(["run"]) == cli.NEEDS_PAIRING  # not set up yet: says so, then waits
     assert pauses and cli.app(["--version"]) == 0 and len(pauses) == 1
+
+
+@pytest.mark.parametrize(
+    "code, answer, keep",
+    [(cli.NEEDS_SETUP, "", True), (cli.NEEDS_PAIRING, "", False), (cli.ALREADY_RUNNING, "y", True)],
+)
+def test_a_double_click_that_needs_setup_offers_it(tmp_path, monkeypatch, code, answer, keep):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    config.save({"device_token": "be_dead", "plex_token": "t", "server": "https://booth.example"})
+    monkeypatch.setattr(cli, "run", lambda args: code)
+    seen = []
+    monkeypatch.setattr(
+        setup_flow, "guided", lambda server, name, keep_pairing: seen.append((server, keep_pairing)) or 0
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": answer)
+    assert cli.app([]) == 0
+    assert seen == [("https://booth.example", keep)]
+
+
+def test_already_running_needs_a_yes_to_change_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    config.save({"device_token": "be", "plex_token": "t"})
+    monkeypatch.setattr(cli, "run", lambda args: cli.ALREADY_RUNNING)
+    monkeypatch.setattr(setup_flow, "guided", lambda *a, **k: pytest.fail("setup without a yes"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    assert cli.app([]) == cli.ALREADY_RUNNING
+
+
+def test_a_dead_pairing_is_not_offered_again(home, monkeypatch):
+    tmp_path, plex, codes = home
+    config.save({"device_token": "be_dead"})
+    answers = iter(["ABCD-2345"])
+    out = setup_flow.pair_step(
+        config.load(), "https://booth.example", "x", ask=lambda q: next(answers), offer_keep=False
+    )
+    assert out["device_token"] == "be_device" and codes == ["ABCD-2345"]
+
+
+def test_a_tidied_away_breaks_folder_is_made_again(home, monkeypatch):
+    tmp_path, plex, _ = home
+    gone = tmp_path / "Radio Booth"
+    plex.sections.append({"title": "Radio Booth", "type": "artist", "Location": [{"path": str(gone)}]})
+    out = setup_flow.plex_step({}, ask=lambda q: "1", open_browser=None)
+    assert out["breaks_dir"] == str(gone) and gone.is_dir() and plex.posts == []
+
+
+def test_sign_in_rides_out_a_moment_offline():
+    replies = iter(
+        [{"id": 7, "code": "c"}, SetupError("offline"), SetupError("offline"), {"authToken": "tok"}]
+    )
+
+    def call(*a, **k):
+        r = next(replies)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    assert onboard.sign_in("cid", open_browser=print, say=print, call=call, sleep=lambda s: None) == "tok"
+
+
+def test_a_sign_in_page_instead_of_plex_is_explained(monkeypatch):
+    class Page:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"<html>Accept the Wi-Fi terms</html>"
+
+    monkeypatch.setattr(onboard.urllib.request, "urlopen", lambda req, timeout: Page())
+    with pytest.raises(SetupError, match="something unexpected"):
+        onboard.plex_tv("POST", "/pins", "cid")

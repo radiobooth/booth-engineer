@@ -1,9 +1,10 @@
 """Start Booth Engineer when you sign in to this computer, so shows arrive without opening anything.
 
-Windows: the app is copied to %LOCALAPPDATA%\\Radio Booth, and small scripts in the Startup folder and
-the Start menu open `booth run` in a minimized window (close it to stop Booth until the next sign-in).
-macOS: a LaunchAgent. Linux: a systemd user service. Each runs as you, with your settings; nothing is
-installed system-wide.
+The packaged app is first copied to a folder of its own, so tidying Downloads never breaks it (and on macOS,
+a background app may not read files in Downloads at all).
+Windows: a script in the Startup folder opens `booth run` in a minimized window (close it to stop Booth
+until the next sign-in), and Start-menu shortcuts start Booth or its setup. macOS: a LaunchAgent. Linux: a
+systemd user service. Each runs as you, with your settings; nothing is installed system-wide.
 """
 
 from __future__ import annotations
@@ -32,16 +33,26 @@ def windows_script(cmd: list[str], action: str = "run", minimized: bool = True) 
     return f"@echo off\r\nchcp 65001 >nul\r\n{start}\r\n"
 
 
-def keep_app_windows(cmd: list[str], home: Path) -> list[str]:
+def app_home(platform: str, home: Path) -> Path:
+    """Where the packaged app keeps its own copy."""
+    if platform == "win32":
+        return (
+            Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+            / "Radio Booth"
+            / "RadioBooth.exe"
+        )
+    return home / "Library" / "Application Support" / "Radio Booth" / "Radio Booth"
+
+
+def keep_app(cmd: list[str], home: Path, platform: str) -> list[str]:
     """The downloaded app copied to a folder of its own, so starting at sign-in still works after the
     Downloads folder is tidied. Only for the packaged app; an installed `booth` command stays put."""
     if not getattr(sys, "frozen", False):
         return cmd
-    folder = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local") / "Radio Booth"
-    target = folder / "RadioBooth.exe"
+    target = app_home(platform, home)
     if Path(cmd[0]).resolve() != target.resolve():
-        folder.mkdir(parents=True, exist_ok=True)
-        staged = folder / "RadioBooth.new.exe"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staged = target.with_name(target.stem + ".new" + target.suffix)
         shutil.copy2(cmd[0], staged)  # a full copy first, so a failure never leaves a broken app behind
         try:
             os.replace(staged, target)
@@ -51,6 +62,25 @@ def keep_app_windows(cmd: list[str], home: Path) -> list[str]:
                 "Booth is running from its own folder. Close the Booth window, then try again."
             ) from None
     return [str(target)]
+
+
+def _ps(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def shortcut_script(link: Path, cmd: list[str], action: str, minimized: bool) -> str:
+    """PowerShell that makes a Start-menu shortcut (.lnk). The Start menu lists shortcuts, not scripts."""
+    args = " ".join(f'"{c}"' for c in cmd[1:]) + (" " if cmd[1:] else "") + action
+    return "; ".join(
+        [
+            "$s = (New-Object -ComObject WScript.Shell).CreateShortcut(" + _ps(str(link)) + ")",
+            "$s.TargetPath = " + _ps(cmd[0]),
+            "$s.Arguments = " + _ps(args),
+            "$s.WorkingDirectory = " + _ps(str(Path(cmd[0]).parent)),
+            f"$s.WindowStyle = {7 if minimized else 1}",
+            "$s.Save()",
+        ]
+    )
 
 
 def mac_plist(cmd: list[str], log: Path) -> str:
@@ -68,6 +98,8 @@ def mac_plist(cmd: list[str], log: Path) -> str:
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ThrottleInterval</key>
+  <integer>300</integer>
   <key>StandardErrorPath</key>
   <string>{_xml(str(log))}</string>
   <key>StandardOutPath</key>
@@ -109,18 +141,18 @@ def install(platform: str = sys.platform, home: Path | None = None, run=subproce
     """Set Booth to start at sign-in; returns what was done, in words."""
     home = home or Path.home()
     cmd = command()
+    if platform in ("win32", "darwin"):
+        cmd = keep_app(cmd, home, platform)
     if platform == "win32":
-        cmd = keep_app_windows(cmd, home)
         roaming = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
         programs = roaming / "Microsoft" / "Windows" / "Start Menu" / "Programs"
         (programs / "Startup").mkdir(parents=True, exist_ok=True)
         # Bytes, so Windows' text mode doesn't double the \r in each line ending.
         (programs / "Startup" / "Radio Booth.cmd").write_bytes(windows_script(cmd).encode())
         # In the Start menu too: one to start Booth again, one to change its settings.
-        (programs / "Radio Booth.cmd").write_bytes(windows_script(cmd).encode())
-        (programs / "Radio Booth setup.cmd").write_bytes(
-            windows_script(cmd, "setup", minimized=False).encode()
-        )
+        for name, action, minimized in (("Radio Booth", "run", True), ("Radio Booth setup", "setup", False)):
+            script = shortcut_script(programs / f"{name}.lnk", cmd, action, minimized)
+            checked(run, ["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
         return (
             "Booth will start in a small window each time you sign in to Windows. It's in the Start menu"
             " too, as 'Radio Booth' and 'Radio Booth setup'."

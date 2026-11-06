@@ -15,6 +15,8 @@ from pathlib import Path
 from radiobooth import __version__
 
 DEFAULT_SERVER = "https://booth-dj-juvsqx4frq-uc.a.run.app"
+# What `booth run` exits with when only setup can fix it, so the double-clicked app can offer setup.
+NEEDS_SETUP, NEEDS_PAIRING, ALREADY_RUNNING = 3, 4, 5
 
 COMMANDS = {
     "setup": "Set up Booth step by step: sign in to Plex, pick your music, connect to your Booth account.",
@@ -50,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument(
                 "code", nargs="?", help="the code from the Booth page on your phone (asked for if left out)"
             )
-            p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER)")
+            p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER, then the saved one)")
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
         if name == "setup":
             p.add_argument("--server", help=argparse.SUPPRESS)
@@ -164,10 +166,7 @@ def pair(args: argparse.Namespace) -> int:
     from radiobooth import config
     from radiobooth.link import Link, LinkError
 
-    server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server")
-    if not server:
-        print("booth pair: say which Booth DJ to pair with: --server URL or $BOOTH_SERVER.", file=sys.stderr)
-        return 1
+    server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
     try:
         link = Link(server)
     except LinkError as e:
@@ -204,10 +203,10 @@ def run(args: argparse.Namespace) -> int:
     settings = config.load()
     if not settings.get("device_token"):
         print("booth run: not paired yet. Run `booth pair` first.", file=sys.stderr)
-        return 1
+        return NEEDS_PAIRING
     plex_settings = delivery_settings("run", None, None)
     if plex_settings is None:
-        return 1
+        return NEEDS_SETUP
     url, token, library, dest = plex_settings
     plex = PlexClient(url, token)
 
@@ -231,7 +230,7 @@ def run(args: argparse.Namespace) -> int:
             " the other Booth window and open Booth again so they take effect.",
             file=sys.stderr,
         )
-        return 1
+        return ALREADY_RUNNING
     station = Station(catalog=catalog, deliver=deliver_show, log=log)
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
     try:
@@ -239,7 +238,7 @@ def run(args: argparse.Namespace) -> int:
     except LinkError as e:
         hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
         print(f"booth run: {e}.{hint}", file=sys.stderr)
-        return 1
+        return NEEDS_PAIRING if e.status == 401 else 1
     except KeyboardInterrupt:
         return 0
     return 0
@@ -284,6 +283,8 @@ def app(argv: list[str]) -> int:
             code = dispatch(argv)
         elif (settings := config.load()).get("device_token") and settings.get("plex_token"):
             code = run(build_parser().parse_args(["run"]))
+            if again := offer_setup(code):
+                code = again()
         else:
             code = setup(build_parser().parse_args(["setup"]))
     except SystemExit as e:  # argparse's --help, --version and usage errors
@@ -297,6 +298,27 @@ def app(argv: list[str]) -> int:
         with contextlib.suppress(EOFError, KeyboardInterrupt):
             input("\nPress Enter to close this window.")
     return code
+
+
+def offer_setup(code: int):
+    """After a double-clicked `run` that only setup can fix (or that found Booth already running, which is
+    how someone changes its settings), ask to set up again. Returns what does that, or None."""
+    from radiobooth import config
+    from radiobooth.setup_flow import guided
+
+    question = {
+        NEEDS_SETUP: "Set Booth up again now? [Y/n] ",
+        NEEDS_PAIRING: "Connect Booth to your account again now, with a new code from your phone? [Y/n] ",
+        ALREADY_RUNNING: "Do you want to change Booth's settings? [y/N] ",
+    }.get(code)
+    if not question:
+        return None
+    answer = input(f"\n{question}").strip().lower()
+    if not (answer in ("y", "yes") or (code != ALREADY_RUNNING and answer == "")):
+        return None
+    server = os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
+    name = build_parser().parse_args(["setup"]).name
+    return lambda: guided(server, name, keep_pairing=code != NEEDS_PAIRING)
 
 
 def main(argv: list[str] | None = None) -> int:

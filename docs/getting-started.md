@@ -84,12 +84,14 @@ The full details are in [`protocol/`](../protocol/).
 
 - **The show stays at "Waiting for your Booth Engineer".** Booth isn't running, or the computer is asleep.
   On Windows, open **Radio Booth** from the Start menu. On a Mac, double-click `Radio Booth.command` again.
+  If Booth can't start because something needs setting up again, it says so and offers to do it: press
+  Enter.
 - **"Didn't work".** The reason is shown under the show. Try again; if it keeps happening, tell us what it
   says.
-- **You changed your Plex setup, or moved your music.** Run **Radio Booth setup** from the Start menu
-  (Windows). On a Mac, open Terminal and run `~/Downloads/Radio\ Booth.command setup` (or wherever you
-  keep it).
+- **You changed your Plex setup, or moved your music.** On Windows, run **Radio Booth setup** from the
+  Start menu. On a Mac, double-click `Radio Booth.command`; it says Booth is already running and asks if
+  you want to change its settings. Type `y` and press Enter.
 - **"Booth is already running on this computer."** That's fine: it's already on, in another window or in
-  the background.
+  the background. Press Enter to close this window.
 
 Anything else: get in touch with the person who invited you.

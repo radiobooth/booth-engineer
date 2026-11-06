@@ -20,14 +20,17 @@ def yes(question: str, ask=input) -> bool:
     return ask(f"{question} [Y/n] ").strip().lower() in ("", "y", "yes")
 
 
-def guided(server: str, name: str, *, ask=input, open_browser=webbrowser.open) -> int:
+def guided(
+    server: str, name: str, *, ask=input, open_browser=webbrowser.open, keep_pairing: bool = True
+) -> int:
+    """The whole setup. keep_pairing=False when the saved pairing is known to be dead, so it isn't offered."""
     say("Radio Booth setup\n")
     say("Booth reads the titles and details of your music in Plex to plan shows, and puts each finished")
     say("show into Plex as a playlist. Your music files never leave this computer.\n")
     try:
         settings = plex_step(config.load(), ask=ask, open_browser=open_browser)
         config.save(settings)
-        settings = pair_step(settings, server, name, ask=ask)
+        settings = pair_step(settings, server, name, ask=ask, offer_keep=keep_pairing)
         config.save(settings)
     except SetupError as e:
         say(f"\n{e}")
@@ -102,7 +105,15 @@ def plex_step(settings: dict, *, ask, open_browser) -> dict:
         say(f"Made a Plex library called {onboard.BREAKS_LIBRARY!r} for the DJ's breaks, in {folder}.")
         say("It keeps the DJ out of your own music.")
         breaks_dir = str(folder)
-    elif here and breaks is not None and (path := onboard.section_path(breaks)) and Path(path).is_dir():
+    elif here and breaks is not None and (path := onboard.section_path(breaks)):
+        try:  # its folder may have been tidied away; Plex on this computer sees it again once it's back
+            Path(path).mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise SetupError(
+                f"Your {onboard.BREAKS_LIBRARY!r} Plex library uses {path}, and Booth can't make that"
+                f" folder ({e.strerror or e}). In Plex, point the library at a folder that exists, then"
+                " run setup again."
+            ) from None
         breaks_dir = path
     else:
         breaks_dir = remote_breaks_dir(breaks, server.get("name"), ask)
@@ -138,10 +149,12 @@ def remote_breaks_dir(breaks: dict | None, server_name: str | None, ask) -> str:
         say("That folder isn't reachable from here. Check that it's shared and connected, then try again.")
 
 
-def pair_step(settings: dict, server: str, name: str, *, ask) -> dict:
+def pair_step(settings: dict, server: str, name: str, *, ask, offer_keep: bool = True) -> dict:
     say("Step 3 of 3: your Booth account")
-    if settings.get("device_token") and yes(
-        "This computer is already connected to your Booth account. Keep that connection?", ask
+    if (
+        offer_keep
+        and settings.get("device_token")
+        and yes("This computer is already connected to your Booth account. Keep that connection?", ask)
     ):
         return settings
     try:

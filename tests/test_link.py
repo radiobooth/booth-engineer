@@ -288,7 +288,9 @@ def test_run_explains_how_to_fix_an_unknown_engineer(dj, tmp_path, monkeypatch, 
     for k, v in {"PLEX_URL": "http://plex", "PLEX_TOKEN": "t", "BOOTH_BREAKS_LIBRARY": "RB"}.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setenv("BOOTH_BREAKS_DIR", str(tmp_path))
-    assert main(["run", "--once"]) == 1
+    from radiobooth.cli import NEEDS_PAIRING
+
+    assert main(["run", "--once"]) == NEEDS_PAIRING
     assert "booth pair" in capsys.readouterr().err
 
 

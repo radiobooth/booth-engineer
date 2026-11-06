@@ -89,6 +89,10 @@ def plex_tv(method: str, path: str, client_id: str, token: str | None = None, pa
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read() or b"null")
+    except ValueError:  # e.g. a Wi-Fi sign-in page answering instead of plex.tv
+        raise SetupError(
+            "Plex's sign-in service sent something unexpected. Is this computer online?"
+        ) from None
     except urllib.error.HTTPError as e:
         raise SetupError(f"Plex's sign-in service said HTTP {e.code}. Try again in a minute.") from None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -111,11 +115,18 @@ def sign_in(
     say("Opening Plex in your browser. Sign in there and allow Radio Booth.")
     say(f"If no browser window opens, go to this address:\n  {url}")
     open_browser(url)
-    waited = 0
+    waited, misses = 0, 0
     while waited < timeout:
         sleep(2)
         waited += 2
-        got = call("GET", f"/pins/{pin['id']}", client_id, params={"code": pin["code"]})
+        try:
+            got = call("GET", f"/pins/{pin['id']}", client_id, params={"code": pin["code"]})
+        except SetupError:  # a moment offline mustn't lose a sign-in that's nearly done; a minute does
+            misses += 1
+            if misses >= 30:
+                raise
+            continue
+        misses = 0
         if got and got.get("authToken"):
             return got["authToken"]
     raise SetupError("Plex sign-in wasn't finished in time. Run setup again when you're ready.")
