@@ -14,6 +14,8 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Protocol
 
+from radiobooth.sources.added import drop_bulk_dates
+
 PAGE_SIZE = 500
 TRACK, ALBUM = 10, 9  # Plex metadata type numbers
 
@@ -167,6 +169,7 @@ def build_catalog(client: Getter, library: str | None = None, exclude: str | Non
         raise PlexError("This Plex server has no music library.")
     section = sections[0]
     tracks, skipped = read_section(client, section)
+    drop_bulk_dates(tracks)
     catalog = {
         "protocol": "radiobooth/catalog@0",
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),

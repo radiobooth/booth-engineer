@@ -40,7 +40,7 @@
         "year": {"type": "integer", "minimum": 1800, "maximum": 2200},
         "genres": {"type": "array", "items": {"type": "string"}},
         "duration_ms": {"type": "integer", "minimum": 1},
-        "added_at": {"type": "string", "format": "date-time", "description": "When the track joined the library."},
+        "added_at": {"type": "string", "format": "date-time", "description": "When the track joined the collection. Left out when the music server's date only records a bulk import (the library's first scan, a move or a rescan), since that says nothing about when the listener got the music."},
         "play_count": {"type": "integer", "minimum": 0},
         "last_played_at": {"type": "string", "format": "date-time"},
         "last_in_show_at": {
