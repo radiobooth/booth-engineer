@@ -109,6 +109,14 @@ def test_breaks_folder_stays_out_of_watched_folders(tmp_path, monkeypatch):
         onboard.default_breaks_dir([str(data), str(first)])
 
 
+def test_folders_on_other_drives_never_overlap(tmp_path, monkeypatch):
+    def other_drive(paths):
+        raise ValueError("Paths don't have the same drive")  # what Windows says for C:\\ and D:\\
+
+    monkeypatch.setattr(onboard.os.path, "commonpath", other_drive)
+    assert onboard.overlaps(tmp_path / "Radio Booth", "D:/Music") is False
+
+
 def test_library_folders_lists_every_watched_folder():
     plex = FakePlex(
         [

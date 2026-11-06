@@ -54,7 +54,10 @@ def overlaps(folder: Path, other: str) -> bool:
     """One folder is inside the other (or they're the same), comparing the way this system does."""
     a = os.path.normcase(os.path.abspath(folder))
     b = os.path.normcase(os.path.abspath(other))
-    return os.path.commonpath([a, b]) in (a, b)
+    try:
+        return os.path.commonpath([a, b]) in (a, b)
+    except ValueError:  # different drives or network shares on Windows: they can't overlap
+        return False
 
 
 def default_breaks_dir(watched: list[str]) -> Path:
