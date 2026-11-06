@@ -27,3 +27,11 @@ Rules the schemas can't express:
 - Break ids and files in a show package are unique, and `sha256` is the hash of that file.
 
 Examples are in [`examples/`](examples/) and are checked by the test suite.
+
+## Plex sign-in during setup
+
+`booth setup` also talks to Plex's own account service, plex.tv, and to nothing else beyond your Plex
+server and Booth DJ. It asks plex.tv for a sign-in code (sending only Booth's name and a random id for this
+install), waits while you sign in on Plex's page, and then lists the Plex servers your account owns, to find
+yours. Your Plex token is saved only in Booth Engineer's local config file. Nothing from your library goes
+to plex.tv.

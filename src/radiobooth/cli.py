@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import socket
@@ -13,7 +14,12 @@ from pathlib import Path
 
 from radiobooth import __version__
 
+DEFAULT_SERVER = "https://booth-dj-juvsqx4frq-uc.a.run.app"
+# What `booth run` exits with when only setup can fix it, so the double-clicked app can offer setup.
+NEEDS_SETUP, NEEDS_PAIRING, ALREADY_RUNNING = 3, 4, 5
+
 COMMANDS = {
+    "setup": "Set up Booth step by step: sign in to Plex, pick your music, connect to your Booth account.",
     "index": "Read your music library and write a catalog file (nothing leaves this machine).",
     "deliver": "Put a finished show's breaks where your music server sees them and build the playlist.",
     "pair": "Connect this machine to your Radio Booth account with a pairing code.",
@@ -46,7 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument(
                 "code", nargs="?", help="the code from the Booth page on your phone (asked for if left out)"
             )
-            p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER)")
+            p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER, then the saved one)")
+            p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
+        if name == "setup":
+            p.add_argument("--server", help=argparse.SUPPRESS)
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
         if name == "run":
             p.add_argument(
@@ -56,6 +65,17 @@ def build_parser() -> argparse.ArgumentParser:
             )
             p.add_argument("--once", action="store_true", help="check in once and exit")
     return parser
+
+
+def setting(env: str, key: str) -> str | None:
+    """A setting from the environment, else from the config file `booth setup` wrote."""
+    from radiobooth import config
+
+    return os.environ.get(env) or config.load().get(key) or None
+
+
+def plex_login() -> tuple[str | None, str | None]:
+    return setting("PLEX_URL", "plex_url"), setting("PLEX_TOKEN", "plex_token")
 
 
 def coverage(tracks: list[dict]) -> str:
@@ -80,13 +100,14 @@ def index(args: argparse.Namespace) -> int:
     from radiobooth import history
     from radiobooth.sources.plex import PlexClient, PlexError, build_catalog
 
-    url, token = os.environ.get("PLEX_URL"), os.environ.get("PLEX_TOKEN")
+    url, token = plex_login()
     if not (url and token):
-        print("booth index: set PLEX_URL and PLEX_TOKEN.", file=sys.stderr)
+        print("booth index: run `booth setup`, or set PLEX_URL and PLEX_TOKEN.", file=sys.stderr)
         return 1
     try:
-        exclude = os.environ.get("BOOTH_BREAKS_LIBRARY")
-        catalog, skipped = build_catalog(PlexClient(url, token), args.library, exclude=exclude)
+        exclude = setting("BOOTH_BREAKS_LIBRARY", "breaks_library")
+        library = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
+        catalog, skipped = build_catalog(PlexClient(url, token), library, exclude=exclude)
         history.annotate(catalog)
     except PlexError as e:
         print(f"booth index: {e}", file=sys.stderr)
@@ -105,13 +126,13 @@ def index(args: argparse.Namespace) -> int:
 
 def delivery_settings(command: str, library: str | None, dest: str | None):
     """(PLEX_URL, PLEX_TOKEN, breaks library, breaks folder), or None after explaining what's missing."""
-    url, token = os.environ.get("PLEX_URL"), os.environ.get("PLEX_TOKEN")
-    library = library or os.environ.get("BOOTH_BREAKS_LIBRARY")
-    dest = dest or os.environ.get("BOOTH_BREAKS_DIR")
+    url, token = plex_login()
+    library = library or setting("BOOTH_BREAKS_LIBRARY", "breaks_library")
+    dest = dest or setting("BOOTH_BREAKS_DIR", "breaks_dir")
     pairs = [("PLEX_URL", url), ("PLEX_TOKEN", token), ("BOOTH_BREAKS_LIBRARY", library)]
     missing = [n for n, v in [*pairs, ("BOOTH_BREAKS_DIR", dest)] if not v]
     if missing:
-        print(f"booth {command}: missing {', '.join(missing)}.", file=sys.stderr)
+        print(f"booth {command}: missing {', '.join(missing)}. Run `booth setup` first.", file=sys.stderr)
         return None
     if not Path(dest).is_dir():
         print(f"booth {command}: {dest} isn't a folder here (is the share mounted?).", file=sys.stderr)
@@ -145,10 +166,7 @@ def pair(args: argparse.Namespace) -> int:
     from radiobooth import config
     from radiobooth.link import Link, LinkError
 
-    server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server")
-    if not server:
-        print("booth pair: say which Booth DJ to pair with: --server URL or $BOOTH_SERVER.", file=sys.stderr)
-        return 1
+    server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
     try:
         link = Link(server)
     except LinkError as e:
@@ -185,15 +203,17 @@ def run(args: argparse.Namespace) -> int:
     settings = config.load()
     if not settings.get("device_token"):
         print("booth run: not paired yet. Run `booth pair` first.", file=sys.stderr)
-        return 1
+        return NEEDS_PAIRING
     plex_settings = delivery_settings("run", None, None)
     if plex_settings is None:
-        return 1
+        return NEEDS_SETUP
     url, token, library, dest = plex_settings
     plex = PlexClient(url, token)
 
+    music = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
+
     def catalog() -> dict:
-        return history.annotate(build_catalog(plex, args.library, exclude=library)[0])
+        return history.annotate(build_catalog(plex, music, exclude=library)[0])
 
     def deliver_show(show_dir: Path) -> str:
         title = deliver_to_plex(plex, show_dir, library, Path(dest)).title
@@ -203,6 +223,14 @@ def run(args: argparse.Namespace) -> int:
     def log(msg: str) -> None:
         print(f"{time.strftime('%H:%M:%S')} {msg}", file=sys.stderr, flush=True)
 
+    lock = single_instance(config.path().parent / "run.lock")
+    if lock is None:
+        print(
+            "booth run: Booth is already running on this computer. If you just changed its settings, close"
+            " the other Booth window and open Booth again so they take effect.",
+            file=sys.stderr,
+        )
+        return ALREADY_RUNNING
     station = Station(catalog=catalog, deliver=deliver_show, log=log)
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
     try:
@@ -210,13 +238,99 @@ def run(args: argparse.Namespace) -> int:
     except LinkError as e:
         hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
         print(f"booth run: {e}.{hint}", file=sys.stderr)
-        return 1
+        return NEEDS_PAIRING if e.status == 401 else 1
     except KeyboardInterrupt:
         return 0
     return 0
 
 
+def single_instance(path: Path):
+    """An open, locked file while this is the only `booth run` here, else None. The lock goes when the
+    process does, however it ends."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(path, "a+")  # noqa: SIM115 - held for the life of the process
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    return f
+
+
+def setup(args: argparse.Namespace) -> int:
+    from radiobooth import config
+    from radiobooth.setup_flow import guided
+
+    server = args.server or os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
+    return guided(server, args.name)
+
+
+def app(argv: list[str]) -> int:
+    """The packaged app. Double-clicked, with nothing typed: set up if needed, then stay connected. From the
+    Start menu: the command it names. Either way the window stays open after a failure, so nobody misses
+    what went wrong."""
+    from radiobooth import config
+
+    try:
+        if argv:
+            code = dispatch(argv)
+        elif (settings := config.load()).get("device_token") and settings.get("plex_token"):
+            code = run(build_parser().parse_args(["run"]))
+            if again := offer_setup(code):
+                code = again()
+        else:
+            code = setup(build_parser().parse_args(["setup"]))
+    except SystemExit as e:  # argparse's --help, --version and usage errors
+        code = e.code if isinstance(e.code, int) else 1
+    except KeyboardInterrupt:
+        code = 0
+    except Exception as e:  # anything unexpected: say what, and keep the window open to read it
+        print(f"\nSomething went wrong: {e}", file=sys.stderr)
+        code = 1
+    if code:
+        with contextlib.suppress(EOFError, KeyboardInterrupt):
+            input("\nPress Enter to close this window.")
+    return code
+
+
+def offer_setup(code: int):
+    """After a double-clicked `run` that only setup can fix (or that found Booth already running, which is
+    how someone changes its settings), ask to set up again. Returns what does that, or None."""
+    from radiobooth import config
+    from radiobooth.setup_flow import guided
+
+    question = {
+        NEEDS_SETUP: "Set Booth up again now? [Y/n] ",
+        NEEDS_PAIRING: "Connect Booth to your account again now, with a new code from your phone? [Y/n] ",
+        ALREADY_RUNNING: "Do you want to change Booth's settings? [y/N] ",
+    }.get(code)
+    if not question:
+        return None
+    answer = input(f"\n{question}").strip().lower()
+    if not (answer in ("y", "yes") or (code != ALREADY_RUNNING and answer == "")):
+        return None
+    server = os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
+    name = build_parser().parse_args(["setup"]).name
+    return lambda: guided(server, name, keep_pairing=code != NEEDS_PAIRING)
+
+
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles can't print every title; never crash on one
+        with contextlib.suppress(AttributeError, ValueError):
+            stream.reconfigure(errors="replace")
+    if argv is None and getattr(sys, "frozen", False):
+        return app(sys.argv[1:])
+    return dispatch(argv)
+
+
+def dispatch(argv: list[str] | None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
@@ -224,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "index":
         return index(args)
-    return {"deliver": deliver, "pair": pair, "run": run}[args.command](args)
+    return {"deliver": deliver, "pair": pair, "run": run, "setup": setup}[args.command](args)
 
 
 if __name__ == "__main__":
