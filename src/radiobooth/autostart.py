@@ -100,11 +100,12 @@ def install(platform: str = sys.platform, home: Path | None = None, run=subproce
         roaming = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
         programs = roaming / "Microsoft" / "Windows" / "Start Menu" / "Programs"
         (programs / "Startup").mkdir(parents=True, exist_ok=True)
-        (programs / "Startup" / "Radio Booth.cmd").write_text(windows_script(cmd), encoding="utf-8")
+        # Bytes, so Windows' text mode doesn't double the \r in each line ending.
+        (programs / "Startup" / "Radio Booth.cmd").write_bytes(windows_script(cmd).encode())
         # In the Start menu too: one to start Booth again, one to change its settings.
-        (programs / "Radio Booth.cmd").write_text(windows_script(cmd), encoding="utf-8")
-        (programs / "Radio Booth setup.cmd").write_text(
-            windows_script(cmd, "setup", minimized=False), "utf-8"
+        (programs / "Radio Booth.cmd").write_bytes(windows_script(cmd).encode())
+        (programs / "Radio Booth setup.cmd").write_bytes(
+            windows_script(cmd, "setup", minimized=False).encode()
         )
         return (
             "Booth will start in a small window each time you sign in to Windows. It's in the Start menu"

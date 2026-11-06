@@ -1,6 +1,7 @@
 """Local settings for Booth Engineer, kept on this machine only.
 
-The pairing token lives in a JSON file readable only by you: $BOOTH_CONFIG, or
+The pairing token lives in a JSON file readable only by you (mode 0600; on Windows, your profile
+folder's permissions): $BOOTH_CONFIG, or
 $XDG_CONFIG_HOME/radiobooth/config.json (normally ~/.config/radiobooth/config.json).
 """
 

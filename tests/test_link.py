@@ -100,7 +100,8 @@ def test_pair_command_saves_private_config(dj, cfg):
     assert main(["pair", "ABCD-2345", "--server", dj.url, "--name", "linus"]) == 0
     saved = config.load()
     assert saved == {"server": dj.url, "device_token": "be_secret", "name": "linus"}
-    assert stat.S_IMODE(os.stat(config.path()).st_mode) == 0o600
+    if os.name == "posix":  # Windows has no mode bits; the file sits in the user's own profile folder
+        assert stat.S_IMODE(os.stat(config.path()).st_mode) == 0o600
     assert sorted(p.name for p in cfg.iterdir()) == ["config.json", "config.tmp"]
 
 
