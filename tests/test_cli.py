@@ -1,3 +1,4 @@
+import os
 import sys
 
 import pytest
@@ -59,3 +60,33 @@ def test_name_window_leaves_pipes_alone(monkeypatch, capsys):
 
 def test_name_window_never_fails_on_windows():
     cli.name_window(platform="win32")  # no ctypes.windll here: quietly does nothing
+
+
+def test_a_mac_checks_https_against_its_own_certificates(monkeypatch, tmp_path):
+    import ssl
+    from types import SimpleNamespace
+
+    bundle = tmp_path / "cert.pem"
+    bundle.write_text("certificates")
+    monkeypatch.setattr(cli, "MAC_CERTIFICATES", str(bundle))
+    for var in ("SSL_CERT_FILE", "SSL_CERT_DIR"):  # set first, so the test's own change is undone after
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var)
+    monkeypatch.setattr(ssl, "get_default_verify_paths", lambda: SimpleNamespace(cafile=None, capath=None))
+    cli.use_system_certificates("linux")
+    assert "SSL_CERT_FILE" not in os.environ
+    cli.use_system_certificates("darwin")
+    assert os.environ["SSL_CERT_FILE"] == str(bundle)
+
+
+def test_a_mac_with_working_certificates_is_left_alone(monkeypatch):
+    import ssl
+    from types import SimpleNamespace
+
+    for var in ("SSL_CERT_FILE", "SSL_CERT_DIR"):  # set first, so the test's own change is undone after
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var)
+    found = SimpleNamespace(cafile="/opt/homebrew/etc/openssl@3/cert.pem", capath=None)
+    monkeypatch.setattr(ssl, "get_default_verify_paths", lambda: found)
+    cli.use_system_certificates("darwin")
+    assert "SSL_CERT_FILE" not in os.environ
