@@ -35,7 +35,7 @@ jobs:
           version: "0.13.6"  # pinned: bump only to a uv release at least 7 days old
       - run: uv sync --locked --group build
       - run: uv run pytest
-      # The Python inside the app can't find macOS's certificates by itself; check Booth points it there.
+      # Testers' Macs lack the certificates the app's Python was built with; check macOS's own list works.
       - if: runner.os == 'macOS'
         run: uv run python packaging/check_https.py
       - if: runner.os == 'Windows'
