@@ -11,7 +11,7 @@ Plex. This page covers the rest:
 - [Plex runs on a different computer](#plex-runs-on-a-different-computer) (a NAS, a media PC, a server)
 - [Linux](#linux)
 - [Docker, for example on a NAS](#docker-for-example-on-a-nas)
-- [An Intel Mac](#an-intel-mac)
+- [Booth as a command on a Mac](#booth-as-a-command-on-a-mac)
 - [What isn't supported yet](#what-isnt-supported-yet)
 
 ## First, the choice: where should Booth run?
@@ -23,7 +23,7 @@ to one of Plex's folders.
 When Booth runs on the Plex computer, both are automatic. When it runs somewhere else, you set up a shared
 folder by hand. So, best first:
 
-1. **On the Plex computer.** If that's a Windows PC or an Apple silicon Mac, use
+1. **On the Plex computer.** If that's a Windows PC or a Mac, use
    [Getting started](getting-started.md). If it's a Linux machine, see [Linux](#linux). If it's a NAS that
    runs Docker containers (Synology, QNAP, Unraid and others), see [Docker](#docker-for-example-on-a-nas).
 2. **On another computer in the same home**, with a shared folder. See the next section.
@@ -165,13 +165,16 @@ Settings and the pairing live in the `booth-config` volume. You can also set eve
 instead of running setup (`PLEX_URL`, `PLEX_TOKEN`, `BOOTH_BREAKS_LIBRARY`, `BOOTH_BREAKS_DIR`, see the
 [README](../README.md#by-hand)), but you still need `booth pair` once, with `-it`, for the pairing code.
 
-## An Intel Mac
+<a id="an-intel-mac"></a>
 
-The Mac app needs Apple silicon (M1 or later). On an Intel Mac, install Booth as a command instead, with
+## Booth as a command on a Mac
+
+The Radio Booth app works on Apple silicon and Intel Macs alike (from version 0.1.3). If you'd rather have
+Booth as a command, for example on a Mac you reach over SSH, install it with
 [uv](https://docs.astral.sh/uv/getting-started/installation/), in Terminal:
 
 ```sh
-uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.2
+uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.3
 booth setup
 ```
 
@@ -187,7 +190,7 @@ Setup is the same as the app's, and saying yes to starting automatically works t
 - **Making the `Radio Booth` library from another computer.** Setup only makes it automatically when Plex
   runs on the same computer. Otherwise you make it in Plex, as above.
 - **Music servers other than Plex.** Not yet.
-- **Downloads for Linux and Intel Macs, and a published Docker image.** For now these install from this
+- **A download for Linux, and a published Docker image.** For now these install from this
   repository, as above.
 
 Stuck? Get in touch with the person who invited you, and say which of these setups you're trying.

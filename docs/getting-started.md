@@ -28,20 +28,23 @@ your home screen or bookmark it. The link is yours alone; please don't share it.
 Go to the [latest release](https://github.com/radiobooth/booth-engineer/releases/latest) and download:
 
 - **Windows:** `RadioBooth-Windows.exe`
-- **Mac:** `RadioBooth-macOS.zip`, then double-click it to unzip. You get `Radio Booth.command`. It
-  needs a Mac with Apple silicon (M1 or later); for an older Intel Mac, see
-  [Other ways to set up Booth](other-setups.md#an-intel-mac).
+- **Mac:** `RadioBooth-macOS.zip`. Safari unzips it for you; with another browser, double-click it in
+  Downloads. You get the **Radio Booth** app. It works on any Mac from macOS 11 (Big Sur) on, Apple silicon
+  or Intel.
 
 ## 3. Open it
 
 **Windows:** double-click `RadioBooth-Windows.exe`. Windows may show a blue box saying "Windows protected
 your PC", because Booth is new and not yet known to Microsoft. Click **More info**, then **Run anyway**.
 
-**Mac:** double-click `Radio Booth.command`. If your Mac says it can't check the app for malicious
-software, open **System Settings > Privacy & Security**, scroll down, click **Open Anyway** next to
-"Radio Booth.command", and confirm.
+**Mac:** double-click **Radio Booth** in Downloads. The first time, your Mac says it can't check Radio
+Booth for malicious software, because Booth is new and not yet registered with Apple. Click **Done**, then
+open **System Settings > Privacy & Security**, scroll down, click **Open Anyway** next to "Radio Booth" and
+confirm with your password. (On macOS 11 or 12 it's **System Preferences > Security & Privacy**.) Booth then
+moves itself into your Applications folder, so you can delete the download, and opens.
 
-A window with text opens. That's Booth. It asks a few things; type your answer and press Enter.
+A window with text opens (on a Mac, in the Terminal app). That's Booth. It asks a few things; type your
+answer and press Enter.
 
 ## 4. Follow the three steps
 
@@ -59,7 +62,9 @@ computer:
 
 - **Windows:** in a small window on the taskbar. Leave it open; closing it stops Booth until next time.
   You'll also find **Radio Booth** and **Radio Booth setup** in the Start menu.
-- **Mac:** quietly in the background.
+- **Mac:** quietly in the background. Your Mac may say a background item was added; that's Booth, and
+  you'll find it under **System Settings > General > Login Items**. To open Booth again, find **Radio
+  Booth** in Applications, Launchpad or Spotlight.
 
 That's it.
 
@@ -90,15 +95,20 @@ The full details are in [`protocol/`](../protocol/).
 ## If something goes wrong
 
 - **The show stays at "Waiting for your Booth Engineer".** Booth isn't running, or the computer is asleep.
-  On Windows, open **Radio Booth** from the Start menu. On a Mac, double-click `Radio Booth.command` again.
+  On Windows, open **Radio Booth** from the Start menu. On a Mac, open **Radio Booth** from Applications.
   If Booth can't start because something needs setting up again, it says so and offers to do it: press
   Enter.
 - **"Didn't work".** The reason is shown under the show. Try again; if it keeps happening, tell us what it
   says.
 - **You changed your Plex setup, or moved your music.** On Windows, run **Radio Booth setup** from the
-  Start menu. On a Mac, double-click `Radio Booth.command`; it says Booth is already running and asks if
-  you want to change its settings. Type `y` and press Enter.
+  Start menu. On a Mac, open **Radio Booth** from Applications; it says Booth is already running and asks
+  if you want to change its settings. Type `y` and press Enter.
 - **"Booth is already running on this computer."** That's fine: it's already on, in another window or in
   the background. Press Enter to close this window.
+
+## Updating Booth
+
+On a Mac, download the new version the same way and open it. It replaces the Radio Booth in Applications
+and restarts Booth by itself; macOS asks once more before it opens, as above.
 
 Anything else: get in touch with the person who invited you.

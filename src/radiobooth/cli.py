@@ -339,6 +339,10 @@ def main(argv: list[str] | None = None) -> int:
         with contextlib.suppress(AttributeError, ValueError):
             stream.reconfigure(errors="replace")
     if argv is None and getattr(sys, "frozen", False):
+        from radiobooth import macapp
+
+        if macapp.opened_from_finder(sys.argv[1:]):  # the Mac app has no window of its own: open one
+            return macapp.open_in_terminal(sys.executable)
         return app(sys.argv[1:])
     return dispatch(argv)
 
