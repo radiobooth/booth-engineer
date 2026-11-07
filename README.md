@@ -22,6 +22,9 @@ the app for Windows or macOS (or `booth setup` if you installed the command), an
 signing in to Plex and connecting to your Booth account. It saves its settings in the config file below, so
 nothing needs to be set in the environment.
 
+**Plex on another computer, Linux, Docker or an Intel Mac?** See
+[docs/other-setups.md](docs/other-setups.md).
+
 ### By hand
 
 Every setting can also come from the environment, which wins over the config file. You need a Plex music library of its own for the DJ breaks (so they never mix into your music), and that
