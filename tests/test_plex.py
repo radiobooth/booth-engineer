@@ -128,3 +128,12 @@ def test_index_can_skip_the_breaks_library():
     ]
     catalog, _ = plex.build_catalog(FakePlex(two), exclude="Radio Booth")
     assert catalog["source"]["library"] == "Music"
+
+
+def test_a_refused_sign_in_says_to_sign_in_again(monkeypatch):
+    def refuse(req, timeout):
+        raise plex.urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(plex.urllib.request, "urlopen", refuse)
+    with pytest.raises(plex.PlexAuthError, match="Sign in to Plex again"):
+        plex.PlexClient("http://nas.local:32400", "stale").get("/library/sections")
