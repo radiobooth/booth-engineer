@@ -217,12 +217,20 @@ def run(args: argparse.Namespace) -> int:
         (setup run again in another window). Without one, the refusal stands: only signing in fixes it."""
         try:
             return step()
-        except PlexAuthError:
-            saved_url, saved_token = plex_login()
-            if not saved_token or (saved_url, saved_token) == (plex.base_url, plex.token):
+        except PlexAuthError as e:
+            # The saved sign-in, even when PLEX_URL/PLEX_TOKEN are set: a token exported in this shell
+            # outlives the one setup just saved.
+            saved = config.load()
+            saved_url = saved.get("plex_url") or plex.base_url
+            saved_token = saved.get("plex_token")
+            if not saved_token or (saved_url.rstrip("/"), saved_token) == (plex.base_url, plex.token):
+                if os.environ.get("PLEX_TOKEN"):
+                    raise PlexAuthError(
+                        f"{e} PLEX_TOKEN is set here and wins over setup's: unset it."
+                    ) from None
                 raise
             plex.base_url, plex.token = saved_url.rstrip("/"), saved_token
-            log("Using the Plex sign-in saved by setup.")
+            log("Plex refused the sign-in Booth started with; using the one saved by setup.")
             return step()
 
     def catalog() -> dict:

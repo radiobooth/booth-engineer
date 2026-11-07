@@ -455,4 +455,57 @@ def test_run_picks_up_a_plex_sign_in_saved_while_it_runs(dj, tmp_path, monkeypat
     ]
     assert main(["run", "--once"]) == 0
     assert seen == ["old", "new"] and len(dj.catalogs) == 1
-    assert "Using the Plex sign-in saved by setup." in capsys.readouterr().err
+    assert "using the one saved by setup" in capsys.readouterr().err
+
+
+def test_a_refused_plex_token_from_the_shell_gives_way_to_setups(dj, tmp_path, monkeypatch, capsys):
+    from radiobooth.sources import plex as plex_source
+
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("PLEX_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "exported-long-ago")
+    for k in ("BOOTH_BREAKS_LIBRARY", "BOOTH_BREAKS_DIR", "BOOTH_MUSIC_LIBRARY"):
+        monkeypatch.delenv(k, raising=False)
+    config.save(
+        {
+            "server": dj.url,
+            "device_token": "be_secret",
+            "plex_url": "http://plex:32400",
+            "plex_token": "fresh",
+            "breaks_library": "Radio Booth",
+            "breaks_dir": str(tmp_path),
+        }
+    )
+    seen = []
+
+    def build_catalog(client, library, exclude=None):
+        seen.append(client.token)
+        if client.token != "fresh":
+            raise plex_source.PlexAuthError()
+        return {"protocol": "radiobooth/catalog@0", "tracks": []}, 0
+
+    monkeypatch.setattr(plex_source, "build_catalog", build_catalog)
+    ask = {"show_id": "s", "status": "queued", "action": "send_catalog", "catalog_url": "/v0/shows/s/catalog"}
+    dj.queue = [[ask]]
+    assert main(["run", "--once"]) == 0
+    assert seen == ["exported-long-ago", "fresh"] and len(dj.catalogs) == 1
+
+
+def test_a_refused_plex_token_from_the_shell_says_to_unset_it(dj, tmp_path, monkeypatch, capsys):
+    from radiobooth.sources import plex as plex_source
+
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    for k, v in {"PLEX_URL": "http://plex", "PLEX_TOKEN": "dead", "BOOTH_BREAKS_LIBRARY": "RB"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("BOOTH_BREAKS_DIR", str(tmp_path))
+    config.save({"server": dj.url, "device_token": "be_secret"})
+
+    def build_catalog(client, library, exclude=None):
+        raise plex_source.PlexAuthError()
+
+    monkeypatch.setattr(plex_source, "build_catalog", build_catalog)
+    ask = {"show_id": "s", "status": "queued", "action": "send_catalog", "catalog_url": "/v0/shows/s/catalog"}
+    dj.queue = [[ask]]
+    assert main(["run", "--once"]) == 0
+    err = capsys.readouterr().err
+    assert "Sign in to Plex again" in err and "PLEX_TOKEN is set here" in err
