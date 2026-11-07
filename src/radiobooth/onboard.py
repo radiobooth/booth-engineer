@@ -60,11 +60,89 @@ def overlaps(folder: Path, other: str) -> bool:
         return False
 
 
-def default_breaks_dir(watched: list[str]) -> Path:
-    """The first candidate folder that no Plex library already watches, and that holds no library's folder."""
-    for folder in breaks_dir_candidates():
-        if not any(overlaps(folder, w) for w in watched):
+def plex_user_id(proc: Path = Path("/proc")) -> int | None:
+    """On Linux, the user id Plex Media Server runs as (its own `plex` user, from the usual package), or
+    None when there's no such process to see (other systems, or Plex in a container)."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        try:
+            fields = dict(
+                line.split(":", 1) for line in (entry / "status").read_text().splitlines() if ":" in line
+            )
+        except (OSError, ValueError):
+            continue
+        if fields.get("Name", "").strip() == "Plex Media Serv":  # the kernel keeps 15 characters
+            return int(fields["Uid"].split()[0])
+    return None
+
+
+def _groups(uid: int) -> set[int]:
+    try:
+        import pwd
+
+        user = pwd.getpwuid(uid)
+        return set(os.getgrouplist(user.pw_name, user.pw_gid))
+    except (ImportError, KeyError, OSError):
+        return set()
+
+
+def _allows(st: os.stat_result, uid: int, groups: set[int], want: int) -> bool:
+    """Whether user `uid` gets permission bits `want` (4 read, 1 search) on a file with stat `st`."""
+    if st.st_uid == uid:
+        return st.st_mode >> 6 & want == want
+    if st.st_gid in groups:
+        return st.st_mode >> 3 & want == want
+    return st.st_mode & want == want
+
+
+def readable_by(folder: Path, uid: int | None) -> bool:
+    """Whether Plex, running as `uid`, could read `folder` once Booth makes it (new folders get r-x for
+    everyone). Always true when Plex runs as this same user, or its user isn't known."""
+    if uid is None or not hasattr(os, "getuid") or uid in (0, os.getuid()):
+        return True
+    groups = _groups(uid)
+    folder = Path(os.path.abspath(folder))
+    if folder.exists() and not _allows(folder.stat(), uid, groups, 5):
+        return False
+    for parent in folder.parents:
+        if parent.exists() and not _allows(parent.stat(), uid, groups, 1):
+            return False
+    return True
+
+
+def writable(folder: Path) -> bool:
+    """Whether Booth can make `folder` (or write in it, if it's there already)."""
+    for p in (Path(os.path.abspath(folder)), *Path(os.path.abspath(folder)).parents):
+        if p.exists():
+            return p.is_dir() and os.access(p, os.W_OK)
+    return False
+
+
+def default_breaks_dir(watched: list[str], plex_uid: int | None = None) -> Path:
+    """The first candidate folder that no Plex library already watches, that holds no library's folder, that
+    Booth can make and that Plex can read. On Linux, Plex usually runs as its own user, which often can't
+    look inside home folders; then a `Radio Booth` folder next to one of Plex's own folders is tried too."""
+    candidates = breaks_dir_candidates()
+    if plex_uid is not None:
+        candidates += [Path(w).parent / BREAKS_LIBRARY for w in watched]
+    for folder in candidates:
+        if (
+            not any(overlaps(folder, w) for w in watched)
+            and readable_by(folder, plex_uid)
+            and writable(folder)
+        ):
             return folder
+    if plex_uid is not None:
+        raise SetupError(
+            "Couldn't find a folder for the DJ's breaks that both Booth and Plex can use (Plex runs as its"
+            f" own user here). In Plex, add a Music library named {BREAKS_LIBRARY!r} for an empty folder"
+            " that Plex can read and you can write to, then run setup again."
+        )
     raise SetupError(
         "Couldn't find a folder for the DJ's breaks that your Plex libraries don't already use. In Plex,"
         f" add a Music library named {BREAKS_LIBRARY!r} for an empty folder of its own, then run setup again."
@@ -150,11 +228,24 @@ def identity(url: str, token: str | None = None, timeout: float = 4) -> dict | N
         return None
 
 
-def reach(server: dict, token: str, probe: Callable = identity) -> tuple[str, bool]:
+def in_container() -> bool:
+    """Running in a container (the Booth image sets BOOTH_IN_CONTAINER). Plex answering on 127.0.0.1 there
+    (host networking) still sees the host's folders, not the container's, so it doesn't count as here."""
+    return bool(
+        os.environ.get("BOOTH_IN_CONTAINER")
+        or Path("/.dockerenv").exists()
+        or Path("/run/.containerenv").exists()
+    )
+
+
+def reach(
+    server: dict, token: str, probe: Callable = identity, contained: Callable = in_container
+) -> tuple[str, bool]:
     """(address to use, whether Plex runs on this computer). Plex on this computer is reached directly;
-    otherwise the first of the server's own addresses that answers, local network first."""
+    otherwise the first of the server's own addresses that answers, local network first. In a container,
+    Plex is never "on this computer": they don't share folders."""
     want = server.get("clientIdentifier")
-    here = probe(LOCAL_PLEX)
+    here = None if contained() else probe(LOCAL_PLEX)
     if here and here.get("machineIdentifier") == want:
         return LOCAL_PLEX, True
     conns = sorted(server.get("connections") or [], key=lambda c: (not c.get("local"), bool(c.get("relay"))))
@@ -176,6 +267,8 @@ def section_path(section: dict) -> str | None:
 def make_breaks_library(client: PlexClient, folder: Path, name: str = BREAKS_LIBRARY) -> dict:
     """A music library of its own for the DJ breaks, watching `folder` (on this computer, where Plex is)."""
     folder.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":  # Plex may run as another user: let it read the folder (only the folder)
+        folder.chmod(folder.stat().st_mode | 0o055)
     params = {
         "name": name,
         "type": "artist",

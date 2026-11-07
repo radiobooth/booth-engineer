@@ -95,7 +95,7 @@ There's no double-click app for Linux yet; Booth installs as a command. You need
 [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```sh
-uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.1
+uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.2
 booth setup
 ```
 
@@ -111,11 +111,13 @@ A user service only runs while you're signed in. On a headless machine, let it r
 sudo loginctl enable-linger "$USER"
 ```
 
-**Plex on the same Linux machine.** Setup makes the `Radio Booth` library in Plex for you, in
-`~/Radio Booth`. Plex installed from its Linux package runs as its own `plex` user, which often can't read
-inside your home folder; then deliveries fail with "Plex didn't pick up breaks". Either let Plex in
-(`chmod o+x ~ && chmod o+rx ~/"Radio Booth"`), or make the library yourself first, in a folder Plex can read,
-as in [the Plex side](#what-you-set-up-on-the-plex-side-once) above; setup then uses it.
+**Plex on the same Linux machine.** Setup makes the `Radio Booth` library in Plex for you. Plex installed
+from its Linux package runs as its own `plex` user, which often can't look inside your home folder, so setup
+checks that Plex can read the folder it picks: `~/Radio Booth` if it can, otherwise a `Radio Booth` folder
+next to one of your Plex library folders (for example `/srv/Radio Booth` next to `/srv/music`). If neither
+works (you can't write next to your music), setup says so; then make the library yourself, in a folder Plex
+can read and you can write to, as in [the Plex side](#what-you-set-up-on-the-plex-side-once) above, and run
+setup again.
 
 **Plex on another machine.** Mount the shared folder first, permanently (an `/etc/fstab` entry for SMB or
 NFS, not a desktop file-manager mount, which goes away when you sign out). Then follow
@@ -128,7 +130,7 @@ involved. There isn't a published image yet, so build it from this repository (a
 from a Git address can do the same):
 
 ```sh
-docker build -t booth-engineer https://github.com/radiobooth/booth-engineer.git#v0.1.1
+docker build -t booth-engineer https://github.com/radiobooth/booth-engineer.git#v0.1.2
 ```
 
 1. **Make the `Radio Booth` library in Plex first**, as in
@@ -156,8 +158,8 @@ docker build -t booth-engineer https://github.com/radiobooth/booth-engineer.git#
      booth-engineer
    ```
 
-Use Docker's normal network, not host networking: with host networking Booth thinks Plex is "on this
-computer" and uses the folder path Plex gives, which doesn't exist inside the container.
+Docker's normal network and host networking both work. Either way, Booth in a container treats Plex as
+being on another computer, since the two don't see the same folders, which is why it asks for `/breaks`.
 
 Settings and the pairing live in the `booth-config` volume. You can also set everything by environment
 instead of running setup (`PLEX_URL`, `PLEX_TOKEN`, `BOOTH_BREAKS_LIBRARY`, `BOOTH_BREAKS_DIR`, see the
@@ -169,7 +171,7 @@ The Mac app needs Apple silicon (M1 or later). On an Intel Mac, install Booth as
 [uv](https://docs.astral.sh/uv/getting-started/installation/), in Terminal:
 
 ```sh
-uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.1
+uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.2
 booth setup
 ```
 

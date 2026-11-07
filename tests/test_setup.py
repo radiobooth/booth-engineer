@@ -55,8 +55,21 @@ def test_only_owned_servers_count():
 
 
 def test_plex_on_this_computer_is_reached_directly():
-    url, here = onboard.reach(SERVER, "t", probe=lambda url, token=None: {"machineIdentifier": "abc"})
+    probe = lambda url, token=None: {"machineIdentifier": "abc"}  # noqa: E731
+    url, here = onboard.reach(SERVER, "t", probe=probe, contained=lambda: False)
     assert (url, here) == (onboard.LOCAL_PLEX, True)
+
+
+def test_plex_on_the_host_of_a_container_is_not_here():
+    # Host networking: Plex answers on 127.0.0.1, but its folders aren't the container's.
+    probe = lambda url, token=None: {"machineIdentifier": "abc"}  # noqa: E731
+    url, here = onboard.reach(SERVER, "t", probe=probe, contained=lambda: True)
+    assert (url, here) == ("https://192-168-1-20.plex.direct:32400", False)
+
+
+def test_container_is_recognised_by_the_image_setting(monkeypatch):
+    monkeypatch.setenv("BOOTH_IN_CONTAINER", "1")
+    assert onboard.in_container()
 
 
 def test_plex_elsewhere_prefers_the_local_network():
@@ -66,13 +79,14 @@ def test_plex_elsewhere_prefers_the_local_network():
         tried.append(url)
         return {"machineIdentifier": "abc"} if "192-168" in url or "203-0" in url else None
 
-    assert onboard.reach(SERVER, "t", probe=probe) == ("https://192-168-1-20.plex.direct:32400", False)
+    found = onboard.reach(SERVER, "t", probe=probe, contained=lambda: False)
+    assert found == ("https://192-168-1-20.plex.direct:32400", False)
     assert tried[0] == onboard.LOCAL_PLEX and tried[1].startswith("https://192-168")
 
 
 def test_unreachable_plex_says_so():
     with pytest.raises(SetupError, match="couldn't connect"):
-        onboard.reach(SERVER, "t", probe=lambda *a, **k: None)
+        onboard.reach(SERVER, "t", probe=lambda *a, **k: None, contained=lambda: False)
 
 
 class FakePlex:
@@ -108,6 +122,46 @@ def test_breaks_folder_stays_out_of_watched_folders(tmp_path, monkeypatch):
     assert onboard.default_breaks_dir([str(first / "old")]) == second  # a library inside it
     with pytest.raises(SetupError, match="empty folder of its own"):
         onboard.default_breaks_dir([str(data), str(first)])
+
+
+@pytest.mark.skipif(not hasattr(onboard.os, "getuid"), reason="Unix permissions")
+def test_breaks_folder_is_one_plex_can_read_when_it_runs_as_another_user(tmp_path, monkeypatch, request):
+    # pytest's own temp folders are private (0700): open them to other users for the test, as /srv would be.
+    for folder in [tmp_path, *tmp_path.parents]:
+        if folder.stat().st_uid == onboard.os.getuid() and not folder.stat().st_mode & 0o001:
+            mode = folder.stat().st_mode
+            folder.chmod(mode | 0o001)
+            request.addfinalizer(lambda folder=folder, mode=mode: folder.chmod(mode))
+    home, srv = tmp_path / "home", tmp_path / "srv"
+    (srv / "music").mkdir(parents=True)
+    home.mkdir(mode=0o750)  # like Ubuntu's home folders: other users can't look inside
+    home.chmod(0o750)
+    monkeypatch.setattr(onboard, "breaks_dir_candidates", lambda: [home / "Radio Booth"])
+    monkeypatch.setattr(onboard, "_groups", lambda uid: set())
+    plex = onboard.os.getuid() + 1
+    assert onboard.default_breaks_dir([str(srv / "music")]) == home / "Radio Booth"  # same user: fine
+    assert onboard.default_breaks_dir([str(srv / "music")], onboard.os.getuid()) == home / "Radio Booth"
+    assert onboard.default_breaks_dir([str(srv / "music")], plex) == srv / "Radio Booth"
+    if onboard.os.geteuid() == 0:
+        return  # root can write anywhere, so the rest doesn't apply
+    srv.chmod(0o500)  # and Booth can't write next to the music either
+    try:
+        with pytest.raises(SetupError, match="Plex can read"):
+            onboard.default_breaks_dir([str(srv / "music")], plex)
+    finally:
+        srv.chmod(0o755)
+
+
+def test_plex_user_is_found_from_its_process(tmp_path, monkeypatch):
+    monkeypatch.setattr(onboard.sys, "platform", "linux")
+    for pid, name, uid in (("1", "systemd", "0"), ("42", "Plex Media Serv", "998"), ("self", "x", "1")):
+        (tmp_path / pid).mkdir()
+        (tmp_path / pid / "status").write_text(f"Name:\t{name}\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n")
+    assert onboard.plex_user_id(tmp_path) == 998
+    (tmp_path / "42" / "status").write_text("Name:\tbash\nUid:\t998\n")
+    assert onboard.plex_user_id(tmp_path) is None
+    monkeypatch.setattr(onboard.sys, "platform", "darwin")
+    assert onboard.plex_user_id(tmp_path) is None
 
 
 def test_folders_on_other_drives_never_overlap(tmp_path, monkeypatch):
@@ -148,6 +202,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(onboard, "sign_in", lambda client_id, **k: "acct-token")
     monkeypatch.setattr(onboard, "owned_servers", lambda token, client_id: [SERVER])
     monkeypatch.setattr(onboard, "reach", lambda server, token: (onboard.LOCAL_PLEX, True))
+    monkeypatch.setattr(onboard, "plex_user_id", lambda: None)
     plex = FakePlex([{"title": "Music", "type": "artist"}, {"title": "Audiobooks", "type": "artist"}])
     monkeypatch.setattr(setup_flow, "PlexClient", lambda url, token: plex)
     codes = []
