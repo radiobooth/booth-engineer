@@ -334,7 +334,24 @@ def offer_setup(code: int):
     return lambda: guided(server, name, keep_pairing=code != NEEDS_PAIRING)
 
 
+MAC_CERTIFICATES = "/etc/ssl/cert.pem"  # the certificate authorities macOS trusts, kept up to date by Apple
+
+
+def use_system_certificates(platform: str = sys.platform) -> None:
+    """Let Booth check HTTPS certificates on a Mac. The Python inside the app looks for trusted certificates
+    where its own install on the build machine kept them, a file most Macs don't have, so every HTTPS
+    connection, starting with plex.tv, failed with CERTIFICATE_VERIFY_FAILED. Use macOS's own list then."""
+    import ssl
+
+    if platform != "darwin" or os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
+        return
+    found = ssl.get_default_verify_paths()
+    if not (found.cafile or found.capath) and Path(MAC_CERTIFICATES).is_file():
+        os.environ["SSL_CERT_FILE"] = MAC_CERTIFICATES
+
+
 def main(argv: list[str] | None = None) -> int:
+    use_system_certificates()
     for stream in (sys.stdout, sys.stderr):  # Windows consoles can't print every title; never crash on one
         with contextlib.suppress(AttributeError, ValueError):
             stream.reconfigure(errors="replace")
