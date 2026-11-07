@@ -13,7 +13,8 @@ This takes about 10 minutes, once.
 ## What you need
 
 - **Plex Media Server with your music in it**, on a Windows PC or a Mac. Booth works best when it runs on
-  that same computer.
+  that same computer. Plex on a NAS, a Linux machine or another computer? See
+  [Other ways to set up Booth](other-setups.md).
 - **Your phone**, with the sign-in link you were sent.
 - That computer switched on and awake when you ask for a show. It doesn't need to stay on otherwise.
 
@@ -28,7 +29,8 @@ Go to the [latest release](https://github.com/radiobooth/booth-engineer/releases
 
 - **Windows:** `RadioBooth-Windows.exe`
 - **Mac:** `RadioBooth-macOS.zip`, then double-click it to unzip. You get `Radio Booth.command`. It
-  needs a Mac with Apple silicon (M1 or later); for an older Intel Mac, ask the person who invited you.
+  needs a Mac with Apple silicon (M1 or later); for an older Intel Mac, see
+  [Other ways to set up Booth](other-setups.md#an-intel-mac).
 
 ## 3. Open it
 
