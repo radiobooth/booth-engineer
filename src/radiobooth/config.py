@@ -12,6 +12,9 @@ import os
 import tempfile
 from pathlib import Path
 
+# Booth DJ addresses that have moved. Saved settings follow the move; the pairing token stays valid.
+MOVED = {"https://booth-dj-juvsqx4frq-uc.a.run.app": "https://my.radiobooth.fm"}
+
 
 def path() -> Path:
     if explicit := os.environ.get("BOOTH_CONFIG"):
@@ -22,7 +25,10 @@ def path() -> Path:
 
 def load() -> dict:
     p = path()
-    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    settings = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    if moved := MOVED.get(str(settings.get("server") or "").rstrip("/")):
+        settings["server"] = moved
+    return settings
 
 
 def save(settings: dict) -> Path:
