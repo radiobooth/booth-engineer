@@ -1,10 +1,12 @@
 """Start Booth Engineer when you sign in to this computer, so shows arrive without opening anything.
 
 The packaged app is first copied to a folder of its own, so tidying Downloads never breaks it (and on macOS,
-a background app may not read files in Downloads at all).
+a background app may not read files in Downloads at all): on Windows a folder in AppData, on a Mac the
+Applications folder (see `macapp`).
 Windows: a script in the Startup folder opens `booth run` in a minimized window (close it to stop Booth
-until the next sign-in), and Start-menu shortcuts start Booth or its setup. macOS: a LaunchAgent. Linux: a
-systemd user service. Each runs as you, with your settings; nothing is installed system-wide.
+until the next sign-in), and Start-menu shortcuts start Booth or its setup. macOS: a LaunchAgent, which
+System Settings lists under Login Items. Linux: a systemd user service. Each runs as you, with your
+settings; nothing is installed system-wide.
 """
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from radiobooth import macapp
 
 NAME = "radiobooth"
 
@@ -34,7 +38,8 @@ def windows_script(cmd: list[str], action: str = "run", minimized: bool = True) 
 
 
 def app_home(platform: str, home: Path) -> Path:
-    """Where the packaged app keeps its own copy."""
+    """Where the packaged app keeps its own copy. (The Mac app goes to Applications instead; this is where the
+    Mac download kept itself before it was an app, as a bare program.)"""
     if platform == "win32":
         return (
             Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
@@ -49,6 +54,8 @@ def keep_app(cmd: list[str], home: Path, platform: str) -> list[str]:
     Downloads folder is tidied. Only for the packaged app; an installed `booth` command stays put."""
     if not getattr(sys, "frozen", False):
         return cmd
+    if platform == "darwin" and (app := macapp.bundle(cmd[0])):
+        return [str(macapp.launcher(macapp.install(app, home)))]
     target = app_home(platform, home)
     if Path(cmd[0]).resolve() != target.resolve():
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +97,11 @@ def mac_plist(cmd: list[str], log: Path) -> str:
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.radiobooth.engineer</string>
+  <string>{macapp.BUNDLE_ID}</string>
+  <key>AssociatedBundleIdentifiers</key>
+  <array>
+    <string>{macapp.BUNDLE_ID}</string>
+  </array>
   <key>ProgramArguments</key>
   <array>{args}
   </array>
@@ -165,7 +176,12 @@ def install(platform: str = sys.platform, home: Path | None = None, run=subproce
         plist.write_text(mac_plist(cmd, logs / "radiobooth.log"), encoding="utf-8")
         run(["launchctl", "unload", str(plist)], capture_output=True)  # an older copy, if any
         checked(run, ["launchctl", "load", str(plist)])
-        return "Booth now runs in the background and starts each time you sign in to this Mac."
+        done = "Booth now runs in the background and starts each time you sign in to this Mac."
+        if macapp.bundle(cmd[0]):
+            # The bare program the Mac download kept before it was an app; nothing starts it any more.
+            app_home(platform, home).unlink(missing_ok=True)
+            done += " To change its settings, open Radio Booth from your Applications folder."
+        return done
     units = home / ".config" / "systemd" / "user"
     units.mkdir(parents=True, exist_ok=True)
     (units / f"{NAME}.service").write_text(systemd_unit(cmd), encoding="utf-8")
