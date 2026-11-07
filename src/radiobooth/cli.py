@@ -197,7 +197,7 @@ def run(args: argparse.Namespace) -> int:
     from radiobooth import config, history
     from radiobooth.link import Link, LinkError, Station
     from radiobooth.link import run as run_link
-    from radiobooth.sources.plex import PlexClient, build_catalog
+    from radiobooth.sources.plex import PlexAuthError, PlexClient, build_catalog
     from radiobooth.targets.plex import deliver as deliver_to_plex
 
     settings = config.load()
@@ -212,11 +212,24 @@ def run(args: argparse.Namespace) -> int:
 
     music = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
 
+    def signed_in(step):
+        """`step()`, and if Plex refuses the sign-in, once more with a newer one saved since Booth started
+        (setup run again in another window). Without one, the refusal stands: only signing in fixes it."""
+        try:
+            return step()
+        except PlexAuthError:
+            saved_url, saved_token = plex_login()
+            if not saved_token or (saved_url, saved_token) == (plex.base_url, plex.token):
+                raise
+            plex.base_url, plex.token = saved_url.rstrip("/"), saved_token
+            log("Using the Plex sign-in saved by setup.")
+            return step()
+
     def catalog() -> dict:
-        return history.annotate(build_catalog(plex, music, exclude=library)[0])
+        return history.annotate(signed_in(lambda: build_catalog(plex, music, exclude=library)[0]))
 
     def deliver_show(show_dir: Path) -> str:
-        title = deliver_to_plex(plex, show_dir, library, Path(dest)).title
+        title = signed_in(lambda: deliver_to_plex(plex, show_dir, library, Path(dest))).title
         remember(show_dir, log)
         return title
 

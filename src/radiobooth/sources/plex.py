@@ -24,6 +24,19 @@ class PlexError(RuntimeError):
     pass
 
 
+SIGN_IN_AGAIN = (
+    "Plex no longer accepts Booth's sign-in (HTTP 401). Sign in to Plex again: open Radio Booth and choose to"
+    " change its settings, or run `booth setup`."
+)
+
+
+class PlexAuthError(PlexError):
+    """Plex refused the token (HTTP 401). Waiting won't fix it; signing in to Plex again will."""
+
+    def __init__(self, message: str = SIGN_IN_AGAIN):
+        super().__init__(message)
+
+
 class Getter(Protocol):
     def get(self, path: str, params: dict | None = None) -> dict: ...
 
@@ -46,6 +59,8 @@ class PlexClient:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body, ctype = resp.read(), resp.headers.get("Content-Type", "")
         except urllib.error.HTTPError as e:
+            if e.code == 401:
+                raise PlexAuthError() from None
             raise PlexError(f"Plex returned HTTP {e.code} for {method} {path}") from None
         except urllib.error.URLError as e:
             raise PlexError(f"Could not reach Plex at {self.base_url}: {e.reason}") from None

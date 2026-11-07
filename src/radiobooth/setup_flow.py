@@ -9,7 +9,7 @@ from pathlib import Path
 from radiobooth import autostart, config, onboard
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
-from radiobooth.sources.plex import PlexClient, PlexError, music_sections
+from radiobooth.sources.plex import PlexAuthError, PlexClient, PlexError, music_sections
 
 
 def say(msg: str = "") -> None:
@@ -64,7 +64,7 @@ def plex_step(settings: dict, *, ask, open_browser) -> dict:
     ready = all(settings.get(k) for k in keys) and Path(settings["breaks_dir"]).is_dir()
     if (
         ready
-        and onboard.identity(settings["plex_url"], settings["plex_token"])
+        and still_signed_in(settings["plex_url"], settings["plex_token"])
         and yes(f"Plex is already set up (music from {settings['music_library']!r}). Keep it?", ask)
     ):
         say("")
@@ -125,6 +125,19 @@ def plex_step(settings: dict, *, ask, open_browser) -> dict:
         "breaks_library": onboard.BREAKS_LIBRARY,
         "breaks_dir": breaks_dir,
     }
+
+
+def still_signed_in(url: str, token: str) -> bool:
+    """Whether the saved Plex sign-in still works. Plex answers who it is without one, so this reads the
+    library list, which needs it."""
+    try:
+        PlexClient(url, token, timeout=10).get("/library/sections")
+    except PlexAuthError:
+        say("Plex no longer accepts Booth's saved sign-in, so let's sign in again.")
+        return False
+    except PlexError:
+        return False
+    return True
 
 
 def remote_breaks_dir(breaks: dict | None, server_name: str | None, ask) -> str:

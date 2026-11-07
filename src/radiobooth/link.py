@@ -172,13 +172,16 @@ class Station:
     log: Callable[[str], None]
     # Outcomes not yet accepted by Booth DJ, so a lost report is retried instead of delivering twice.
     unreported: dict[str, dict] = field(default_factory=dict)
+    # The last problem logged for each show, so one that repeats every check-in is logged once.
+    problems: dict[str, str] = field(default_factory=dict)
 
 
 def handle(link: Link, station: Station, item: dict) -> None:
     """Do whatever one check-in entry asks for."""
     show_id, action = item["show_id"], item.get("action")
     if action == "send_catalog":
-        station.log(f"{show_id}: reading the library for a new show...")
+        if show_id not in station.problems:  # retrying after a logged problem: say nothing new
+            station.log(f"{show_id}: reading the library for a new show...")
         catalog = station.catalog()
         try:
             link.send_catalog(item["catalog_url"], catalog)
@@ -218,12 +221,17 @@ def run(link: Link, station: Station, *, once: bool = False, sleep=None) -> None
         try:
             reply = link.checkin()
             for item in reply["shows"]:
+                show_id = item["show_id"]
                 try:
                     handle(link, station, item)
                 except LinkError:
                     raise
-                except Exception as e:  # e.g. Plex unreachable while reading the library
-                    station.log(f"{item['show_id']}: {e}")
+                except Exception as e:  # e.g. Plex unreachable while reading the library: try next time
+                    if station.problems.get(show_id) != str(e):
+                        station.problems[show_id] = str(e)
+                        station.log(f"{show_id}: {e} (Booth keeps trying; this is logged once)")
+                else:
+                    station.problems.pop(show_id, None)
             wait, backoff = reply["next_checkin_s"], 0.0
         except LinkError as e:
             if e.status == 401:

@@ -204,7 +204,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(onboard, "reach", lambda server, token: (onboard.LOCAL_PLEX, True))
     monkeypatch.setattr(onboard, "plex_user_id", lambda: None)
     plex = FakePlex([{"title": "Music", "type": "artist"}, {"title": "Audiobooks", "type": "artist"}])
-    monkeypatch.setattr(setup_flow, "PlexClient", lambda url, token: plex)
+    monkeypatch.setattr(setup_flow, "PlexClient", lambda url, token, **k: plex)
     codes = []
 
     def redeem(self, code, name):
@@ -484,3 +484,30 @@ def test_a_sign_in_page_instead_of_plex_is_explained(monkeypatch):
     monkeypatch.setattr(onboard.urllib.request, "urlopen", lambda req, timeout: Page())
     with pytest.raises(SetupError, match="something unexpected"):
         onboard.plex_tv("POST", "/pins", "cid")
+
+
+def test_a_saved_plex_sign_in_that_plex_refuses_is_not_offered(home, monkeypatch, capsys):
+    from radiobooth.sources.plex import PlexAuthError
+
+    tmp_path, plex, _ = home
+    (tmp_path / "Radio Booth").mkdir(parents=True)
+    saved = {
+        "plex_url": "http://plex:32400",
+        "plex_token": "stale",
+        "music_library": "Music",
+        "breaks_library": "Radio Booth",
+        "breaks_dir": str(tmp_path / "Radio Booth"),
+    }
+
+    class Refusing:
+        def get(self, path, params=None):
+            raise PlexAuthError()
+
+    monkeypatch.setattr(
+        setup_flow, "PlexClient", lambda url, token, **k: Refusing() if token == "stale" else plex
+    )
+    out = setup_flow.plex_step(
+        saved, ask=lambda q: pytest.fail(f"asked {q!r}") if "Keep it" in q else "1", open_browser=None
+    )
+    assert out["plex_token"] == "server-token"
+    assert "no longer accepts Booth's saved sign-in" in capsys.readouterr().out

@@ -394,3 +394,65 @@ def test_music_library_comes_from_the_environment(monkeypatch):
     assert build_parser().parse_args(["run", "--library", "Other"]).library == "Other"
     monkeypatch.delenv("BOOTH_MUSIC_LIBRARY")
     assert build_parser().parse_args(["run"]).library is None
+
+
+def test_a_problem_that_repeats_every_checkin_is_logged_once(dj):
+    ask = {
+        "show_id": "show_1",
+        "status": "queued",
+        "action": "send_catalog",
+        "catalog_url": "/v0/shows/show_1/catalog",
+    }
+    dj.queue = [[ask], [ask], [ask], [ask]]
+    log, tries = [], []
+
+    def catalog():
+        tries.append(1)
+        if len(tries) < 3:
+            raise RuntimeError("Plex no longer accepts Booth's sign-in")
+        return {"protocol": "radiobooth/catalog@0", "tracks": []}
+
+    st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append)
+    link = Link(dj.url, "be_secret")
+    for _ in range(3):
+        run(link, st, once=True)
+    assert len(tries) == 3  # still tried at every check-in
+    assert log == [
+        "show_1: reading the library for a new show...",
+        "show_1: Plex no longer accepts Booth's sign-in (Booth keeps trying; this is logged once)",
+        "show_1: sent 0 tracks; the DJ is on it.",
+    ]
+    assert st.problems == {} and len(dj.catalogs) == 1
+
+
+def test_run_picks_up_a_plex_sign_in_saved_while_it_runs(dj, tmp_path, monkeypatch, capsys):
+    from radiobooth.sources import plex as plex_source
+
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    for k in ("PLEX_URL", "PLEX_TOKEN", "BOOTH_BREAKS_LIBRARY", "BOOTH_BREAKS_DIR", "BOOTH_MUSIC_LIBRARY"):
+        monkeypatch.delenv(k, raising=False)
+    settings = {
+        "server": dj.url,
+        "device_token": "be_secret",
+        "plex_url": "http://plex:32400",
+        "plex_token": "old",
+        "breaks_library": "Radio Booth",
+        "breaks_dir": str(tmp_path),
+    }
+    config.save(settings)
+    seen = []
+
+    def build_catalog(client, library, exclude=None):
+        seen.append(client.token)
+        if client.token == "old":
+            config.save(settings | {"plex_token": "new"})  # setup, run again in another window
+            raise plex_source.PlexAuthError()
+        return {"protocol": "radiobooth/catalog@0", "tracks": []}, 0
+
+    monkeypatch.setattr(plex_source, "build_catalog", build_catalog)
+    dj.queue = [
+        [{"show_id": "s", "status": "queued", "action": "send_catalog", "catalog_url": "/v0/shows/s/catalog"}]
+    ]
+    assert main(["run", "--once"]) == 0
+    assert seen == ["old", "new"] and len(dj.catalogs) == 1
+    assert "Using the Plex sign-in saved by setup." in capsys.readouterr().err
