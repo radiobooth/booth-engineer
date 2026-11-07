@@ -9,3 +9,6 @@ build/
 .env
 *.sqlite
 *.db
+
+# Claude Code local settings (permission approvals can embed secrets)
+.claude/settings.local.json
