@@ -338,9 +338,9 @@ MAC_CERTIFICATES = "/etc/ssl/cert.pem"  # the certificate authorities macOS trus
 
 
 def use_system_certificates(platform: str = sys.platform) -> None:
-    """Let Booth check HTTPS certificates on a Mac. The Python inside the app (and uv's) looks for trusted
-    certificates where it was built, not where macOS keeps them, so every HTTPS connection, starting with
-    plex.tv, would fail with CERTIFICATE_VERIFY_FAILED. Point it at macOS's own list instead."""
+    """Let Booth check HTTPS certificates on a Mac. The Python inside the app looks for trusted certificates
+    where its own install on the build machine kept them, a file most Macs don't have, so every HTTPS
+    connection, starting with plex.tv, failed with CERTIFICATE_VERIFY_FAILED. Use macOS's own list then."""
     import ssl
 
     if platform != "darwin" or os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
