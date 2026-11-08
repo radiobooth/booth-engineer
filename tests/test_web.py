@@ -465,4 +465,12 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
     status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert status == 422 and "Is this computer online?" in json.loads(body)["error"]
     status, data = act(port, key, "new_show", {"prompt": "rain"})
-    assert status == 422 and "Connect it again" in data["error"]
+    # Check-ins work, so it's paired: this Radio Booth just doesn't take shows from the page yet.
+    assert status == 422 and "Ask on your phone" in data["error"]
+    app.engine.state = engine.NEEDS_PAIRING
+    assert "Connect it again" in app._said(LinkError("Booth DJ: Unknown Booth Engineer", 401)).args[0]
+    assert "Try again" in app._said(LinkError("Booth DJ sent a reply that isn't JSON (cut short?).")).args[0]
+
+    # It talks to the server it's paired with, whatever BOOTH_SERVER says now.
+    monkeypatch.setenv("BOOTH_SERVER", "https://elsewhere.example")
+    assert app._link().server == "https://booth.example"

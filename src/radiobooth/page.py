@@ -262,7 +262,7 @@ SCRIPT = r"""
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
-let showsTimer = null, showsWanted = false, rosterFilled = false, asking = false;
+let showsTimer = null, showsWanted = false, rosterShown = "", asking = false;
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -338,10 +338,11 @@ function render(s) {
   // New show: once Booth is set up
   const canAsk = ready && e.state !== "needs_pairing";
   show($("new-show"), canAsk);
+  const wantShows = canAsk && e.state !== "stopped";  // paused: no need to keep asking Radio Booth
   $("make").disabled = asking || !onAir;
   $("make").title = onAir ? "" : "Booth makes shows while it's on the air";
-  if (canAsk && !showsWanted) { showsWanted = true; loadShows(); }
-  if (!canAsk) { showsWanted = false; clearTimeout(showsTimer); }
+  if (wantShows && !showsWanted) { showsWanted = true; loadShows(); }
+  if (!wantShows) { showsWanted = false; clearTimeout(showsTimer); }
 
   // Setup: shown until done, when something needs fixing, or when asked for
   const needsPlex = !s.plex.ready || e.state === "needs_plex";
@@ -450,7 +451,9 @@ function showOff() {
 }
 
 function fillRoster(roster, saved) {
+  // Keeps what's picked now, else what was used last time, as long as it's still offered.
   const dj = $("dj"), voice = $("voice");
+  if (rosterShown) saved = {dj: dj.value, voice: voice.value};
   dj.replaceChildren(...(roster.djs || []).map((d) => new Option(d.name + ", " + d.role, d.id)));
   voice.replaceChildren(...(roster.voices || []).map((v) => new Option("Voice " + v, v)));
   const ids = {minutes: "minutes", dj: "dj", voice: "voice", dj_name: "dj-name", station: "station"};
@@ -462,12 +465,17 @@ function fillRoster(roster, saved) {
 }
 
 function renderAllowance(a) {
+  const sel = $("minutes");
   let left = Infinity;
   for (const k of ["day", "week"]) if (a && a[k]) left = Math.min(left, a[k].left);
   $("allowance").textContent = (a && a.text) || "";
   show($("allowance"), !!(a && a.text));
   // Lengths that don't fit stay visible but can't be picked; Radio Booth says why if one is sent anyway.
-  for (const opt of $("minutes").options) opt.disabled = Number(opt.value) > left;
+  for (const opt of sel.options) opt.disabled = Number(opt.value) > left;
+  if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) {  // the longest that still fits, if any
+    const fits = [...sel.options].filter((o) => !o.disabled);
+    if (fits.length) sel.value = fits[fits.length - 1].value;
+  }
 }
 
 function renderShows(list) {
@@ -484,7 +492,8 @@ function renderShows(list) {
     if (s.waiting_for_earlier) text = "Up next, after your earlier show reaches Plex";
     if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
     if (s.status === "failed" && s.error) text += ". " + s.error;
-    if (s.for_computer) text += " (made on " + s.for_computer + ")";
+    const here = last && last.account.name;
+    if (s.for_computer && s.for_computer !== here) text += " (made on " + s.for_computer + ")";
     st.textContent = text;
     const m = document.createElement("span");
     m.className = "muted";
@@ -496,13 +505,14 @@ function renderShows(list) {
 
 async function loadShows() {
   clearTimeout(showsTimer);
-  if (!showsWanted) return;
+  if (!showsWanted || document.hidden) return;  // a hidden tab asks again when it's shown
   let wait = 30000;
   try {
     const r = await fetch("/api/shows", {cache: "no-store"});
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
-    if (!rosterFilled) { fillRoster(data.roster, data.choices); rosterFilled = true; }
+    const roster = JSON.stringify(data.roster);
+    if (roster !== rosterShown) { fillRoster(data.roster, data.choices); rosterShown = roster; }
     renderAllowance(data.allowance);
     renderShows(data.shows);
     if (data.shows.some((s) => ["queued", "making", "ready"].includes(s.status))) wait = 5000;
@@ -572,6 +582,8 @@ function wire() {
     showOff();
   };
 }
+
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadShows(); });
 
 document.addEventListener("DOMContentLoaded", () => {
   wire();

@@ -155,20 +155,25 @@ class App:
         }
 
     def _link(self) -> Link:
-        token = config.load().get("device_token")
+        settings = config.load()
+        token = settings.get("device_token")
         if not token:
             raise SetupError("Connect Booth to your account first.")
         try:
-            return Link(self.server(), token, timeout=30)
+            # The server it paired with and checks in with, never another one the token would mean nothing to.
+            return Link(settings.get("server") or self.server(), token, timeout=30)
         except LinkError as e:
             raise SetupError(str(e)) from None
 
-    @staticmethod
-    def _said(e: LinkError) -> SetupError:
+    def _said(self, e: LinkError) -> SetupError:
         """What the page says when Booth DJ couldn't take or answer a request."""
         if e.status is None:
-            return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
+            if str(e).startswith("Could not reach"):
+                return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
+            return SetupError("Radio Booth sent an answer Booth didn't understand. Try again in a moment.")
         if e.status == 401:
+            if self.engine.state == engine.ON_AIR:  # check-ins work, so this computer is still paired
+                return SetupError("Radio Booth can't take shows from this page yet. Ask on your phone.")
             return SetupError("Your Booth account doesn't know this computer. Connect it again in Settings.")
         return SetupError(str(e).removeprefix("Booth DJ: "))
 
@@ -177,7 +182,10 @@ class App:
         link = self._link()
         try:
             if not self._roster or time.monotonic() - self._roster[0] > ROSTER_S:
-                self._roster = (time.monotonic(), link.get("/v0/me").get("roster") or {})
+                roster = link.get("/v0/me").get("roster")
+                if not isinstance(roster, dict) or not roster.get("djs"):
+                    raise LinkError("Booth DJ sent no DJs to pick from.")
+                self._roster = (time.monotonic(), roster)
             listed = link.get("/v0/shows")
         except LinkError as e:
             raise self._said(e) from None

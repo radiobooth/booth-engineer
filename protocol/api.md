@@ -64,7 +64,7 @@ Shows are asked for on the Booth page on your phone, or on Booth's own page on t
 asks through Booth Engineer, with the device token, exactly as the phone page does:
 
 `GET /v0/me` → the DJs and voices to pick from (`roster`) and the show time left (`allowance`); the reply also
-names your account and its paired computers.
+names your account.
 
 `GET /v0/shows` → `{"shows": [...], "allowance": {...}}`: your shows, newest first, with their status
 (`queued`, `making`, `ready`, `delivered`, `failed`, `expired`).
@@ -75,7 +75,8 @@ when it doesn't fit your show time. Booth Engineer remembers the choices (not th
 for next time.
 
 A show asked for this way is made from this computer's library and delivered here: Booth DJ asks only this
-Booth Engineer for its catalog, and lists it with `"for_computer": "<this machine's name>"` while it waits.
+Booth Engineer for its catalog. While a show like that waits, `GET /v0/shows` lists it with `"for_computer"`,
+the name of the computer it was asked for on (this one or another of yours).
 Booth's page only asks while Booth is on the air.
 
 Nothing else is sent: no catalog goes with a request. It's sent later, on a check-in, as above.
