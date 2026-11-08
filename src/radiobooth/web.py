@@ -226,7 +226,8 @@ class App:
             made = link.ask({"prompt": prompt, **choices})
         except LinkError as e:
             raise self._said(e, asked=True) from None
-        config.update({"show_choices": choices})
+        with contextlib.suppress(OSError):  # the show is asked for; not remembering choices is no failure
+            config.update({"show_choices": choices})
         return {"show_id": made.get("show_id")}
 
     def act(self, action: str, body: dict) -> dict:
