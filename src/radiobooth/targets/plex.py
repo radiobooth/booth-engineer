@@ -27,6 +27,7 @@ class Delivery:
     tracks: int
     breaks: int
     folder: Path
+    machine: str = ""  # the server's machineIdentifier, for sharing the playlist
 
 
 def load_package(show_dir: Path) -> dict:
@@ -131,4 +132,5 @@ def deliver(
         tracks=sum(1 for i in package["items"] if i["type"] == "track"),
         breaks=len(names),
         folder=dest_root / folder,
+        machine=machine,
     )

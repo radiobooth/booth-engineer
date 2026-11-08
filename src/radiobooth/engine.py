@@ -17,7 +17,7 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
-from radiobooth import config, history
+from radiobooth import config, history, onboard, plexshare
 from radiobooth.link import Link, LinkError, Station
 from radiobooth.link import run_all as run_desks
 from radiobooth.sources import plex as plex_source
@@ -70,6 +70,7 @@ def station(
     name before their playlists' titles; their shows go into the same Plex, with this computer's sign-in."""
     who = person["id"] if person else None
     prefix = f"{person['name']}: " if person else ""
+    share_with = person.get("plex_user") if person else None
     found, _ = delivery_settings(settings)
     plex = PlexClient(found["url"], found["token"])
     library, dest = found["library"], Path(found["dest"])
@@ -111,13 +112,31 @@ def station(
     def deliver_show(show_dir: Path) -> str:
         mark(True)
         try:
-            title = signed_in(lambda: plex_target.deliver(plex, show_dir, library, dest, prefix=prefix)).title
+            done = signed_in(lambda: plex_target.deliver(plex, show_dir, library, dest, prefix=prefix))
+            title = done.title
             remember(show_dir, log, who)
+            if share_with:
+                share(done, share_with)
             if on_delivered:
                 on_delivered(title)
             return title
         finally:
             mark(False)
+
+    def share(done, user: dict) -> None:
+        """Share a person's new playlist with their Plex user. The show is in Plex either way, so a problem
+        here is logged, not a failed delivery."""
+        try:
+            client_id = settings.get("plex_client_id") or onboard.new_client_id()
+            plexshare.share_playlist(
+                plex.token, client_id, done.machine, done.playlist_key, done.title, user["id"]
+            )
+            log(f"Shared {done.title!r} with {user.get('title')!r} in Plex.")
+        except Exception as e:
+            log(
+                f"Couldn't share {done.title!r} with {user.get('title')!r} in Plex ({e})."
+                " Grant them access to it in Plex Web."
+            )
 
     return Station(catalog=catalog, deliver=deliver_show, log=log)
 

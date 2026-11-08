@@ -28,9 +28,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from radiobooth import __version__, autostart, config, engine, history, page, update
+from radiobooth import __version__, autostart, config, engine, history, onboard, page, plexshare, update
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
+from radiobooth.sources.plex import PlexClient, PlexError
 from radiobooth.websetup import WebSetup, plex_ready
 
 HOST = "127.0.0.1"
@@ -151,7 +152,12 @@ class App:
                 "name": settings.get("name"),
                 "account_name": settings.get("account_name"),
                 "people": [
-                    {"id": p["id"], "name": p["name"], "unpaired": p["id"] in unpaired}
+                    {
+                        "id": p["id"],
+                        "name": p["name"],
+                        "unpaired": p["id"] in unpaired,
+                        "plex_user": p.get("plex_user"),
+                    }
                     for p in config.people(settings)
                 ],
             },
@@ -322,6 +328,60 @@ class App:
         self.engine.start()
         return {"name": name}
 
+    def _plex(self) -> tuple[str, str, str, str]:
+        """The owner's Plex sign-in, this Booth's Plex client id, the server's machineIdentifier and the
+        breaks library's name."""
+        settings = config.load()
+        found, missing = engine.delivery_settings(settings)
+        if missing:
+            raise SetupError("Set up Plex first.")
+        try:
+            machine = PlexClient(found["url"], found["token"], timeout=15).get("/identity")["MediaContainer"][
+                "machineIdentifier"
+            ]
+        except (PlexError, KeyError, TypeError) as e:
+            raise SetupError(f"Booth couldn't reach your Plex server ({e}).") from None
+        client_id = settings.get("plex_client_id") or onboard.new_client_id()
+        return found["token"], client_id, machine, found["library"]
+
+    def plex_users(self) -> dict:
+        """The Plex users a person's playlists can be shared with."""
+        token, client_id, _, _ = self._plex()
+        try:
+            return {"users": plexshare.users(token, client_id)}
+        except PlexError as e:
+            raise SetupError(f"Booth couldn't get your Plex users ({e}).") from None
+
+    def person_plex(self, who: str, user_id) -> dict:
+        """Share this person's playlists with a Plex user from now on (None: nobody; they stay in yours)."""
+        if not any(p["id"] == who for p in config.people(config.load())):
+            raise SetupError("Booth doesn't make shows for that person any more.")
+        user, said = None, ""
+        if user_id not in (None, ""):
+            token, client_id, machine, library = self._plex()
+            try:
+                user = next(
+                    (u for u in plexshare.users(token, client_id) if str(u["id"]) == str(user_id)), None
+                )
+                if user is None:
+                    raise SetupError("That Plex user isn't one of yours any more. Reload this page.")
+                sees = plexshare.sees_library(token, client_id, machine, user["id"], library)
+            except PlexError as e:
+                raise SetupError(f"Booth couldn't check that Plex user ({e}).") from None
+            if sees is False:
+                said = (
+                    f"Your Plex server doesn't share the {library!r} library with {user['title']}, so the"
+                    " DJ's breaks won't play for them. In Plex, add it to the libraries they can see."
+                )
+            user = {"id": user["id"], "title": user["title"]}
+
+        def change(people: list[dict]) -> list[dict]:
+            return [p | {"plex_user": user} if p["id"] == who else p for p in people]
+
+        config.change_people(change)
+        self.engine.start()
+        return {"said": said}
+
     def remove_person(self, who: str) -> None:
         if not any(p["id"] == who for p in config.people(config.load())):
             raise SetupError("Booth doesn't make shows for that person any more.")
@@ -344,6 +404,8 @@ class App:
             return self.new_show(body)
         elif action == "add_person":
             return self.add_person(str(body.get("code", "")))
+        elif action == "person_plex":
+            return self.person_plex(str(body.get("id", "")), body.get("user"))
         elif action == "remove_person":
             self.remove_person(str(body.get("id", "")))
         elif action == "pair":
@@ -430,6 +492,13 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                 return self._send(200, page.SCRIPT.encode(), "text/javascript; charset=utf-8")
             if path == "/api/state":
                 return self._json(200, app.state())
+            if path == "/api/plex_users":
+                try:
+                    return self._json(200, app.plex_users())
+                except SetupError as e:
+                    return self._json(422, {"error": str(e)})
+                except Exception as e:  # noqa: BLE001 - say what on the page
+                    return self._json(500, {"error": f"Something went wrong: {e}"})
             if path == "/api/shows":
                 who = next((v for k, _, v in (p.partition("=") for p in query.split("&")) if k == "who"), "")
                 try:

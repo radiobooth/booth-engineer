@@ -85,7 +85,12 @@ their own account, they tap **Get a pairing code**; type that code into Booth's 
 Their shows are made from the same music and go into the same Plex, with their name at the start of each
 playlist (for example "Jennifer: Rainy drive home"). They count against their own show time, and Booth keeps
 a separate history for them, so their shows don't skip tracks just because they were in yours. On Booth's
-page, **Who's it for** on the New show form picks whose show it is. To stop, click **Remove** next to their
+page, **Who's it for** on the New show form picks whose show it is.
+
+To have their shows show up in their own Plex, pick their Plex user under **Share their playlists in Plex
+with** next to their name. Booth then shares each of their playlists with them, and they find it in Plexamp
+under **Shared Playlists**. They need to be able to see the **Radio Booth** library in Plex too, or the DJ's
+breaks won't play for them; Booth tells you if they can't. To stop, click **Remove** next to their
 name. If they also run Booth on a computer of their own, shows they ask for on their phone may go to either
 one, so it's simplest to keep just one.
 

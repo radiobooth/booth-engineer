@@ -56,7 +56,8 @@ on your machine except inside a show's catalog. Delete the file to start over.
 Someone with their own Radio Booth account can share this Booth: on Booth's page, under **Settings**, click
 **Add another person** and type the pairing code from their phone. Their shows come from the same music and go
 into the same Plex, with their name at the start of each playlist's title, and count against their own show
-time. `booth run` makes shows for everyone added there.
+time. Pick their Plex user next to their name and Booth shares each of their playlists with them in Plex.
+`booth run` makes shows for everyone added there.
 
 ## Development
 

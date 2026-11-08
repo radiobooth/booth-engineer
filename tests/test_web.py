@@ -527,7 +527,7 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
     people = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])[
         "account"
     ]
-    assert people["people"] == [{"id": jen["id"], "name": "Jennifer", "unpaired": False}]
+    assert people["people"] == [{"id": jen["id"], "name": "Jennifer", "unpaired": False, "plex_user": None}]
 
     # The New show form asks and lists as whoever it's for.
     _, _, body = call(port, "GET", f"/api/shows?who={jen['id']}", headers={"Cookie": f"{web.COOKIE}={key}"})
@@ -612,3 +612,86 @@ def test_a_shared_booth_checks_in_and_delivers_for_each_person(tmp_path, monkeyp
 class _Done:
     def __init__(self, prefix):
         self.title = f"{prefix}x"
+
+
+def test_a_persons_playlists_can_be_shared_with_their_plex_user(booth, monkeypatch, tmp_path):
+    app, port, key, _ = booth
+    (tmp_path / "breaks").mkdir()
+    config.update(
+        {
+            "device_token": "be_own",
+            "server": "https://booth.example",
+            "plex_url": "http://plex",
+            "plex_token": "owner",
+            "plex_client_id": "radiobooth-x",
+            "breaks_library": "Radio Booth",
+            "breaks_dir": str(tmp_path / "breaks"),
+            "people": [
+                {
+                    "id": "p_jen",
+                    "device_token": "be_jen",
+                    "name": "Jennifer",
+                    "server": "https://booth.example",
+                }
+            ],
+        }
+    )
+    monkeypatch.setattr(app.engine, "start", lambda: None)
+    monkeypatch.setattr(
+        web.PlexClient, "get", lambda self, path: {"MediaContainer": {"machineIdentifier": "m1"}}
+    )
+    plex_users = [
+        {"id": 3427736, "title": "evoljennifer", "home": True},
+        {"id": 9, "title": "pat", "home": False},
+    ]
+    monkeypatch.setattr(web.plexshare, "users", lambda token, client_id: plex_users)
+    asked = []
+
+    def sees(token, client_id, machine, user_id, library):
+        asked.append((token, client_id, machine, user_id, library))
+        return user_id == 3427736
+
+    monkeypatch.setattr(web.plexshare, "sees_library", sees)
+
+    status, _, body = call(port, "GET", "/api/plex_users", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert status == 200 and json.loads(body)["users"] == plex_users
+    assert act(port, key, "person_plex", {"id": "p_jen", "user": "3427736"}) == (200, {"said": ""})
+    assert asked == [("owner", "radiobooth-x", "m1", 3427736, "Radio Booth")]
+    [jen] = config.people(config.load())
+    assert jen["plex_user"] == {"id": 3427736, "title": "evoljennifer"}
+    # Breaks the person's Plex user can't see would be silent: say so (and still share the playlists).
+    status, data = act(port, key, "person_plex", {"id": "p_jen", "user": 9})
+    assert status == 200 and "doesn't share the 'Radio Booth' library with pat" in data["said"]
+    assert act(port, key, "person_plex", {"id": "p_jen", "user": 12345})[0] == 422  # not one of theirs
+    assert act(port, key, "person_plex", {"id": "p_jen", "user": None}) == (200, {"said": ""})
+    assert config.people(config.load())[0]["plex_user"] is None
+
+
+def test_a_persons_new_playlist_is_shared_with_their_plex_user(tmp_path, monkeypatch):
+    for k in ("PLEX_URL", "PLEX_TOKEN", "BOOTH_BREAKS_LIBRARY", "BOOTH_BREAKS_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    settings = {
+        "plex_url": "http://plex",
+        "plex_token": "owner",
+        "plex_client_id": "radiobooth-x",
+        "breaks_library": "Radio Booth",
+        "breaks_dir": str(tmp_path),
+    }
+    person = {"id": "p_jen", "name": "Jennifer", "plex_user": {"id": 3427736, "title": "evoljennifer"}}
+    done = engine.plex_target.Delivery("777", "Jennifer: Rain", 3, 2, tmp_path, machine="m1")
+    monkeypatch.setattr(engine.plex_target, "deliver", lambda *a, **k: done)
+    monkeypatch.setattr(engine, "remember", lambda *a, **k: None)
+    shared, log = [], []
+    monkeypatch.setattr(engine.plexshare, "share_playlist", lambda *a: shared.append(a))
+    assert engine.station(settings, log.append, person=person).deliver(tmp_path) == "Jennifer: Rain"
+    assert shared == [("owner", "radiobooth-x", "m1", "777", "Jennifer: Rain", 3427736)]
+
+    def refused(*a):
+        raise web.PlexError("plex.tv said HTTP 403")
+
+    monkeypatch.setattr(engine.plexshare, "share_playlist", refused)
+    assert (
+        engine.station(settings, log.append, person=person).deliver(tmp_path) == "Jennifer: Rain"
+    )  # still in
+    assert "Grant them access to it in Plex Web" in log[-1]

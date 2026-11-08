@@ -92,9 +92,9 @@ body.off #off { display: block; }
 body.off main > section:not(#off) { display: none; }
 body.off .light { color: var(--chalk); border-color: var(--chalk); }
 #show-form { display: grid; gap: 12px; margin-top: 10px; }
-#show-form label { display: grid; gap: 6px; font: 12px/1.3 var(--label); letter-spacing: .1em;
+#show-form label, .people-share { display: grid; gap: 6px; font: 12px/1.3 var(--label); letter-spacing: .1em;
   text-transform: uppercase; color: var(--muted); }
-#show-form textarea, #show-form select, #show-form input { font: 16px/1.4 var(--text); padding: 10px 12px;
+#show-form textarea, #show-form select, #show-form input, .people-share select { font: 16px/1.4 var(--text); padding: 10px 12px;
   border-radius: 9px; border: 1px solid var(--line); background: var(--studio); color: var(--chalk);
   width: 100%; min-width: 0; text-transform: none; letter-spacing: normal; }
 #show-form textarea { min-height: 76px; resize: vertical; }
@@ -281,7 +281,7 @@ const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
-let adding = false, peopleShown = "";
+let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false;
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -413,7 +413,16 @@ function render(s) {
   $("people-text").textContent = people.length
     ? "Booth makes shows for " + [own, ...people.map((p) => p.name)].join(", ") + "."
     : "Booth makes shows for " + (s.account.account_name || "your account") + ". Someone else with their own Radio Booth account can use it too.";
-  const peopleKey = JSON.stringify([own, people]);
+  if (people.length && !plexUsersAsked) {  // whom their playlists can be shared with, asked for once
+    plexUsersAsked = true;
+    fetch("/api/plex_users", {cache: "no-store"}).then((r) => r.json().then((d) => {
+      if (!r.ok) throw new Error(d.error || "Booth didn't answer.");
+      plexUsers = d.users;
+      peopleShown = "";
+      if (last) render(last);
+    })).catch((x) => error("settings-error", x.message));
+  }
+  const peopleKey = JSON.stringify([own, people, plexUsers]);
   if (peopleKey !== peopleShown) {
     peopleShown = peopleKey;
     const ul = $("people");
@@ -425,7 +434,27 @@ function render(s) {
       const st = document.createElement("span");
       st.className = "st" + (p.unpaired ? " failed" : "");
       st.textContent = p.unpaired ? "Their Booth account no longer knows this computer. Add them again with a new code."
-        : "Their playlists start with “" + p.name + ":”";
+        : "Their playlists start with “" + p.name + ":”" +
+          (p.plex_user ? " and are shared with " + p.plex_user.title + " in Plex." : " and stay in your Plex.");
+      const share = document.createElement("label");
+      share.className = "people-share";
+      share.textContent = "Share their playlists in Plex with";
+      const pick = document.createElement("select");
+      const users = plexUsers || (p.plex_user ? [p.plex_user] : []);
+      pick.replaceChildren(new Option("Nobody (only in your Plex)", ""),
+        ...users.map((u) => new Option(u.title, String(u.id))));
+      pick.value = p.plex_user ? String(p.plex_user.id) : "";
+      pick.onchange = async () => {
+        error("settings-error", "");
+        pick.disabled = true;
+        try {
+          const {said} = await post("person_plex", {id: p.id, user: pick.value || null});
+          if (said) error("settings-error", said);
+        } catch (x) { error("settings-error", x.message); }
+        pick.disabled = false;
+        refresh();
+      };
+      share.append(pick);
       const actions = document.createElement("div");
       actions.className = "actions";
       actions.append(button("Remove", async () => {
@@ -433,7 +462,7 @@ function render(s) {
         await post("remove_person", {id: p.id}).catch((x) => error("settings-error", x.message));
         refresh();
       }, true));
-      li.append(t, st, actions);
+      li.append(t, st, share, actions);
       return li;
     }));
     show(ul, people.length > 0);
