@@ -6,7 +6,7 @@ import time
 import pytest
 from test_setup import SERVER, FakePlex
 
-from radiobooth import autostart, config, engine, onboard, update, web, websetup
+from radiobooth import autostart, config, engine, history, onboard, update, web, websetup
 from radiobooth.link import LinkError
 
 
@@ -484,8 +484,14 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
 def test_another_person_can_share_this_booth(booth, monkeypatch):
     app, port, key, _ = booth
     config.update({"device_token": "be_own", "server": "https://booth.example", "name": "Den PC"})
-    names = {"be_own": "Thomas", "be_jen": "Jennifer", "be_own2": "Thomas", "be_jen2": "Jennifer"}
-    codes = {"JENN-0001": "be_jen", "THOM-0001": "be_own2", "JENN-0002": "be_jen2"}
+    names = {
+        "be_own": "Thomas",
+        "be_jen": "Jennifer",
+        "be_own2": "Thomas",
+        "be_jen2": "Jennifer",
+        "be_q": None,
+    }
+    codes = {"JENN-0001": "be_jen", "THOM-0001": "be_own2", "JENN-0002": "be_jen2", "QUIET-001": "be_q"}
     redeemed, gets, asked = [], [], []
 
     def redeem(self, code, name):
@@ -513,9 +519,11 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
     assert status == 422 and "didn't work" in data["error"]
     status, data = act(port, key, "add_person", {"code": "JENN-0001"})
     assert status == 200 and data == {"name": "Jennifer"}
-    assert redeemed[-1] == ("https://booth.example", "JENN-0001", "Den PC")  # the server Booth checks in with
+    # The server Booth checks in with, under a name of its own (see add_person).
+    assert redeemed[-1] == ("https://booth.example", "JENN-0001", "Den PC (shared)")
     [jen] = config.people(config.load())
     assert jen["name"] == "Jennifer" and jen["device_token"] == "be_jen" and jen["id"].startswith("p_")
+    assert jen["server"] == "https://booth.example"
     people = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])[
         "account"
     ]
@@ -534,16 +542,27 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
     status, _, body = call(port, "GET", "/api/shows?who=p_gone", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert status == 422 and "any more" in json.loads(body)["error"]
 
-    # A code from the account Booth already makes shows for isn't a second person: it's a fresh connection.
+    # A code from an account named like Booth's own changes nothing: it can't tell the accounts apart.
     status, data = act(port, key, "add_person", {"code": "THOM-0001"})
     assert status == 422 and "already makes shows for" in data["error"]
-    assert config.load()["device_token"] == "be_own2" and len(config.people(config.load())) == 1
-    # The same person again (after Radio Booth forgot this computer, say) replaces their connection.
+    assert config.load()["device_token"] == "be_own" and len(config.people(config.load())) == 1
+    status, data = act(port, key, "add_person", {"code": "QUIET-001"})  # no name: not added as "Guest"
+    assert status == 422 and "new code" in data["error"] and len(config.people(config.load())) == 1
+    # The same person again, after their account forgot this computer, gets their place (and history) back.
+    app.engine.unpaired = {jen["id"]}
+    forgot = app._said(LinkError("Booth DJ: Unknown Booth Engineer", 401), who=jen["id"]).args[0]
+    assert forgot.startswith("Jennifer's Booth account no longer knows this computer")
     assert act(port, key, "add_person", {"code": "JENN-0002"})[1] == {"name": "Jennifer"}
-    assert [p["device_token"] for p in config.people(config.load())] == ["be_jen2"]
+    assert [(p["id"], p["device_token"]) for p in config.people(config.load())] == [(jen["id"], "be_jen2")]
+
+    # People paired with another Booth DJ never get its tokens.
+    config.update({"server": "https://elsewhere.example"})
+    assert config.people(config.load()) == []
+    config.update({"server": "https://booth.example"})
+    history.record(["101"], person=jen["id"])
 
     assert act(port, key, "remove_person", {"id": jen["id"]})[0] == 200
-    assert config.people(config.load()) == []
+    assert config.people(config.load()) == [] and not history.path(jen["id"]).exists()
     assert act(port, key, "remove_person", {"id": jen["id"]})[0] == 422
 
 
@@ -559,12 +578,18 @@ def test_a_shared_booth_checks_in_and_delivers_for_each_person(tmp_path, monkeyp
         "breaks_library": "Radio Booth",
         "breaks_dir": str(tmp_path),
         "people": [
-            {"id": "p_jen", "device_token": "be_jen", "name": "Jennifer"},
-            {"id": "bad id", "device_token": "be_x"},  # not one Booth made: left out
+            {"id": "p_jen", "device_token": "be_jen", "name": "Jennifer", "server": "https://booth.example"},
+            {
+                "id": "bad id",
+                "device_token": "be_x",
+                "server": "https://booth.example",
+            },  # not Booth's: left out
+            {"id": "p_old", "device_token": "be_old", "server": "https://old.example"},  # another server's
+            {"id": "p_gone", "device_token": "be_gone", "server": "https://booth.example"},
         ],
     }
     log = []
-    found, people = engine.desks(settings, log.append, lambda server, token: (server, token))
+    found, people = engine.desks(settings, log.append, lambda server, token: (server, token), skip={"p_gone"})
     assert [link for link, _ in found] == [
         ("https://booth.example", "be_own"),
         ("https://booth.example", "be_jen"),

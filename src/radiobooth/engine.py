@@ -69,7 +69,7 @@ def station(
     `person`: another person sharing this Booth (see config.people), with their own show history and their
     name before their playlists' titles; their shows go into the same Plex, with this computer's sign-in."""
     who = person["id"] if person else None
-    prefix = f"{person.get('name') or 'Guest'}: " if person else ""
+    prefix = f"{person['name']}: " if person else ""
     found, _ = delivery_settings(settings)
     plex = PlexClient(found["url"], found["token"])
     library, dest = found["library"], Path(found["dest"])
@@ -123,16 +123,21 @@ def station(
 
 
 def desks(
-    settings: dict, log: Callable[[str], None], link_for: Callable[[str, str], Link], **station_args
+    settings: dict,
+    log: Callable[[str], None],
+    link_for: Callable[[str, str], Link],
+    skip: set[str] = frozenset(),
+    **station_args,
 ) -> tuple[list[tuple[Link, Station]], list[dict]]:
     """What `run_desks` checks in for: this computer's own Booth account first, then each other person
-    sharing it (and the list of those people, in the same order)."""
-    people = config.people(settings)
+    sharing it (and the list of those people, in the same order), less those in `skip` (already known to be
+    forgotten by their Booth account)."""
+    people = [p for p in config.people(settings) if p["id"] not in skip]
     server = settings["server"]
     out = [(link_for(server, settings["device_token"]), station(settings, log, **station_args))]
     for p in people:
 
-        def said(msg: str, name: str = p.get("name") or "Guest") -> None:
+        def said(msg: str, name: str = p["name"]) -> None:
             log(f"{name}: {msg}")
 
         out.append((link_for(server, p["device_token"]), station(settings, said, person=p, **station_args)))
@@ -281,6 +286,7 @@ class Engine:
                     settings,
                     self.log,
                     lambda server, token: _WatchedLink(server, token, self._checked_in),
+                    skip=set(self.unpaired),
                     on_plex_refused=self._plex_refused,
                     busy=self._mark,
                     on_delivered=self._delivered,
@@ -298,12 +304,12 @@ class Engine:
                 def unpaired(i: int, people: list[dict] = people) -> None:
                     person = people[i - 1]
                     self.unpaired.add(person["id"])
-                    name = person.get("name") or "Guest"
+                    name = person["name"]
                     self.log(f"{name}'s Booth account no longer knows this computer: add them again.")
 
                 self.log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
                 if people:
-                    names = ", ".join(p.get("name") or "Guest" for p in people)
+                    names = ", ".join(p["name"] for p in people)
                     self.log(f"Also making shows for {names}.")
                 run_desks(found_desks, sleep=sleep, unpaired=unpaired)
             except _Stopped:

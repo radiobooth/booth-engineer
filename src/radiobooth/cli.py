@@ -227,7 +227,7 @@ def run(args: argparse.Namespace) -> int:
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
 
     def unpaired(i: int) -> None:
-        log(f"{people[i - 1].get('name') or 'Guest'}'s Booth account no longer knows this computer.")
+        log(f"{people[i - 1]['name']}'s Booth account no longer knows this computer.")
 
     try:
         run_desks(desks, once=args.once, unpaired=unpaired)

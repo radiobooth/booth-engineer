@@ -28,7 +28,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from radiobooth import __version__, autostart, config, engine, page, update
+from radiobooth import __version__, autostart, config, engine, history, page, update
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.websetup import WebSetup, plex_ready
@@ -151,7 +151,7 @@ class App:
                 "name": settings.get("name"),
                 "account_name": settings.get("account_name"),
                 "people": [
-                    {"id": p["id"], "name": p.get("name") or "Guest", "unpaired": p["id"] in unpaired}
+                    {"id": p["id"], "name": p["name"], "unpaired": p["id"] in unpaired}
                     for p in config.people(settings)
                 ],
             },
@@ -183,9 +183,16 @@ class App:
         except LinkError as e:
             raise SetupError(str(e)) from None
 
-    def _said(self, e: LinkError, asked: bool = False) -> SetupError:
-        """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show)."""
+    def _said(self, e: LinkError, asked: bool = False, who: str | None = None) -> SetupError:
+        """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show; `who`:
+        for another person sharing this Booth)."""
         said = str(e).removeprefix("Booth DJ: ")
+        if who and e.status == 401:
+            name = next((p["name"] for p in config.people(config.load()) if p["id"] == who), "Their")
+            return SetupError(
+                f"{name}'s Booth account no longer knows this computer. Add them again in Settings with a new"
+                " code from their phone."
+            )
         if asked and (e.network or e.status is None or e.status >= 500):
             # It may have got there and the answer was lost or garbled: don't ask for the same show twice.
             return SetupError("Radio Booth didn't answer. Check the list below before asking again.")
@@ -223,7 +230,7 @@ class App:
                 roster = self._roster[1]
             listed = link.get("/v0/shows")
         except LinkError as e:
-            raise self._said(e) from None
+            raise self._said(e, who=who) from None
         shows = listed.get("shows")
         return {
             "roster": roster,
@@ -238,7 +245,8 @@ class App:
         if not prompt:
             raise SetupError("Say what the show is about.")
         who = body.get("who")
-        link = self._link(who=who if isinstance(who, str) and who else None)
+        who = who if isinstance(who, str) and who else None
+        link = self._link(who=who)
         if self.engine.state != engine.ON_AIR:
             # A show asked for here is made from this computer's music and delivered here, so it waits for
             # this Booth; asked for while it can't make one, it would hold up the shows asked for after it.
@@ -247,7 +255,7 @@ class App:
         try:
             made = link.ask({"prompt": prompt, **choices})
         except LinkError as e:
-            raise self._said(e, asked=True) from None
+            raise self._said(e, asked=True, who=who) from None
         with contextlib.suppress(OSError):  # the show is asked for; not remembering choices is no failure
             config.update({"show_choices": choices})
         return {"show_id": made.get("show_id")}
@@ -269,31 +277,46 @@ class App:
         settings = config.load()
         main = self._link(settings)
         try:
-            token = Link(main.server).redeem(code, settings.get("name") or self.setup._name)
+            # Under a name of its own, so a code from this computer's own account by mistake can't take this
+            # computer's unfinished shows over (Radio Booth hands those to a computer paired again under the
+            # same name), while the same person added again does get theirs back.
+            computer = settings.get("name") or self.setup._name
+            token = Link(main.server).redeem(code, f"{computer} (shared)")
         except LinkError as e:
             if e.status == 404:
                 raise SetupError(
                     "That code didn't work. Codes last 10 minutes and work once; get a new one and try again."
                 ) from None
             raise self._said(e) from None
-        name = self._account_name(Link(main.server, token, timeout=30)) or "Guest"
+        name = self._account_name(Link(main.server, token, timeout=30))
+        if not name:
+            raise SetupError(
+                "Radio Booth took the code but didn't say whose account it is. Get a new code and try again."
+            )
         own = self._account_name(main)
         if own and own != settings.get("account_name"):
             config.update({"account_name": own})
         if name == (own or settings.get("account_name")):
-            # A code from the account Booth already makes shows for: Radio Booth just took it as this
-            # computer connecting again, so keep the new connection rather than a second one.
-            config.update({"device_token": token, "account_name": name})
-            self.engine.start()
+            # Most likely a code from the account Booth already makes shows for. Radio Booth has no account id
+            # to tell, so nothing changes rather than risk mixing two accounts up.
             raise SetupError(
-                f"That code is from {name}'s account, which Booth already makes shows for. To add someone"
-                " else, get the code on their phone while they're signed in to their own account."
+                f"That code is from an account named {name}, like the one Booth already makes shows for. To"
+                " add someone else, get the code on their phone while they're signed in to their own account."
+                " (Booth tells accounts apart by name, so two with the same name can't share it.)"
             )
+        unpaired = self.engine.unpaired
 
         def change(people: list[dict]) -> list[dict]:
-            if any(p.get("name") == name for p in people):  # them again (after Radio Booth forgot it, say)
-                return [p | {"device_token": token} if p.get("name") == name else p for p in people]
-            return [*people, {"id": config.new_person_id(), "device_token": token, "name": name}]
+            again = next((p for p in people if p["name"] == name and p["id"] in unpaired), None)
+            if again:  # them again, after their Booth account forgot this computer: their history carries on
+                return [p | {"device_token": token} if p is again else p for p in people]
+            person = {
+                "id": config.new_person_id(),
+                "device_token": token,
+                "name": name,
+                "server": main.server,
+            }
+            return [*people, person]
 
         config.change_people(change)
         self.engine.start()
@@ -303,6 +326,8 @@ class App:
         if not any(p["id"] == who for p in config.people(config.load())):
             raise SetupError("Booth doesn't make shows for that person any more.")
         config.change_people(lambda people: [p for p in people if p["id"] != who])
+        with contextlib.suppress(OSError):  # their show history goes with them
+            history.path(who).unlink(missing_ok=True)
         self.engine.start()
 
     def act(self, action: str, body: dict) -> dict:

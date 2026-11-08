@@ -63,18 +63,21 @@ def update(changes: dict) -> dict:
 
 def people(settings: dict) -> list[dict]:
     """The other Booth accounts sharing this computer ("Add another person" on Booth's page), each
-    {"id", "device_token", "name"}. This computer's own account is `device_token`, as always."""
+    {"id", "device_token", "name", "server"}. This computer's own account is `device_token`, as always.
+    Only those paired with the Booth DJ this computer checks in with now: a token goes to no other server."""
     found = settings.get("people")
     if not isinstance(found, list):
         return []
+    server = str(settings.get("server") or "").rstrip("/")
     return [
-        p
+        p | {"name": p.get("name") if isinstance(p.get("name"), str) and p.get("name") else "Guest"}
         for p in found
         if isinstance(p, dict)
         and isinstance(p.get("device_token"), str)
         and p["device_token"]
         and isinstance(p.get("id"), str)
         and re.fullmatch(r"p_[a-z0-9]{1,32}", p["id"])
+        and str(p.get("server") or "").rstrip("/") == server
     ]
 
 
@@ -86,6 +89,6 @@ def change_people(change) -> list[dict]:
     """Save `change(people)`'s list of people, with the same one-at-a-time care as `update`."""
     with _changing:
         settings = load()
-        settings["people"] = change(people(settings))
+        settings["people"] = change(people(settings))  # people of another server are dropped
         save(settings)
         return settings["people"]

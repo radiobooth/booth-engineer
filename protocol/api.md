@@ -25,7 +25,7 @@ block pairing for others by sending made-up requests.
 
 Someone with their own Radio Booth account can share your Booth Engineer (**Add another person** on Booth's
 page). They get a pairing code on their phone, signed in as themselves, and Booth Engineer trades it with the
-same `POST /v0/pair`, under this computer's name. Booth Engineer then keeps one device token per account in
+same `POST /v0/pair`, under this computer's name with " (shared)" after it. Booth Engineer then keeps one device token per account in
 its config file, and makes every call below once per account, each with that account's token: separate
 check-ins, catalogs, deliveries and show lists, so each account's shows and show time stay its own. It reads
 `GET /v0/me` with the new token to learn the account's name. Booth DJ sees an ordinary paired Booth Engineer
