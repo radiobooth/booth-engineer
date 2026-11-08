@@ -86,6 +86,11 @@ pre { font: 12px/1.5 var(--label); white-space: pre-wrap; word-break: break-word
 a { color: var(--brass); }
 .note { margin: 14px 0 0; padding: 10px 12px; border-radius: 9px; background: rgba(63, 90, 82, .35);
   border: 1px solid var(--felt); font-size: 14px; }
+#off { display: none; text-align: center; padding: 36px 20px; }
+#off h2 { font-size: 28px; margin-bottom: 10px; }
+body.off #off { display: block; }
+body.off main > section:not(#off) { display: none; }
+body.off .light { color: var(--chalk); border-color: var(--chalk); }
 footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
 """
 
@@ -102,6 +107,12 @@ HTML = f"""<!doctype html>
 <body>
 <main>
   <header>{MARK}<h1>Radio Booth</h1><span class="light" id="light">Off air</span></header>
+
+  <section id="off">
+    <p class="label">Booth at home</p>
+    <h2 id="off-title">Booth is off</h2>
+    <p id="off-text"></p>
+  </section>
 
   <section id="status" class="hidden">
     <p class="label">Booth at home</p>
@@ -203,7 +214,7 @@ SCRIPT = r"""
 "use strict";
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
-let last = null, changing = false, gone = 0;
+let last = null, changing = false, gone = 0, turningOff = false;
 
 async function post(action, body = {}) {
   const r = await fetch("/api/" + action, {
@@ -349,19 +360,33 @@ async function refresh() {
   try {
     const r = await fetch("/api/state", {cache: "no-store"});
     if (r.status === 403) { location.reload(); return; }
+    if (turningOff) return;  // Booth is about to stop: don't bring the buttons back meanwhile
     render(await r.json());
     gone = 0;
+    document.body.classList.remove("off");
   } catch (x) {
     gone += 1;
-    if (gone > 2) {
-      $("light").textContent = "Off air";
-      $("light").classList.remove("on");
-      document.body.classList.remove("on-air");
-      $("footer").textContent = (last && last.restarting)
-        ? "Booth is starting again with the new version..."
-        : "Booth isn't running. Open Radio Booth on this computer to start it.";
-    }
+    turningOff = false;
+    if (gone > 2) showOff();
   }
+}
+
+function showOff() {
+  // Nothing on the page works while Booth is off, so show only that, and how to turn it on again.
+  // The page keeps checking: it comes back by itself when Booth does.
+  document.body.classList.add("off");
+  document.body.classList.remove("on-air");
+  $("light").textContent = "Off air";
+  $("light").classList.remove("on");
+  const restarting = last && last.restarting;
+  const p = last ? last.platform : "";
+  const where = p === "win32" ? " from the Start menu" : p === "darwin" ? " from Applications" : "";
+  $("off-title").textContent = restarting ? "Booth is updating" : "Booth is off";
+  $("off-text").textContent = restarting
+    ? "It's starting again with the new version. This page comes back by itself in a moment."
+    : "Shows you ask for won't reach Plex until it's on again. To turn it on, open Radio Booth" + where +
+      ". This page comes back by itself.";
+  $("footer").textContent = "";
 }
 
 function wire() {
@@ -398,7 +423,9 @@ function wire() {
   $("quit").onclick = async () => {
     if (!confirm("Turn Booth off? Shows you ask for won't reach Plex until Booth is on again.")) return;
     await post("quit").catch(() => {});
-    $("footer").textContent = "Booth is off. Open Radio Booth on this computer to turn it on again.";
+    gone = 3;
+    turningOff = true;
+    showOff();
   };
 }
 
