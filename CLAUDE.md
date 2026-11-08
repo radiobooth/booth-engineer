@@ -3,7 +3,9 @@
 Home client for Radio Booth. Python package `radiobooth`, command `booth`, managed with uv.
 
 - Run checks before pushing: `uv run ruff check && uv run ruff format --check && uv run pytest`.
-- Outbound connections only. Never open a listening port.
+- Outbound connections only: nothing may require the user to open a port on their router or firewall, and
+  nothing on the network may reach Booth. The one exception is Booth's own page, served on 127.0.0.1 only
+  (never 0.0.0.0 or a LAN address), locked with the page key and Host/Origin checks (see `web.py`).
 - Only metadata leaves the user's machine, and only what `protocol/` documents. Never upload audio.
 - Code is split by music source (`sources/`) and delivery target (`targets/`). Plex is the launch target.
 - Keep dependencies few: this ships via `uv tool install radiobooth` and a GHCR image.

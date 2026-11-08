@@ -19,8 +19,9 @@ jobs:
           - os: windows-latest
             file: booth.exe
             asset: RadioBooth-Windows.exe
-            # The On Air icon and the file details Explorer and Task Manager show (see packaging/).
-            brand: --icon packaging/booth.ico --version-file version_info.txt
+            # The On Air icon and the file details Explorer and Task Manager show (see packaging/). No
+            # console window: Booth runs in the background and shows its page in the browser.
+            brand: --icon packaging/booth.ico --version-file version_info.txt --noconsole
           - os: macos-latest  # Apple silicon
             file: booth
             asset: booth-arm64
@@ -46,6 +47,10 @@ jobs:
           src/radiobooth/__main__.py
         shell: bash
       - run: ./dist/${{ matrix.file }} --version
+        shell: bash
+      # Without a console the Windows app writes to its log file instead: check it got there.
+      - if: runner.os == 'Windows'
+        run: grep -F "booth $(uv run python -c 'import radiobooth; print(radiobooth.__version__)')" ~/.config/radiobooth/booth.log
         shell: bash
       - run: mv dist/${{ matrix.file }} dist/${{ matrix.asset }}
         shell: bash
@@ -101,6 +106,8 @@ jobs:
           pattern: RadioBooth-*  # the downloads, not the per-chip programs inside the Mac app
           path: dist
           merge-multiple: true
+      # The apps update themselves only to files that match these checksums.
+      - run: cd dist && sha256sum RadioBooth-* > SHA256SUMS && cat SHA256SUMS
       - run: >-
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
           --title "Radio Booth $GITHUB_REF_NAME"

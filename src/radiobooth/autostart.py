@@ -3,10 +3,10 @@
 The packaged app is first copied to a folder of its own, so tidying Downloads never breaks it (and on macOS,
 a background app may not read files in Downloads at all): on Windows a folder in AppData, on a Mac the
 Applications folder (see `macapp`).
-Windows: a script in the Startup folder opens `booth run` in a minimized window (close it to stop Booth
-until the next sign-in), and Start-menu shortcuts start Booth or its setup. macOS: a LaunchAgent, which
-System Settings lists under Login Items. Linux: a systemd user service. Each runs as you, with your
-settings; nothing is installed system-wide.
+Windows: a shortcut in the Startup folder starts Booth in the background (no window), and a Start-menu
+shortcut opens Booth's page. macOS: a LaunchAgent, which System Settings lists under Login Items. On both,
+Booth runs as the app (`booth app --background`: no window, its page a click away). Linux: a systemd user
+service running `booth run`. Each runs as you, with your settings; nothing is installed system-wide.
 """
 
 from __future__ import annotations
@@ -28,13 +28,6 @@ def command() -> list[str]:
         return [sys.executable]
     found = shutil.which("booth")
     return [found] if found else [sys.executable, "-m", "radiobooth"]
-
-
-def windows_script(cmd: list[str], action: str = "run", minimized: bool = True) -> str:
-    args = " ".join(f'"{c}"' for c in cmd)
-    # The file is UTF-8; switch cmd.exe to that code page so a path like C:\\Users\\José reads correctly.
-    start = f'start "Radio Booth" {"/min " if minimized else ""}{args} {action}'
-    return f"@echo off\r\nchcp 65001 >nul\r\n{start}\r\n"
 
 
 def app_home(platform: str, home: Path) -> Path:
@@ -75,23 +68,25 @@ def _ps(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def shortcut_script(link: Path, cmd: list[str], action: str, minimized: bool) -> str:
-    """PowerShell that makes a Start-menu shortcut (.lnk). The Start menu lists shortcuts, not scripts."""
-    args = " ".join(f'"{c}"' for c in cmd[1:]) + (" " if cmd[1:] else "") + action
+def shortcut_script(link: Path, cmd: list[str], action: str) -> str:
+    """PowerShell that makes a shortcut (.lnk), for the Start menu or the Startup folder."""
+    args = " ".join([*(f'"{c}"' for c in cmd[1:]), *([action] if action else [])])
     return "; ".join(
         [
             "$s = (New-Object -ComObject WScript.Shell).CreateShortcut(" + _ps(str(link)) + ")",
             "$s.TargetPath = " + _ps(cmd[0]),
             "$s.Arguments = " + _ps(args),
             "$s.WorkingDirectory = " + _ps(str(Path(cmd[0]).parent)),
-            f"$s.WindowStyle = {7 if minimized else 1}",
             "$s.Save()",
         ]
     )
 
 
+APP_ARGS = ["app", "--background"]
+
+
 def mac_plist(cmd: list[str], log: Path) -> str:
-    args = "".join(f"\n    <string>{_xml(c)}</string>" for c in [*cmd, "run"])
+    args = "".join(f"\n    <string>{_xml(c)}</string>" for c in [*cmd, *APP_ARGS])
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -108,7 +103,10 @@ def mac_plist(cmd: list[str], log: Path) -> str:
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>ThrottleInterval</key>
   <integer>300</integer>
   <key>StandardErrorPath</key>
@@ -148,31 +146,76 @@ def _xml(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def install(platform: str = sys.platform, home: Path | None = None, run=subprocess.run) -> str:
+def _windows_paths(home: Path) -> tuple[Path, Path]:
+    roaming = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+    programs = roaming / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    return programs, programs / "Startup"
+
+
+def _mac_paths(home: Path) -> tuple[Path, Path]:
+    return home / "Library" / "LaunchAgents" / f"{macapp.BUNDLE_ID}.plist", home / "Library" / "Logs"
+
+
+def installed(platform: str = sys.platform, home: Path | None = None) -> bool:
+    """Whether Booth is set to start at sign-in."""
+    home = home or Path.home()
+    if platform == "win32":
+        startup = _windows_paths(home)[1]
+        return (startup / "Radio Booth.lnk").exists() or (startup / "Radio Booth.cmd").exists()
+    if platform == "darwin":
+        return _mac_paths(home)[0].exists()
+    return (home / ".config" / "systemd" / "user" / f"{NAME}.service").exists()
+
+
+def outdated(platform: str = sys.platform, home: Path | None = None) -> bool:
+    """Set to start the way versions before 0.2 did (`booth run` in a window), not as the app."""
+    home = home or Path.home()
+    if platform == "win32":
+        return (_windows_paths(home)[1] / "Radio Booth.cmd").exists()
+    if platform == "darwin":
+        plist = _mac_paths(home)[0]
+        try:
+            return plist.is_file() and "<string>app</string>" not in plist.read_text(encoding="utf-8")
+        except OSError:
+            return False
+    return False
+
+
+def install(
+    platform: str = sys.platform, home: Path | None = None, run=subprocess.run, cmd: list[str] | None = None
+) -> str:
     """Set Booth to start at sign-in; returns what was done, in words."""
     home = home or Path.home()
-    cmd = command()
+    cmd = cmd or command()
     if platform in ("win32", "darwin"):
         cmd = keep_app(cmd, home, platform)
     if platform == "win32":
-        roaming = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
-        programs = roaming / "Microsoft" / "Windows" / "Start Menu" / "Programs"
-        (programs / "Startup").mkdir(parents=True, exist_ok=True)
-        # Bytes, so Windows' text mode doesn't double the \r in each line ending.
-        (programs / "Startup" / "Radio Booth.cmd").write_bytes(windows_script(cmd).encode())
-        # In the Start menu too: one to start Booth again, one to change its settings.
-        for name, action, minimized in (("Radio Booth", "run", True), ("Radio Booth setup", "setup", False)):
-            script = shortcut_script(programs / f"{name}.lnk", cmd, action, minimized)
-            checked(run, ["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+        programs, startup = _windows_paths(home)
+        startup.mkdir(parents=True, exist_ok=True)
+        (startup / "Radio Booth.cmd").unlink(missing_ok=True)  # how versions before 0.2 started
+        (programs / "Radio Booth setup.lnk").unlink(missing_ok=True)  # setup is on Booth's page now
+        for link, action in (
+            (startup / "Radio Booth.lnk", " ".join(APP_ARGS)),
+            (programs / "Radio Booth.lnk", ""),
+        ):
+            checked(
+                run,
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    shortcut_script(link, cmd, action),
+                ],
+            )
         return (
-            "Booth will start in a small window each time you sign in to Windows. It's in the Start menu"
-            " too, as 'Radio Booth' and 'Radio Booth setup'."
+            "Booth will start by itself, in the background, each time you sign in to Windows. To see its"
+            " page, open Radio Booth from the Start menu."
         )
     if platform == "darwin":
-        agents, logs = home / "Library" / "LaunchAgents", home / "Library" / "Logs"
-        agents.mkdir(parents=True, exist_ok=True)
+        plist, logs = _mac_paths(home)
+        plist.parent.mkdir(parents=True, exist_ok=True)
         logs.mkdir(parents=True, exist_ok=True)
-        plist = agents / "com.radiobooth.engineer.plist"
         plist.write_text(mac_plist(cmd, logs / "radiobooth.log"), encoding="utf-8")
         run(["launchctl", "unload", str(plist)], capture_output=True)  # an older copy, if any
         checked(run, ["launchctl", "load", str(plist)])
@@ -180,7 +223,7 @@ def install(platform: str = sys.platform, home: Path | None = None, run=subproce
         if macapp.bundle(cmd[0]):
             # The bare program the Mac download kept before it was an app; nothing starts it any more.
             app_home(platform, home).unlink(missing_ok=True)
-            done += " To change its settings, open Radio Booth from your Applications folder."
+            done += " To see its page, open Radio Booth from your Applications folder."
         return done
     units = home / ".config" / "systemd" / "user"
     units.mkdir(parents=True, exist_ok=True)
@@ -189,3 +232,22 @@ def install(platform: str = sys.platform, home: Path | None = None, run=subproce
     checked(run, ["systemctl", "--user", "enable", f"{NAME}.service"])
     checked(run, ["systemctl", "--user", "restart", f"{NAME}.service"])  # picks up new settings too
     return f"Booth now runs as the systemd user service {NAME!r} and starts when you sign in."
+
+
+def remove(platform: str = sys.platform, home: Path | None = None, run=subprocess.run) -> str:
+    """Stop starting Booth at sign-in. A Booth running now keeps running."""
+    home = home or Path.home()
+    if platform == "win32":
+        startup = _windows_paths(home)[1]
+        for name in ("Radio Booth.lnk", "Radio Booth.cmd"):
+            (startup / name).unlink(missing_ok=True)
+        return "Booth won't start by itself any more. Open Radio Booth from the Start menu when you want it."
+    if platform == "darwin":
+        plist = _mac_paths(home)[0]
+        # Not `launchctl unload`: that would stop this Booth too, if launchd started it.
+        plist.unlink(missing_ok=True)
+        return "Booth won't start by itself any more. Open Radio Booth from Applications when you want it."
+    unit = home / ".config" / "systemd" / "user" / f"{NAME}.service"
+    run(["systemctl", "--user", "disable", f"{NAME}.service"], capture_output=True)
+    unit.unlink(missing_ok=True)
+    return "Booth won't start by itself any more."

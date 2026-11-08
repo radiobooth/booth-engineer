@@ -273,19 +273,32 @@ def test_remote_plex_without_a_breaks_library_explains(home, monkeypatch):
 def test_autostart_files(tmp_path, monkeypatch):
     monkeypatch.setattr(autostart, "command", lambda: [r"C:\Users\Al\Downloads\booth.exe"])
     monkeypatch.setenv("APPDATA", str(tmp_path / "AppData"))
+    menu = tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs"
+    (menu / "Startup").mkdir(parents=True)
+    (menu / "Startup" / "Radio Booth.cmd").write_text("how 0.1 started")
+    (menu / "Radio Booth setup.lnk").write_text("0.1's setup shortcut")
     ran = []
     assert "Windows" in autostart.install("win32", tmp_path, run=lambda *a, **k: ran.append(a[0]))
-    script = (tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs/Startup/Radio Booth.cmd").read_text()
-    assert r'start "Radio Booth" /min "C:\Users\Al\Downloads\booth.exe" run' in script
-    menu = tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs"
-    shortcuts = [args[-1] for args in ran if args[0] == "powershell"]  # the Start menu lists shortcuts
-    assert len(shortcuts) == 2 and str(menu / "Radio Booth setup.lnk") in shortcuts[1]
-    assert "$s.Arguments = 'setup'" in shortcuts[1] and "$s.WindowStyle = 7" in shortcuts[0]
+    assert (
+        not (menu / "Startup" / "Radio Booth.cmd").exists() and not (menu / "Radio Booth setup.lnk").exists()
+    )
+    shortcuts = [args[-1] for args in ran if args[0] == "powershell"]  # shortcuts, so no window flashes up
+    assert str(menu / "Startup" / "Radio Booth.lnk") in shortcuts[0]
+    assert "$s.Arguments = 'app --background'" in shortcuts[0]
+    assert str(menu / "Radio Booth.lnk") in shortcuts[1] and "$s.Arguments = ''" in shortcuts[1]
+    assert autostart.installed("win32", tmp_path) is False  # PowerShell didn't really run here
+    (menu / "Startup" / "Radio Booth.lnk").write_text("lnk")
+    assert autostart.installed("win32", tmp_path)
+    autostart.remove("win32", tmp_path)
+    assert not autostart.installed("win32", tmp_path)
 
     assert "Mac" in autostart.install("darwin", tmp_path, run=lambda *a, **k: ran.append(a[0]))
     plist = (tmp_path / "Library/LaunchAgents/com.radiobooth.engineer.plist").read_text()
-    assert "<string>run</string>" in plist and ran[-1][:2] == ["launchctl", "load"]
+    assert "<string>app</string>" in plist and ran[-1][:2] == ["launchctl", "load"]
     assert "<key>ThrottleInterval</key>" in plist  # a Booth that can't start isn't retried every 10 s
+    assert autostart.installed("darwin", tmp_path)
+    autostart.remove("darwin", tmp_path)
+    assert not autostart.installed("darwin", tmp_path)
 
     autostart.install("linux", tmp_path, run=lambda *a, **k: ran.append(a[0]))
     unit = (tmp_path / ".config/systemd/user/radiobooth.service").read_text()
@@ -351,7 +364,7 @@ def test_start_menu_shortcuts_really_get_made(tmp_path):
     import subprocess
 
     link = tmp_path / "Radio Booth's setup.lnk"
-    script = autostart.shortcut_script(link, [r"C:\Windows\notepad.exe"], "setup", minimized=False)
+    script = autostart.shortcut_script(link, [r"C:\Windows\notepad.exe"], "app --background")
     autostart.checked(subprocess.run, ["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
     assert link.is_file()
 
@@ -367,19 +380,6 @@ def test_a_failed_service_start_is_an_error(tmp_path):
         autostart.install("darwin", tmp_path, run=run)
 
 
-def test_the_app_keeps_its_window_open_on_a_surprise(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
-
-    def boom(args):
-        raise PermissionError("can't write there")
-
-    monkeypatch.setattr(cli, "setup", boom)
-    pauses = []
-    monkeypatch.setattr("builtins.input", lambda prompt="": pauses.append(prompt) or "")
-    assert cli.app([]) == 1
-    assert "can't write there" in capsys.readouterr().err and pauses
-
-
 def test_an_existing_pairing_can_be_replaced(home, monkeypatch):
     tmp_path, plex, codes = home
     answers = iter(["n", "ABCD-2345"])
@@ -389,12 +389,6 @@ def test_an_existing_pairing_can_be_replaced(home, monkeypatch):
     assert out["device_token"] == "be_device" and codes == ["ABCD-2345"]
 
 
-def test_windows_scripts_read_non_ascii_paths():
-    script = autostart.windows_script([r"C:\\Users\\José\\AppData\\Local\\Radio Booth\\RadioBooth.exe"])
-    lines = script.split("\r\n")
-    assert lines[1] == "chcp 65001 >nul" and "José" in lines[2]
-
-
 def test_setup_reuses_the_saved_server(tmp_path, monkeypatch):
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
     monkeypatch.delenv("BOOTH_SERVER", raising=False)
@@ -402,40 +396,6 @@ def test_setup_reuses_the_saved_server(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(setup_flow, "guided", lambda server, name: seen.append(server) or 0)
     assert cli.main(["setup"]) == 0 and seen == ["https://staging.example"]
-
-
-def test_start_menu_actions_keep_the_window_open_on_failure(tmp_path, monkeypatch):
-    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
-    pauses = []
-    monkeypatch.setattr("builtins.input", lambda prompt="": pauses.append(prompt) or "")
-    assert cli.app(["run"]) == cli.NEEDS_PAIRING  # not set up yet: says so, then waits
-    assert pauses and cli.app(["--version"]) == 0 and len(pauses) == 1
-
-
-@pytest.mark.parametrize(
-    "code, answer, keep",
-    [(cli.NEEDS_SETUP, "", True), (cli.NEEDS_PAIRING, "", False), (cli.ALREADY_RUNNING, "y", True)],
-)
-def test_a_double_click_that_needs_setup_offers_it(tmp_path, monkeypatch, code, answer, keep):
-    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
-    config.save({"device_token": "be_dead", "plex_token": "t", "server": "https://booth.example"})
-    monkeypatch.setattr(cli, "run", lambda args: code)
-    seen = []
-    monkeypatch.setattr(
-        setup_flow, "guided", lambda server, name, keep_pairing: seen.append((server, keep_pairing)) or 0
-    )
-    monkeypatch.setattr("builtins.input", lambda prompt="": answer)
-    assert cli.app([]) == 0
-    assert seen == [("https://booth.example", keep)]
-
-
-def test_already_running_needs_a_yes_to_change_settings(tmp_path, monkeypatch):
-    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
-    config.save({"device_token": "be", "plex_token": "t"})
-    monkeypatch.setattr(cli, "run", lambda args: cli.ALREADY_RUNNING)
-    monkeypatch.setattr(setup_flow, "guided", lambda *a, **k: pytest.fail("setup without a yes"))
-    monkeypatch.setattr("builtins.input", lambda prompt="": "")
-    assert cli.app([]) == cli.ALREADY_RUNNING
 
 
 def test_a_dead_pairing_is_not_offered_again(home, monkeypatch):
@@ -511,3 +471,22 @@ def test_a_saved_plex_sign_in_that_plex_refuses_is_not_offered(home, monkeypatch
     )
     assert out["plex_token"] == "server-token"
     assert "no longer accepts Booth's saved sign-in" in capsys.readouterr().out
+
+
+def test_an_older_versions_sign_in_item_is_noticed(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData"))
+    startup = tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs/Startup"
+    startup.mkdir(parents=True)
+    assert not autostart.outdated("win32", tmp_path)
+    (startup / "Radio Booth.cmd").write_text("booth run")
+    assert autostart.outdated("win32", tmp_path)
+
+    plist = tmp_path / "Library/LaunchAgents/com.radiobooth.engineer.plist"
+    assert not autostart.outdated("darwin", tmp_path)
+    plist.parent.mkdir(parents=True)
+    plist.write_text(
+        autostart.mac_plist(["/Applications/Radio Booth.app/Contents/MacOS/Radio Booth"], tmp_path)
+    )
+    assert not autostart.outdated("darwin", tmp_path)
+    plist.write_text("<plist><string>run</string></plist>")
+    assert autostart.outdated("darwin", tmp_path)

@@ -34,7 +34,7 @@ def info_plist(v: str) -> dict:
         "CFBundleVersion": v,
         "LSApplicationCategoryType": "public.app-category.music",
         "LSMinimumSystemVersion": MIN_MACOS,
-        # Opened from Finder, the app only hands over to a Terminal window, so no Dock icon for it.
+        # No window of its own (Booth shows its page in the browser), so no Dock icon for it.
         "LSUIElement": True,
         "NSHumanReadableCopyright": "Radio Booth. Apache License 2.0.",
     }

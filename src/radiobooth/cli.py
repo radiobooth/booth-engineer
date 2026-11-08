@@ -27,6 +27,10 @@ COMMANDS = {
 COMMANDS["run"] = (
     "Stay connected to Booth DJ: send the catalog when you ask for a show, deliver it when ready."
 )
+COMMANDS["app"] = (
+    "Run Booth with its page in your browser (setup, status, settings), or open the page of the Booth"
+    " already running here."
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
                 help="Plex music library, if the server has more than one (default $BOOTH_MUSIC_LIBRARY)",
             )
             p.add_argument("--once", action="store_true", help="check in once and exit")
+        if name == "app":
+            p.add_argument("--background", action="store_true", help="don't open the page in the browser")
+            p.add_argument(
+                "--wait", action="store_true", help=argparse.SUPPRESS
+            )  # restarting after an update
+            p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
     return parser
 
 
@@ -87,13 +97,9 @@ def coverage(tracks: list[dict]) -> str:
 
 
 def remember(show_dir: Path, log) -> None:
-    """Note a delivered show's tracks so later shows skip them. Never fails the delivery."""
-    from radiobooth import history
+    from radiobooth.engine import remember as note
 
-    try:
-        history.record_package(json.loads((show_dir / "show.json").read_text(encoding="utf-8")))
-    except Exception as e:
-        log(f"Couldn't update the show history ({e}); later shows may repeat these tracks.")
+    note(show_dir, log)
 
 
 def index(args: argparse.Namespace) -> int:
@@ -194,11 +200,9 @@ def pair(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
-    from radiobooth import config, history
-    from radiobooth.link import Link, LinkError, Station
+    from radiobooth import config, engine
+    from radiobooth.link import Link, LinkError
     from radiobooth.link import run as run_link
-    from radiobooth.sources.plex import PlexAuthError, PlexClient, build_catalog
-    from radiobooth.targets.plex import deliver as deliver_to_plex
 
     settings = config.load()
     if not settings.get("device_token"):
@@ -207,39 +211,6 @@ def run(args: argparse.Namespace) -> int:
     plex_settings = delivery_settings("run", None, None)
     if plex_settings is None:
         return NEEDS_SETUP
-    url, token, library, dest = plex_settings
-    plex = PlexClient(url, token)
-
-    music = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
-
-    def signed_in(step):
-        """`step()`, and if Plex refuses the sign-in, once more with a newer one saved since Booth started
-        (setup run again in another window). Without one, the refusal stands: only signing in fixes it."""
-        try:
-            return step()
-        except PlexAuthError as e:
-            # The saved sign-in, even when PLEX_URL/PLEX_TOKEN are set: a token exported in this shell
-            # outlives the one setup just saved.
-            saved = config.load()
-            saved_url = saved.get("plex_url") or plex.base_url
-            saved_token = saved.get("plex_token")
-            if not saved_token or (saved_url.rstrip("/"), saved_token) == (plex.base_url, plex.token):
-                if os.environ.get("PLEX_TOKEN"):
-                    raise PlexAuthError(
-                        f"{e} PLEX_TOKEN is set here and wins over setup's: unset it."
-                    ) from None
-                raise
-            plex.base_url, plex.token = saved_url.rstrip("/"), saved_token
-            log("Plex refused the sign-in Booth started with; using the one saved by setup.")
-            return step()
-
-    def catalog() -> dict:
-        return history.annotate(signed_in(lambda: build_catalog(plex, music, exclude=library)[0]))
-
-    def deliver_show(show_dir: Path) -> str:
-        title = signed_in(lambda: deliver_to_plex(plex, show_dir, library, Path(dest))).title
-        remember(show_dir, log)
-        return title
 
     def log(msg: str) -> None:
         print(f"{time.strftime('%H:%M:%S')} {msg}", file=sys.stderr, flush=True)
@@ -252,7 +223,7 @@ def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return ALREADY_RUNNING
-    station = Station(catalog=catalog, deliver=deliver_show, log=log)
+    station = engine.station(settings, log, music=args.library)
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
     try:
         run_link(Link(settings["server"], settings["device_token"]), station, once=args.once)
@@ -293,66 +264,29 @@ def setup(args: argparse.Namespace) -> int:
     return guided(server, args.name)
 
 
-def app(argv: list[str]) -> int:
-    """The packaged app. Double-clicked, with nothing typed: set up if needed, then stay connected. From the
-    Start menu: the command it names. Either way the window stays open after a failure, so nobody misses
-    what went wrong."""
+def app(args: argparse.Namespace) -> int:
+    from radiobooth import web
+
+    return web.main(args.name, background=args.background, wait=args.wait)
+
+
+def without_console(platform: str = sys.platform) -> None:
+    """The Windows app has no console window, so nothing to print to: Booth's messages go to a log file next
+    to its config instead (the page shows the latest of them)."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return
     from radiobooth import config
 
-    name_window()
+    log = config.path().parent / "booth.log"
     try:
-        if argv:
-            code = dispatch(argv)
-        elif (settings := config.load()).get("device_token") and settings.get("plex_token"):
-            code = run(build_parser().parse_args(["run"]))
-            if again := offer_setup(code):
-                code = again()
-        else:
-            code = setup(build_parser().parse_args(["setup"]))
-    except SystemExit as e:  # argparse's --help, --version and usage errors
-        code = e.code if isinstance(e.code, int) else 1
-    except KeyboardInterrupt:
-        code = 0
-    except Exception as e:  # anything unexpected: say what, and keep the window open to read it
-        print(f"\nSomething went wrong: {e}", file=sys.stderr)
-        code = 1
-    if code:
-        with contextlib.suppress(EOFError, KeyboardInterrupt):
-            input("\nPress Enter to close this window.")
-    return code
-
-
-def name_window(title: str = "Radio Booth", platform: str = sys.platform) -> None:
-    """Title the app's window "Radio Booth"; double-clicked, it would show the path to the program."""
-    if platform == "win32":
-        with contextlib.suppress(AttributeError, OSError):
-            import ctypes
-
-            ctypes.windll.kernel32.SetConsoleTitleW(title)
-    elif sys.stdout.isatty():  # Terminal on a Mac: the standard escape for a window title
-        sys.stdout.write(f"\033]0;{title}\007")
-        sys.stdout.flush()
-
-
-def offer_setup(code: int):
-    """After a double-clicked `run` that only setup can fix (or that found Booth already running, which is
-    how someone changes its settings), ask to set up again. Returns what does that, or None."""
-    from radiobooth import config
-    from radiobooth.setup_flow import guided
-
-    question = {
-        NEEDS_SETUP: "Set Booth up again now? [Y/n] ",
-        NEEDS_PAIRING: "Connect Booth to your account again now, with a new code from your phone? [Y/n] ",
-        ALREADY_RUNNING: "Do you want to change Booth's settings? [y/N] ",
-    }.get(code)
-    if not question:
-        return None
-    answer = input(f"\n{question}").strip().lower()
-    if not (answer in ("y", "yes") or (code != ALREADY_RUNNING and answer == "")):
-        return None
-    server = os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
-    name = build_parser().parse_args(["setup"]).name
-    return lambda: guided(server, name, keep_pairing=code != NEEDS_PAIRING)
+        log.parent.mkdir(parents=True, exist_ok=True)
+        if log.is_file() and log.stat().st_size > 2_000_000:
+            os.replace(log, log.with_suffix(".log.1"))
+        stream = open(log, "a", encoding="utf-8", errors="replace", buffering=1)  # noqa: SIM115
+    except OSError:
+        stream = open(os.devnull, "w")  # noqa: SIM115
+    sys.stdout = sys.stdout or stream
+    sys.stderr = sys.stderr or stream
 
 
 MAC_CERTIFICATES = "/etc/ssl/cert.pem"  # the certificate authorities macOS trusts, kept up to date by Apple
@@ -372,17 +306,47 @@ def use_system_certificates(platform: str = sys.platform) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    without_console()
     use_system_certificates()
     for stream in (sys.stdout, sys.stderr):  # Windows consoles can't print every title; never crash on one
         with contextlib.suppress(AttributeError, ValueError):
             stream.reconfigure(errors="replace")
-    if argv is None and getattr(sys, "frozen", False):
+    if argv is None and getattr(sys, "frozen", False) and not sys.argv[1:]:
+        # The app, double-clicked or opened from the Start menu, Finder, Launchpad or Spotlight.
         from radiobooth import macapp
 
-        if macapp.opened_from_finder(sys.argv[1:]):  # the Mac app has no window of its own: open one
-            return macapp.open_in_terminal(sys.executable)
-        return app(sys.argv[1:])
+        if macapp.opened_from_finder([]) and (handed_over := macapp.open_app(sys.executable)) is not None:
+            return handed_over
+        if (moved := windows_home()) is not None:
+            return moved
+        return dispatch(["app"])
     return dispatch(argv)
+
+
+def windows_home(platform: str = sys.platform, popen=None) -> int | None:
+    """The Windows app runs from a folder of its own (AppData), so the download can go and updates have one
+    place to go to. Opened from anywhere else, it copies itself there and starts that copy. Returns None to
+    carry on in this process."""
+    if platform != "win32" or not getattr(sys, "frozen", False):
+        return None
+    import subprocess
+    import webbrowser
+
+    from radiobooth import autostart, config, web
+
+    home = autostart.app_home(platform, Path.home())
+    if Path(sys.executable).resolve() == home.resolve():
+        return None
+    lock = single_instance(config.path().parent / "run.lock")
+    if lock is None:  # Booth's already running: just open its page
+        return 0 if web.open_running(webbrowser.open) else None
+    lock.close()
+    try:
+        target = autostart.keep_app([sys.executable], Path.home(), platform)[0]
+    except OSError:
+        return None
+    (popen or subprocess.Popen)([target], close_fds=True)
+    return 0
 
 
 def dispatch(argv: list[str] | None) -> int:
@@ -393,7 +357,7 @@ def dispatch(argv: list[str] | None) -> int:
         return 0
     if args.command == "index":
         return index(args)
-    return {"deliver": deliver, "pair": pair, "run": run, "setup": setup}[args.command](args)
+    return {"app": app, "deliver": deliver, "pair": pair, "run": run, "setup": setup}[args.command](args)
 
 
 if __name__ == "__main__":

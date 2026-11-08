@@ -184,19 +184,22 @@ def sign_in_url(client_id: str, code: str) -> str:
     return f"https://app.plex.tv/auth#?{query}"
 
 
-def sign_in(
-    client_id: str, *, open_browser, say, call=plex_tv, sleep=time.sleep, timeout=SIGN_IN_TIMEOUT
-) -> str:
-    """Sign in to Plex in the browser; returns the account's Plex token."""
+def start_sign_in(client_id: str, call=plex_tv) -> tuple[dict, str]:
+    """A new Plex sign-in: (the PIN to wait on, the Plex page to sign in on)."""
     pin = call("POST", "/pins", client_id, params={"strong": "true"})
-    url = sign_in_url(client_id, pin["code"])
-    say("Opening Plex in your browser. Sign in there and allow Radio Booth.")
-    say(f"If no browser window opens, go to this address:\n  {url}")
-    open_browser(url)
+    return pin, sign_in_url(client_id, pin["code"])
+
+
+def wait_sign_in(
+    client_id: str, pin: dict, *, call=plex_tv, sleep=time.sleep, timeout=SIGN_IN_TIMEOUT, cancelled=None
+) -> str:
+    """Wait for the browser sign-in for `pin` to finish; returns the account's Plex token."""
     waited, misses = 0, 0
     while waited < timeout:
         sleep(2)
         waited += 2
+        if cancelled and cancelled():
+            raise SetupError("Plex sign-in was cancelled.")
         try:
             got = call("GET", f"/pins/{pin['id']}", client_id, params={"code": pin["code"]})
         except SetupError:  # a moment offline mustn't lose a sign-in that's nearly done; a minute does
@@ -208,6 +211,17 @@ def sign_in(
         if got and got.get("authToken"):
             return got["authToken"]
     raise SetupError("Plex sign-in wasn't finished in time. Run setup again when you're ready.")
+
+
+def sign_in(
+    client_id: str, *, open_browser, say, call=plex_tv, sleep=time.sleep, timeout=SIGN_IN_TIMEOUT
+) -> str:
+    """Sign in to Plex in the browser; returns the account's Plex token."""
+    pin, url = start_sign_in(client_id, call)
+    say("Opening Plex in your browser. Sign in there and allow Radio Booth.")
+    say(f"If no browser window opens, go to this address:\n  {url}")
+    open_browser(url)
+    return wait_sign_in(client_id, pin, call=call, sleep=sleep, timeout=timeout)
 
 
 def owned_servers(token: str, client_id: str, call=plex_tv) -> list[dict]:

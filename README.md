@@ -18,9 +18,14 @@ Status: early development. Exactly what is sent, and when, is in [`protocol/`](p
 ## Using it
 
 **Setting it up for the first time?** Follow [docs/getting-started.md](docs/getting-started.md): download
-the app for Windows or macOS (or `booth setup` if you installed the command), and it walks you through
-signing in to Plex and connecting to your Booth account. It saves its settings in the config file below, so
-nothing needs to be set in the environment.
+the app for Windows or macOS and open it. Booth opens its page in your browser, which walks you through
+signing in to Plex and connecting to your Booth account, then shows how Booth is doing. The app runs in the
+background with no window and keeps itself up to date. With the command installed, `booth app` does the
+same, and `booth setup` is the step-by-step version in the terminal. Either saves its settings in the config
+file below, so nothing needs to be set in the environment.
+
+Booth's page is served only to this computer (on 127.0.0.1, behind a random key the app hands your
+browser); nothing on your network can reach it.
 
 **Plex on another computer, Linux or Docker?** See
 [docs/other-setups.md](docs/other-setups.md).
