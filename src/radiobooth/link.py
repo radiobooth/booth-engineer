@@ -1,8 +1,9 @@
-"""The link to Booth DJ: pairing, check-ins, sending the catalog for a show, and fetching finished shows.
+"""The link to Booth DJ: pairing, check-ins, sending the catalog for a show, fetching finished shows, and
+asking for shows from Booth's page.
 
 Every connection goes out from this machine; nothing here listens. What is sent is exactly what
 protocol/api.md documents: this machine's name and Booth Engineer version, a catalog when a show asks for
-one, and the outcome of each delivery.
+one, the outcome of each delivery, and the show requests typed into Booth's page.
 """
 
 from __future__ import annotations
@@ -96,6 +97,9 @@ class Link:
             raise LinkError("Booth DJ sent an unexpected reply.")
         return status, data
 
+    def get(self, path: str) -> dict:
+        return self._call("GET", path)[1]
+
     def post(self, path: str, data: dict) -> tuple[int, dict]:
         body = json.dumps(data).encode()
         return self._call("POST", path, body, {"Content-Type": "application/json"})
@@ -111,6 +115,10 @@ class Link:
         return token
 
     # Shows
+
+    def ask(self, request: dict) -> dict:
+        """Ask for a show as the phone page does: prompt, minutes, dj, voice, dj_name and station."""
+        return self.post("/v0/shows", request)[1]
 
     def checkin(self) -> dict:
         """{"next_checkin_s": 5..3600, "shows": [entries with a show_id]}; anything else is a LinkError."""

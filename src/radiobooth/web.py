@@ -29,12 +29,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from radiobooth import __version__, autostart, config, engine, page, update
+from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.websetup import WebSetup, plex_ready
 
 HOST = "127.0.0.1"
 PORT = 48231  # the same address each time when it's free, so a page left open finds Booth again
 COOKIE = "booth_key"
+SHOW_CHOICES = ("minutes", "dj", "voice", "dj_name", "station")  # kept for next time; the prompt isn't
+ROSTER_S = 600  # the DJs and voices change only with a new Booth DJ, so the page asks for them now and then
 
 
 def page_file() -> Path:
@@ -103,6 +106,7 @@ class App:
         )
         self.quit = threading.Event()
         self.restarting = False
+        self._roster: tuple[float, dict] | None = None
 
     def server(self) -> str:
         from radiobooth.cli import DEFAULT_SERVER
@@ -150,6 +154,54 @@ class App:
             "restarting": self.restarting,
         }
 
+    def _link(self) -> Link:
+        token = config.load().get("device_token")
+        if not token:
+            raise SetupError("Connect Booth to your account first.")
+        try:
+            return Link(self.server(), token, timeout=30)
+        except LinkError as e:
+            raise SetupError(str(e)) from None
+
+    @staticmethod
+    def _said(e: LinkError) -> SetupError:
+        """What the page says when Booth DJ couldn't take or answer a request."""
+        if e.status is None:
+            return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
+        if e.status == 401:
+            return SetupError("Your Booth account doesn't know this computer. Connect it again in Settings.")
+        return SetupError(str(e).removeprefix("Booth DJ: "))
+
+    def shows(self) -> dict:
+        """For the page's New show section: the DJs and voices, show time left, and the latest shows."""
+        link = self._link()
+        try:
+            if not self._roster or time.monotonic() - self._roster[0] > ROSTER_S:
+                self._roster = (time.monotonic(), link.get("/v0/me").get("roster") or {})
+            listed = link.get("/v0/shows")
+        except LinkError as e:
+            raise self._said(e) from None
+        shows = listed.get("shows")
+        return {
+            "roster": self._roster[1],
+            "allowance": listed.get("allowance"),
+            "shows": shows[:6] if isinstance(shows, list) else [],
+            "choices": config.load().get("show_choices") or {},
+        }
+
+    def new_show(self, body: dict) -> dict:
+        """Ask Booth DJ for a show, as the phone page does. It checks the request and says what's wrong."""
+        prompt = str(body.get("prompt") or "").strip()
+        if not prompt:
+            raise SetupError("Say what the show is about.")
+        choices = {k: body[k] for k in SHOW_CHOICES if isinstance(body.get(k), str | int)}
+        try:
+            made = self._link().ask({"prompt": prompt, **choices})
+        except LinkError as e:
+            raise self._said(e) from None
+        config.update({"show_choices": choices})
+        return {"show_id": made.get("show_id")}
+
     def act(self, action: str, body: dict) -> dict:
         """What a button on the page asks for. SetupError: something to tell the person."""
         if action == "plex":
@@ -160,6 +212,8 @@ class App:
             self.setup.choose(int(body.get("index", -1)))
         elif action == "folder":
             self.setup.use_folder(str(body.get("path", "")))
+        elif action == "new_show":
+            return self.new_show(body)
         elif action == "pair":
             return {"name": self.setup.pair(str(body.get("code", "")))}
         elif action == "autostart":
@@ -244,6 +298,11 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                 return self._send(200, page.SCRIPT.encode(), "text/javascript; charset=utf-8")
             if path == "/api/state":
                 return self._json(200, app.state())
+            if path == "/api/shows":
+                try:
+                    return self._json(200, app.shows())
+                except SetupError as e:
+                    return self._json(422, {"error": str(e)})
             return self._send(404, b"", "text/plain")
 
         def do_POST(self):  # noqa: N802

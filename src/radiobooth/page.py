@@ -91,6 +91,22 @@ a { color: var(--brass); }
 body.off #off { display: block; }
 body.off main > section:not(#off) { display: none; }
 body.off .light { color: var(--chalk); border-color: var(--chalk); }
+#show-form { display: grid; gap: 12px; margin-top: 10px; }
+#show-form label { display: grid; gap: 6px; font: 12px/1.3 var(--label); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); }
+#show-form textarea, #show-form select, #show-form input { font: 16px/1.4 var(--text); padding: 10px 12px;
+  border-radius: 9px; border: 1px solid var(--line); background: var(--studio); color: var(--chalk);
+  width: 100%; min-width: 0; text-transform: none; letter-spacing: normal; }
+#show-form textarea { min-height: 76px; resize: vertical; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 420px) { .pair { grid-template-columns: 1fr; } }
+.ok { color: #b9dccf; margin: 0; }
+.shows { list-style: none; padding: 0; margin: 14px 0 0; }
+.shows li { padding: 10px 0; border-top: 1px solid var(--line); display: grid; gap: 2px; }
+.shows .title { font-weight: 600; overflow-wrap: anywhere; }
+.shows .st { font-size: 14px; }
+.shows .st.delivered { color: #b9dccf; }
+.shows .st.failed, .shows .st.expired { color: #ffb4a3; }
 footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
 """
 
@@ -121,6 +137,37 @@ HTML = f"""<!doctype html>
     <p class="muted" id="status-meta"></p>
     <div class="actions" id="status-actions"></div>
     <p class="note" id="keeps-running"></p>
+  </section>
+
+  <section id="new-show" class="hidden">
+    <p class="label">New show</p>
+    <h2>What's the show?</h2>
+    <p class="muted hidden" id="allowance"></p>
+    <form id="show-form">
+      <label for="prompt">Describe it
+        <textarea id="prompt" required maxlength="2000" placeholder="Rainy drive home, something warm"></textarea>
+      </label>
+      <div class="pair">
+        <label for="minutes">Length
+          <select id="minutes">
+            <option value="20">20 min</option><option value="30">30 min</option>
+            <option value="40" selected>40 min</option><option value="60">1 hour</option>
+            <option value="90">90 min</option><option value="120">2 hours</option>
+          </select>
+        </label>
+        <label for="dj">DJ <select id="dj"></select></label>
+      </div>
+      <div class="pair">
+        <label for="voice">Voice <select id="voice"></select></label>
+        <label for="dj-name">DJ's name <input id="dj-name" maxlength="40" placeholder="Default"></label>
+      </div>
+      <label for="station">Station name <input id="station" maxlength="80" placeholder="Optional"></label>
+      <div class="actions"><button type="submit" id="make">Make the show</button></div>
+      <p class="ok hidden" id="show-ok"></p>
+      <div class="error hidden" id="show-error"></div>
+    </form>
+    <div class="error hidden" id="shows-error"></div>
+    <ul class="shows hidden" id="shows"></ul>
   </section>
 
   <section id="setup">
@@ -215,6 +262,11 @@ SCRIPT = r"""
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
+let showsTimer = null, showsWanted = false, rosterFilled = false;
+const SHOW_STATUS = {
+  queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
+  delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
+};
 
 async function post(action, body = {}) {
   const r = await fetch("/api/" + action, {
@@ -247,7 +299,7 @@ function error(id, message) {
 }
 
 const STATUS = {
-  on_air: ["Booth is on the air", "Ask for a show on your phone. It shows up in Plex as a playlist a few minutes later."],
+  on_air: ["Booth is on the air", "Ask for a show below or on your phone. It shows up in Plex as a playlist a few minutes later."],
   starting: ["Booth is starting", "Connecting to your Booth account..."],
   offline: ["Booth can't reach Radio Booth", "Is this computer online? Booth keeps trying by itself."],
   needs_plex: ["Plex needs you to sign in again", "Plex stopped accepting Booth's sign-in. Sign in again below."],
@@ -282,6 +334,12 @@ function render(s) {
   actions.replaceChildren();
   if (["offline", "stopped", "needs_folder"].includes(e.state))
     actions.append(button("Try again now", () => post("restart_engine").then(refresh), true));
+
+  // New show: once Booth is set up
+  const canAsk = ready && e.state !== "needs_pairing";
+  show($("new-show"), canAsk);
+  if (canAsk && !showsWanted) { showsWanted = true; loadShows(); }
+  if (!canAsk) { showsWanted = false; clearTimeout(showsTimer); }
 
   // Setup: shown until done, when something needs fixing, or when asked for
   const needsPlex = !s.plex.ready || e.state === "needs_plex";
@@ -389,7 +447,88 @@ function showOff() {
   $("footer").textContent = "";
 }
 
+function fillRoster(roster, saved) {
+  const dj = $("dj"), voice = $("voice");
+  dj.replaceChildren(...(roster.djs || []).map((d) => new Option(d.name + ", " + d.role, d.id)));
+  voice.replaceChildren(...(roster.voices || []).map((v) => new Option("Voice " + v, v)));
+  const ids = {minutes: "minutes", dj: "dj", voice: "voice", dj_name: "dj-name", station: "station"};
+  for (const [k, id] of Object.entries(ids)) if (saved[k] !== undefined && saved[k] !== null) {
+    const el = $(id), before = el.value;
+    el.value = String(saved[k]);
+    if (el.tagName === "SELECT" && el.selectedIndex < 0) el.value = before;  // no longer offered
+  }
+}
+
+function renderAllowance(a) {
+  let left = Infinity;
+  for (const k of ["day", "week"]) if (a && a[k]) left = Math.min(left, a[k].left);
+  $("allowance").textContent = (a && a.text) || "";
+  show($("allowance"), !!(a && a.text));
+  // Lengths that don't fit stay visible but can't be picked; Radio Booth says why if one is sent anyway.
+  for (const opt of $("minutes").options) opt.disabled = Number(opt.value) > left;
+}
+
+function renderShows(list) {
+  const ul = $("shows");
+  show(ul, list.length > 0);
+  ul.replaceChildren(...list.map((s) => {
+    const li = document.createElement("li");
+    const t = document.createElement("span");
+    t.className = "title";
+    t.textContent = s.title || s.prompt;
+    const st = document.createElement("span");
+    st.className = "st " + s.status;
+    let text = SHOW_STATUS[s.status] || s.status;
+    if (s.waiting_for_earlier) text = "Up next, after your earlier show reaches Plex";
+    if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
+    if (s.status === "failed" && s.error) text += ". " + s.error;
+    st.textContent = text;
+    const m = document.createElement("span");
+    m.className = "muted";
+    m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
+    li.append(t, st, m);
+    return li;
+  }));
+}
+
+async function loadShows() {
+  clearTimeout(showsTimer);
+  if (!showsWanted) return;
+  let wait = 30000;
+  try {
+    const r = await fetch("/api/shows", {cache: "no-store"});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
+    if (!rosterFilled) { fillRoster(data.roster, data.choices); rosterFilled = true; }
+    renderAllowance(data.allowance);
+    renderShows(data.shows);
+    if (data.shows.some((s) => ["queued", "making", "ready"].includes(s.status))) wait = 5000;
+    error("shows-error", "");
+  } catch (x) {
+    error("shows-error", x.message);  // keep what's shown, and try again
+    wait = 15000;
+  }
+  if (showsWanted) showsTimer = setTimeout(loadShows, wait);
+}
+
 function wire() {
+  $("show-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    error("show-error", "");
+    show($("show-ok"), false);
+    $("make").disabled = true;
+    try {
+      await post("new_show", {
+        prompt: $("prompt").value, minutes: Number($("minutes").value), dj: $("dj").value,
+        voice: $("voice").value, dj_name: $("dj-name").value, station: $("station").value,
+      });
+      $("prompt").value = "";
+      $("show-ok").textContent = "Requested. It shows up in Plex in a few minutes.";
+      show($("show-ok"), true);
+    } catch (x) { error("show-error", x.message); }
+    $("make").disabled = false;
+    loadShows();
+  };
   $("plex-go").onclick = async () => {
     error("plex-error", "");
     const w = window.open("about:blank", "_blank");  // opened now, while it's a click, so it isn't blocked

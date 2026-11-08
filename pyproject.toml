@@ -1,6 +1,6 @@
 [project]
 name = "radiobooth"
-version = "0.2.0"
+version = "0.2.1"
 description = "Booth Engineer: the home client for Radio Booth. Turns your own music library into radio shows with an AI DJ."
 readme = "README.md"
 license = "Apache-2.0"
