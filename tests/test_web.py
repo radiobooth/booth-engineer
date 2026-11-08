@@ -454,7 +454,7 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
     config.update({"device_token": "be_device", "server": "https://booth.example"})
 
     def offline(self, path):
-        raise LinkError("Could not reach Booth DJ at https://booth.example: no route")
+        raise LinkError("Could not reach Booth DJ at https://booth.example: no route", network=True)
 
     def unknown(self, request):
         raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
@@ -470,8 +470,9 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
     app.engine.state = engine.NEEDS_PAIRING
     assert "Connect it again" in app._said(LinkError("Booth DJ: Unknown Booth Engineer", 401)).args[0]
     assert "Try again" in app._said(LinkError("Booth DJ sent a reply that isn't JSON (cut short?).")).args[0]
-    timed_out = LinkError("Could not reach Booth DJ at https://booth.example: timed out")
-    assert "before asking again" in app._said(timed_out).args[0]
+    lost = LinkError("Could not reach Booth DJ at https://booth.example: timed out", network=True)
+    assert "before asking again" in app._said(lost, asked=True).args[0]  # it may have arrived
+    assert "Is this computer online?" in app._said(lost).args[0]
     assert "having trouble" in app._said(LinkError("Booth DJ: HTTP 503", 503)).args[0]
 
     # It talks to the server it's paired with, whatever BOOTH_SERVER says now.

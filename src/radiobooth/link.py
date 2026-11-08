@@ -28,9 +28,10 @@ USER_AGENT = f"radiobooth/{__version__}"
 class LinkError(Exception):
     """Booth DJ couldn't be reached or refused a request."""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, *, network: bool = False):
         super().__init__(message)
         self.status = status
+        self.network = network  # no answer came back (the request may or may not have arrived)
 
 
 class PackageError(Exception):
@@ -88,7 +89,8 @@ class Link:
                 pass
             raise LinkError(f"Booth DJ: {message}", e.code) from None
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
-            raise LinkError(f"Could not reach Booth DJ at {self.server}: {getattr(e, 'reason', e)}") from None
+            reason = getattr(e, "reason", e)
+            raise LinkError(f"Could not reach Booth DJ at {self.server}: {reason}", network=True) from None
         try:
             data = json.loads(raw) if raw.strip() else {}
         except ValueError:

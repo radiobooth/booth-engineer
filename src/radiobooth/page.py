@@ -263,7 +263,7 @@ SCRIPT = r"""
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
-let showsTimer = null, showsWanted = false, rosterShown = "", asking = false;
+let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -460,12 +460,14 @@ function fillRoster(roster, saved) {
   if (Array.isArray(roster.lengths) && roster.lengths.length) {  // the lengths Radio Booth offers now
     minutes.replaceChildren(...roster.lengths.map((l) => new Option(l.label, String(l.minutes))));
     minutes.value = "40";
+    if (minutes.selectedIndex < 0) minutes.selectedIndex = 0;
   }
   const ids = {minutes: "minutes", dj: "dj", voice: "voice", dj_name: "dj-name", station: "station"};
   for (const [k, id] of Object.entries(ids)) if (saved[k] !== undefined && saved[k] !== null) {
     const el = $(id), before = el.value;
     el.value = String(saved[k]);
     if (el.tagName === "SELECT" && el.selectedIndex < 0) el.value = before;  // no longer offered
+    if (el.tagName === "SELECT" && el.selectedIndex < 0) el.selectedIndex = 0;
   }
 }
 
@@ -512,18 +514,22 @@ async function loadShows() {
   clearTimeout(showsTimer);
   if (!showsWanted || document.hidden) return;  // a hidden tab asks again when it's shown
   let wait = 30000;
+  const ask = ++showsAsk;  // only the latest answer counts: an older one arriving late is dropped
   try {
     const r = await fetch("/api/shows", {cache: "no-store"});
     const data = await r.json().catch(() => ({}));
+    if (ask !== showsAsk) return;
     if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
     const roster = JSON.stringify(data.roster), first = !rosterShown;
     if (roster !== rosterShown) { fillRoster(data.roster, data.choices || {}); rosterShown = roster; }
     renderAllowance(data.allowance, first);
     if (first && last) render(last);  // the button waits for the DJs and voices
     renderShows(data.shows);
-    if (data.shows.some((s) => ["queued", "making", "ready"].includes(s.status))) wait = 5000;
+    // Quicker while this computer has a show on its way (another computer's can wait an hour).
+    if (data.shows.some((s) => ["queued", "making", "ready"].includes(s.status) && !s.for_computer)) wait = 5000;
     error("shows-error", "");
   } catch (x) {
+    if (ask !== showsAsk) return;
     error("shows-error", x.message);  // keep what's shown, and try again
     wait = 15000;
   }

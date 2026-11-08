@@ -166,16 +166,14 @@ class App:
         except LinkError as e:
             raise SetupError(str(e)) from None
 
-    def _said(self, e: LinkError) -> SetupError:
-        """What the page says when Booth DJ couldn't take or answer a request."""
+    def _said(self, e: LinkError, asked: bool = False) -> SetupError:
+        """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show)."""
         said = str(e).removeprefix("Booth DJ: ")
+        if e.network and asked:  # it may have got there before the answer was lost: don't ask twice
+            return SetupError("Radio Booth didn't answer. Check the list below before asking again.")
+        if e.network:
+            return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
         if e.status is None:
-            if "timed out" in said:
-                return SetupError(
-                    "Radio Booth took too long to answer. Look for your show in the list before asking again."
-                )
-            if said.startswith("Could not reach"):
-                return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
             return SetupError("Radio Booth sent an answer Booth didn't understand. Try again in a moment.")
         if e.status == 401:
             if self.engine.state != engine.NEEDS_PAIRING:  # check-ins still work, so it's still paired
@@ -195,12 +193,14 @@ class App:
                 if not isinstance(roster, dict) or not roster.get("djs"):
                     raise LinkError("Booth DJ sent no DJs to pick from.")
                 self._roster = (time.monotonic(), roster)
+            else:
+                roster = self._roster[1]
             listed = link.get("/v0/shows")
         except LinkError as e:
             raise self._said(e) from None
         shows = listed.get("shows")
         return {
-            "roster": self._roster[1],
+            "roster": roster,
             "allowance": listed.get("allowance"),
             "shows": shows[:6] if isinstance(shows, list) else [],
             "choices": settings.get("show_choices") or {},
@@ -220,7 +220,7 @@ class App:
         try:
             made = link.ask({"prompt": prompt, **choices})
         except LinkError as e:
-            raise self._said(e) from None
+            raise self._said(e, asked=True) from None
         config.update({"show_choices": choices})
         return {"show_id": made.get("show_id")}
 
@@ -325,6 +325,8 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                     return self._json(200, app.shows())
                 except SetupError as e:
                     return self._json(422, {"error": str(e)})
+                except Exception as e:  # noqa: BLE001 - say what on the page
+                    return self._json(500, {"error": f"Something went wrong: {e}"})
             return self._send(404, b"", "text/plain")
 
         def do_POST(self):  # noqa: N802
