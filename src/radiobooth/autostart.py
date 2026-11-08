@@ -64,22 +64,62 @@ def keep_app(cmd: list[str], home: Path, platform: str) -> list[str]:
     return [str(target)]
 
 
-def _ps(text: str) -> str:
-    return "'" + text.replace("'", "''") + "'"
+def shortcut(target: str, args: str = "") -> bytes:
+    """A Windows shortcut (.lnk) to `target` with `args`, written byte for byte (Microsoft's [MS-SHLLINK]
+    format) rather than by starting PowerShell: a program with no window that starts PowerShell is just what
+    antivirus software looks for. Unicode throughout, so a path like C:\\Users\\José works."""
+    import struct
 
+    def counted(text: str) -> bytes:
+        return struct.pack("<H", len(text)) + text.encode("utf-16-le")
 
-def shortcut_script(link: Path, cmd: list[str], action: str) -> str:
-    """PowerShell that makes a shortcut (.lnk), for the Start menu or the Startup folder."""
-    args = " ".join([*(f'"{c}"' for c in cmd[1:]), *([action] if action else [])])
-    return "; ".join(
-        [
-            "$s = (New-Object -ComObject WScript.Shell).CreateShortcut(" + _ps(str(link)) + ")",
-            "$s.TargetPath = " + _ps(cmd[0]),
-            "$s.Arguments = " + _ps(args),
-            "$s.WorkingDirectory = " + _ps(str(Path(cmd[0]).parent)),
-            "$s.Save()",
-        ]
+    import ntpath
+
+    workdir = ntpath.dirname(target)
+    has_args, has_workdir = bool(args), bool(workdir)
+    # HasLinkInfo | HasWorkingDir? | HasArguments? | IsUnicode
+    flags = 0x02 | (0x10 if has_workdir else 0) | (0x20 if has_args else 0) | 0x80
+    header = struct.pack(
+        "<I16sIIQQQIiIHHII",
+        0x4C,
+        bytes.fromhex("0114020000000000c000000000000046"),  # the shell link class id
+        flags,
+        0x20,  # FILE_ATTRIBUTE_ARCHIVE
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,  # SW_SHOWNORMAL
+        0,
+        0,
+        0,
+        0,
     )
+    # LinkInfo: the target as a local path, in ANSI (what fits) and in full Unicode.
+    volume = struct.pack("<IIII", 0x11, 3, 0, 0x10) + b"\0"  # a fixed drive, no label
+    ansi = target.encode("mbcs" if sys.platform == "win32" else "ascii", "replace") + b"\0"
+    unicode = target.encode("utf-16-le") + b"\0\0"
+    head = 0x24
+    volume_at = head
+    path_at = volume_at + len(volume)
+    suffix_at = path_at + len(ansi)
+    upath_at = suffix_at + 1
+    usuffix_at = upath_at + len(unicode)
+    body = volume + ansi + b"\0" + unicode + b"\0\0"
+    info = struct.pack(
+        "<IIIIIIIII", head + len(body), head, 1, volume_at, path_at, 0, suffix_at, upath_at, usuffix_at
+    )
+    strings = (counted(workdir) if has_workdir else b"") + (counted(args) if has_args else b"")
+    return header + info + body + strings + b"\0\0\0\0"  # no extra data blocks
+
+
+def write_shortcut(link: Path, cmd: list[str], action: str) -> None:
+    args = " ".join([*(f'"{c}"' for c in cmd[1:]), *([action] if action else [])])
+    link.parent.mkdir(parents=True, exist_ok=True)
+    staged = link.with_name(link.name + ".new")
+    staged.write_bytes(shortcut(cmd[0], args))
+    os.replace(staged, link)
 
 
 APP_ARGS = ["app", "--background"]
@@ -181,7 +221,7 @@ def outdated(platform: str = sys.platform, home: Path | None = None) -> bool:
     return False
 
 
-def start_menu(home: Path | None = None, run=subprocess.run, cmd: list[str] | None = None) -> None:
+def start_menu(home: Path | None = None, cmd: list[str] | None = None) -> None:
     """Windows: the Start-menu entry that opens Booth's page, whether or not Booth starts at sign-in. Made
     each time the app starts, so it's there for settings carried over from an older version too, and always
     points at the app as it is now."""
@@ -189,8 +229,7 @@ def start_menu(home: Path | None = None, run=subprocess.run, cmd: list[str] | No
     programs = _windows_paths(home)[0]
     programs.mkdir(parents=True, exist_ok=True)
     (programs / "Radio Booth setup.lnk").unlink(missing_ok=True)  # setup is on Booth's page now
-    script = shortcut_script(programs / "Radio Booth.lnk", cmd or command(), "")
-    checked(run, ["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+    write_shortcut(programs / "Radio Booth.lnk", cmd or command(), "")
 
 
 def install(
@@ -206,20 +245,8 @@ def install(
         startup.mkdir(parents=True, exist_ok=True)
         (startup / "Radio Booth.cmd").unlink(missing_ok=True)  # how versions before 0.2 started
         (programs / "Radio Booth setup.lnk").unlink(missing_ok=True)  # setup is on Booth's page now
-        for link, action in (
-            (startup / "Radio Booth.lnk", " ".join(APP_ARGS)),
-            (programs / "Radio Booth.lnk", ""),
-        ):
-            checked(
-                run,
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    shortcut_script(link, cmd, action),
-                ],
-            )
+        write_shortcut(startup / "Radio Booth.lnk", cmd, " ".join(APP_ARGS))
+        write_shortcut(programs / "Radio Booth.lnk", cmd, "")
         return (
             "Booth will start by itself, in the background, each time you sign in to Windows. To see its"
             " page, open Radio Booth from the Start menu."

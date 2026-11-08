@@ -282,12 +282,11 @@ def test_autostart_files(tmp_path, monkeypatch):
     assert (
         not (menu / "Startup" / "Radio Booth.cmd").exists() and not (menu / "Radio Booth setup.lnk").exists()
     )
-    shortcuts = [args[-1] for args in ran if args[0] == "powershell"]  # shortcuts, so no window flashes up
-    assert str(menu / "Startup" / "Radio Booth.lnk") in shortcuts[0]
-    assert "$s.Arguments = 'app --background'" in shortcuts[0]
-    assert str(menu / "Radio Booth.lnk") in shortcuts[1] and "$s.Arguments = ''" in shortcuts[1]
-    assert autostart.installed("win32", tmp_path) is False  # PowerShell didn't really run here
-    (menu / "Startup" / "Radio Booth.lnk").write_text("lnk")
+    assert ran == []  # shortcuts are written directly: no PowerShell, which antivirus software dislikes
+    startup = (menu / "Startup" / "Radio Booth.lnk").read_bytes()
+    assert startup[:4] == b"\x4c\0\0\0" and "app --background".encode("utf-16-le") in startup
+    assert r"C:\Users\Al\Downloads\booth.exe".encode("utf-16-le") in startup
+    assert "app".encode("utf-16-le") not in (menu / "Radio Booth.lnk").read_bytes()
     assert autostart.installed("win32", tmp_path)
     autostart.remove("win32", tmp_path)
     assert not autostart.installed("win32", tmp_path)
@@ -361,12 +360,23 @@ def test_the_mac_app_runs_from_its_own_folder_not_downloads(tmp_path, monkeypatc
 
 @pytest.mark.skipif(sys.platform != "win32", reason="makes a real Windows shortcut")
 def test_start_menu_shortcuts_really_get_made(tmp_path):
+    import os
     import subprocess
 
-    link = tmp_path / "Radio Booth's setup.lnk"
-    script = autostart.shortcut_script(link, [r"C:\Windows\notepad.exe"], "app --background")
-    autostart.checked(subprocess.run, ["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
-    assert link.is_file()
+    link = tmp_path / "José's Radio Booth.lnk"
+    autostart.write_shortcut(link, [r"C:\Windows\notepad.exe"], "app --background")
+    read = (
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:BOOTH_LNK);"
+        " Write-Output $s.TargetPath; Write-Output $s.Arguments; Write-Output $s.WorkingDirectory"
+    )
+    out = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", read],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "BOOTH_LNK": str(link)},
+    )
+    lines = out.stdout.splitlines()[:3]
+    assert lines == [r"C:\Windows\notepad.exe", "app --background", r"C:\Windows"], out.stderr
 
 
 def test_a_failed_service_start_is_an_error(tmp_path):
@@ -497,9 +507,8 @@ def test_the_start_menu_entry_is_made_without_start_at_sign_in(tmp_path, monkeyp
     programs = tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs"
     programs.mkdir(parents=True)
     (programs / "Radio Booth setup.lnk").write_text("0.1's setup shortcut")
-    ran = []
-    autostart.start_menu(tmp_path, run=lambda a, **k: ran.append(a), cmd=[r"C:\Booth\RadioBooth.exe"])
-    (script,) = [a[-1] for a in ran]
-    assert str(programs / "Radio Booth.lnk") in script and "$s.Arguments = ''" in script
+    autostart.start_menu(tmp_path, cmd=[r"C:\Booth\RadioBooth.exe"])
+    lnk = (programs / "Radio Booth.lnk").read_bytes()
+    assert r"C:\Booth\RadioBooth.exe".encode("utf-16-le") in lnk
     assert not (programs / "Radio Booth setup.lnk").exists()
     assert not (programs / "Startup").exists()  # starting at sign-in is a separate choice
