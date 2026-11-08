@@ -84,6 +84,8 @@ pre { font: 12px/1.5 var(--label); white-space: pre-wrap; word-break: break-word
   max-height: 320px; overflow: auto; margin: 10px 0 0; }
 .hidden { display: none !important; }
 a { color: var(--brass); }
+.note { margin: 14px 0 0; padding: 10px 12px; border-radius: 9px; background: rgba(63, 90, 82, .35);
+  border: 1px solid var(--felt); font-size: 14px; }
 footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
 """
 
@@ -107,6 +109,7 @@ HTML = f"""<!doctype html>
     <p id="status-text"></p>
     <p class="muted" id="status-meta"></p>
     <div class="actions" id="status-actions"></div>
+    <p class="note" id="keeps-running"></p>
   </section>
 
   <section id="setup">
@@ -260,6 +263,10 @@ function render(s) {
   if (e.last_checkin) meta.push("Checked in " + ago(e.last_checkin));
   if (e.last_show) meta.push("Last show: " + e.last_show.playlist + ", " + ago(e.last_show.at));
   $("status-meta").textContent = meta.join(" · ");
+  const where = s.platform === "win32" ? " from the Start menu" : s.platform === "darwin" ? " from Applications" : "";
+  $("keeps-running").textContent = "You can close this page. Booth keeps running in the background; open Radio Booth" +
+    where + " to come back here.";
+  show($("keeps-running"), e.state !== "stopped");
   const actions = $("status-actions");
   actions.replaceChildren();
   if (["offline", "stopped", "needs_folder"].includes(e.state))
