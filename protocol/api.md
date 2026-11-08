@@ -58,7 +58,31 @@ sentence: the real reason can name local folders or your Plex address, so it sta
 log. Booth DJ deletes its copy of the package after this. If the report itself doesn't get through, Booth
 Engineer sends it again on the next check-in without delivering the show twice.
 
+## Asking for shows from Booth's page
+
+Shows are asked for on the Booth page on your phone, or on Booth's own page on this computer. Booth's page
+asks through Booth Engineer, with the device token, exactly as the phone page does:
+
+`GET /v0/me` → the DJs and voices to pick from (`roster`), asked for now and then; the reply also names your
+account and its show time, which Booth doesn't use.
+
+`GET /v0/shows` → `{"shows": [...], "allowance": {...}}`: your shows, newest first, with their status
+(`queued`, `making`, `ready`, `delivered`, `failed`, `expired`), and the show time left. Booth's page asks
+every 30 seconds while it's open and Booth is paired and running (every 5 while a show of yours is on its
+way), and not while the page is hidden.
+
+`POST /v0/shows` with what you typed: `{"prompt": "Rainy drive home", "minutes": 40, "dj": "penrose",
+"voice": "A", "dj_name": "", "station": ""}` → `201` with the new show, `400` with what to fix, or `429`
+when it doesn't fit your show time. Booth Engineer remembers the choices (not the prompt) in its local config
+for next time.
+
+A show asked for this way is made from this computer's library and delivered here: Booth DJ asks only this
+Booth Engineer for its catalog. Until a show asked for on another of your computers is finished,
+`GET /v0/shows` lists it with `"for_computer"`, that computer's name. Booth's page only asks for a show (`POST`) while Booth
+is on the air.
+
+Nothing else is sent: no catalog goes with a request. It's sent later, on a check-in, as above.
+
 ## What Booth DJ does with the rest
 
-Show requests come from the Booth page on your phone, not from Booth Engineer. A show that gets no catalog
-within an hour fails, and a package nobody fetches is deleted after 7 days.
+A show that gets no catalog within an hour fails, and a package nobody fetches is deleted after 7 days.

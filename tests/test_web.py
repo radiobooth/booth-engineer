@@ -399,3 +399,83 @@ def test_a_broken_reply_from_github_doesnt_stop_update_checks(monkeypatch):
     up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: True)
     up.check()
     assert up.state == "failed" and "Couldn't check" in up.message
+
+
+def test_shows_are_asked_for_on_the_page(booth, monkeypatch):
+    app, port, key, _ = booth
+    status, data = act(port, key, "new_show", {"prompt": "rain"})
+    assert status == 422 and "Connect Booth" in data["error"]  # not paired yet
+
+    config.update({"device_token": "be_device", "server": "https://booth.example"})
+    status, data = act(port, key, "new_show", {"prompt": "rain"})
+    assert status == 422 and "on the air" in data["error"]  # it would wait for this Booth, so not yet
+    app.engine.state = engine.ON_AIR
+    asked, gets = [], []
+    roster = {"djs": [{"id": "penrose", "name": "Penrose", "role": "night owl"}], "voices": ["A", "B"]}
+    allowance = {"week": {"left": 50}, "text": "50 min of show time left this week."}
+
+    def get(self, path):
+        gets.append((self.server, self.token, path))
+        if path == "/v0/me":
+            return {"name": "Thomas", "roster": roster, "allowance": allowance}
+        shows = [{"show_id": f"show_{i}", "status": "queued", "prompt": "p", "minutes": 40} for i in range(9)]
+        return {"shows": shows, "allowance": allowance}
+
+    def ask(self, request):
+        asked.append((self.server, self.token, request))
+        if request.get("minutes") == 5:
+            raise LinkError("Booth DJ: Shows run 10 to 240 minutes.", 400)
+        return {"show_id": "show_new", "status": "queued"}
+
+    monkeypatch.setattr(web.Link, "get", get)
+    monkeypatch.setattr(web.Link, "ask", ask)
+
+    choices = {"minutes": 30, "dj": "penrose", "voice": "B", "dj_name": "Pen", "station": "Porch FM"}
+    status, data = act(port, key, "new_show", {"prompt": "  Sunday chores ", **choices, "extra": "no"})
+    assert status == 200 and data == {"show_id": "show_new"}
+    assert asked == [("https://booth.example", "be_device", {"prompt": "Sunday chores", **choices})]
+    assert config.load()["show_choices"] == choices  # remembered for next time; the prompt isn't
+
+    status, data = act(port, key, "new_show", {"prompt": "x", "minutes": 5})
+    assert status == 422 and data["error"] == "Shows run 10 to 240 minutes."
+    assert act(port, key, "new_show", {"prompt": " "})[1]["error"] == "Say what the show is about."
+
+    status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
+    listed = json.loads(body)
+    assert status == 200 and listed["roster"] == roster and listed["allowance"] == allowance
+    assert len(listed["shows"]) == 6 and listed["choices"]["voice"] == "B"
+    call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert [p for *_, p in gets] == ["/v0/me", "/v0/shows", "/v0/shows"]  # the DJs and voices, once
+    assert call(port, "GET", "/api/shows")[0] == 403  # the page key, as for everything else
+
+
+def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
+    app, port, key, _ = booth
+    config.update({"device_token": "be_device", "server": "https://booth.example"})
+
+    def offline(self, path):
+        raise LinkError("Could not reach Booth DJ at https://booth.example: no route", network=True)
+
+    def unknown(self, request):
+        raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
+
+    monkeypatch.setattr(web.Link, "get", offline)
+    monkeypatch.setattr(web.Link, "ask", unknown)
+    app.engine.state = engine.ON_AIR
+    status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert status == 422 and "Is this computer online?" in json.loads(body)["error"]
+    status, data = act(port, key, "new_show", {"prompt": "rain"})
+    # Check-ins work, so it's paired: this Radio Booth just doesn't take shows from the page yet.
+    assert status == 422 and "Ask on your phone" in data["error"]
+    app.engine.state = engine.NEEDS_PAIRING
+    assert "Connect it again" in app._said(LinkError("Booth DJ: Unknown Booth Engineer", 401)).args[0]
+    assert "Try again" in app._said(LinkError("Booth DJ sent a reply that isn't JSON (cut short?).")).args[0]
+    lost = LinkError("Could not reach Booth DJ at https://booth.example: timed out", network=True)
+    assert "before asking again" in app._said(lost, asked=True).args[0]  # it may have arrived
+    assert "Is this computer online?" in app._said(lost).args[0]
+    assert "having trouble" in app._said(LinkError("Booth DJ: HTTP 503", 503)).args[0]
+    assert "before asking again" in app._said(LinkError("Booth DJ: HTTP 503", 503), asked=True).args[0]
+
+    # It talks to the server it's paired with, whatever BOOTH_SERVER says now.
+    monkeypatch.setenv("BOOTH_SERVER", "https://elsewhere.example")
+    assert app._link().server == "https://booth.example"

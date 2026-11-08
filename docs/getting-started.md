@@ -43,8 +43,8 @@ open **System Settings > Privacy & Security**, scroll down, click **Open Anyway*
 confirm with your password. (On macOS 11 or 12 it's **System Preferences > Security & Privacy**.) Booth then
 moves itself into your Applications folder, so you can delete the download, and opens.
 
-Your browser opens **Booth's page** (this one is on the computer; the Booth page on your phone is where you
-ask for shows). That's Booth. There's no other window: Booth runs in the background.
+Your browser opens **Booth's page** (this one is on the computer; the Booth page on your phone is the other
+one). That's Booth. There's no other window: Booth runs in the background.
 
 ## 4. Follow the two steps on Booth's page
 
@@ -70,10 +70,11 @@ That's it.
 
 ## 5. Ask for a show
 
-On your phone, describe the show, pick a length and a DJ, and tap **Make the show**. The page tells you how
-it's going. When it says **In Plex**, open Plex and look under **Playlists**.
+On your phone, or on Booth's page on the computer, describe the show, pick a length and a DJ, and tap **Make
+the show**. The page tells you how it's going. When it says **In Plex**, open Plex and look under
+**Playlists**.
 
-Your shows count against a weekly amount of show time, which your Booth page shows above the form.
+Your shows count against a weekly amount of show time, which both pages show above the form.
 
 ## What Booth sends, and what it doesn't
 
