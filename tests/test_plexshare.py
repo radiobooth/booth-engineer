@@ -51,7 +51,7 @@ def test_whether_a_user_sees_the_breaks_library(plextv):
     assert plexshare.sees_library("t", "c", "m1", 3427736, "Radio Booth") is True
     assert plexshare.sees_library("t", "c", "m1", 9, "Radio Booth") is False
     assert plexshare.sees_library("t", "c", "m1", 5, "Radio Booth") is True  # everything shared
-    assert plexshare.sees_library("t", "c", "m1", 77, "Radio Booth") is False  # not shared at all
+    assert plexshare.sees_library("t", "c", "m1", 77, "Radio Booth") is None  # not listed: no guess
     answers["/api/servers/m1/shared_servers"] = b"<html>a Wi-Fi sign-in page"
     with pytest.raises(PlexError):
         plexshare.sees_library("t", "c", "m1", 9, "Radio Booth")

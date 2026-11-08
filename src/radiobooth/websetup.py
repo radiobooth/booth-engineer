@@ -101,10 +101,7 @@ class WebSetup:
         """Start a Plex sign-in; returns the Plex page for the person to sign in on."""
         with self._lock:
             self.reset()
-            settings = config.load()
-            client_id = settings.get("plex_client_id") or self._ob.new_client_id()
-            if not settings.get("plex_client_id"):
-                config.update({"plex_client_id": client_id})
+            client_id = config.plex_client_id()
             self._client_id = client_id
             pin, url = self._ob.start_sign_in(client_id)
             self.step, self.sign_in_url = "plex_wait", url

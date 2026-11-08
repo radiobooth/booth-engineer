@@ -678,6 +678,7 @@ def test_a_persons_new_playlist_is_shared_with_their_plex_user(tmp_path, monkeyp
         "breaks_library": "Radio Booth",
         "breaks_dir": str(tmp_path),
     }
+    config.update({"plex_client_id": "radiobooth-x"})
     person = {"id": "p_jen", "name": "Jennifer", "plex_user": {"id": 3427736, "title": "evoljennifer"}}
     done = engine.plex_target.Delivery("777", "Jennifer: Rain", 3, 2, tmp_path, machine="m1")
     monkeypatch.setattr(engine.plex_target, "deliver", lambda *a, **k: done)

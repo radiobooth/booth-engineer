@@ -420,7 +420,10 @@ function render(s) {
       plexUsers = d.users;
       peopleShown = "";
       if (last) render(last);
-    })).catch((x) => error("settings-error", x.message));
+    })).catch((x) => {
+      error("settings-error", x.message);
+      setTimeout(() => { plexUsersAsked = false; }, 30000);  // ask again on a later refresh
+    });
   }
   const peopleKey = JSON.stringify([own, people, plexUsers]);
   if (peopleKey !== peopleShown) {
@@ -435,12 +438,14 @@ function render(s) {
       st.className = "st" + (p.unpaired ? " failed" : "");
       st.textContent = p.unpaired ? "Their Booth account no longer knows this computer. Add them again with a new code."
         : "Their playlists start with “" + p.name + ":”" +
-          (p.plex_user ? " and are shared with " + p.plex_user.title + " in Plex." : " and stay in your Plex.");
+          (p.plex_user ? ". New ones are shared with " + p.plex_user.title + " in Plex." : ". They stay in your Plex.");
       const share = document.createElement("label");
       share.className = "people-share";
       share.textContent = "Share their playlists in Plex with";
       const pick = document.createElement("select");
-      const users = plexUsers || (p.plex_user ? [p.plex_user] : []);
+      const users = [...(plexUsers || [])];
+      if (p.plex_user && !users.some((u) => u.id === p.plex_user.id))  // not (or not yet) in the list
+        users.push({id: p.plex_user.id, title: p.plex_user.title + (plexUsers ? " (no longer in your Plex)" : "")});
       pick.replaceChildren(new Option("Nobody (only in your Plex)", ""),
         ...users.map((u) => new Option(u.title, String(u.id))));
       pick.value = p.plex_user ? String(p.plex_user.id) : "";
@@ -449,7 +454,9 @@ function render(s) {
         pick.disabled = true;
         try {
           const {said} = await post("person_plex", {id: p.id, user: pick.value || null});
-          if (said) error("settings-error", said);
+          const before = p.plex_user ? " Playlists already shared with " + p.plex_user.title +
+            " stay shared; you can change that in Plex." : "";
+          if (said || before) error("settings-error", (said + before).trim());
         } catch (x) { error("settings-error", x.message); }
         pick.disabled = false;
         refresh();

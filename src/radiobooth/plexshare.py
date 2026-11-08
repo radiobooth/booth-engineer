@@ -73,7 +73,7 @@ def sees_library(token: str, client_id: str, machine: str, user_id: int, library
             return True
         sections = [s for s in share.iter("Section") if s.get("title") == library]
         return any(s.get("shared") == "1" for s in sections) if sections else False
-    return False
+    return None  # not listed (Plex Home members can share another way): no warning on a guess
 
 
 def share_playlist(

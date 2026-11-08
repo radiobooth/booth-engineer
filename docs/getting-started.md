@@ -88,7 +88,7 @@ a separate history for them, so their shows don't skip tracks just because they 
 page, **Who's it for** on the New show form picks whose show it is.
 
 To have their shows show up in their own Plex, pick their Plex user under **Share their playlists in Plex
-with** next to their name. Booth then shares each of their playlists with them, and they find it in Plexamp
+with** next to their name. Booth then shares each new playlist of theirs with them, and they find it in Plexamp
 under **Shared Playlists**. They need to be able to see the **Radio Booth** library in Plex too, or the DJ's
 breaks won't play for them; Booth tells you if they can't. To stop, click **Remove** next to their
 name. If they also run Booth on a computer of their own, shows they ask for on their phone may go to either

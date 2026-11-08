@@ -17,7 +17,7 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
-from radiobooth import config, history, onboard, plexshare
+from radiobooth import config, history, plexshare
 from radiobooth.link import Link, LinkError, Station
 from radiobooth.link import run_all as run_desks
 from radiobooth.sources import plex as plex_source
@@ -127,7 +127,7 @@ def station(
         """Share a person's new playlist with their Plex user. The show is in Plex either way, so a problem
         here is logged, not a failed delivery."""
         try:
-            client_id = settings.get("plex_client_id") or onboard.new_client_id()
+            client_id = config.plex_client_id()
             plexshare.share_playlist(
                 plex.token, client_id, done.machine, done.playlist_key, done.title, user["id"]
             )

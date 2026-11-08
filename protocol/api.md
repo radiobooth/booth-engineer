@@ -34,8 +34,9 @@ on each account and needs nothing else.
 All of their shows are made from this computer's library and go into the same Plex, with this computer's Plex
 sign-in, so the playlist title starts with the person's name ("Jennifer: Rainy drive home"). That name is
 added on this computer; the playlist title reported back in the delivery result includes it. If you pick
-their Plex user on Booth's page, Booth Engineer then shares each of their playlists with that user, as
-"Grant Access" in Plex Web does (one call to plex.tv, `POST /api/v2/shared_items`); Booth DJ isn't involved.
+their Plex user on Booth's page, Booth Engineer then shares each of their new playlists with that user, as
+"Grant Access" in Plex Web does; Booth DJ isn't involved. What that sends to plex.tv is in
+[README.md](README.md#plex-sign-in-during-setup).
 
 ## Check-in
 

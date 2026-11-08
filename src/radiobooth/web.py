@@ -28,7 +28,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from radiobooth import __version__, autostart, config, engine, history, onboard, page, plexshare, update
+from radiobooth import __version__, autostart, config, engine, history, page, plexshare, update
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError
@@ -328,27 +328,18 @@ class App:
         self.engine.start()
         return {"name": name}
 
-    def _plex(self) -> tuple[str, str, str, str]:
-        """The owner's Plex sign-in, this Booth's Plex client id, the server's machineIdentifier and the
-        breaks library's name."""
-        settings = config.load()
-        found, missing = engine.delivery_settings(settings)
+    def _plex(self) -> tuple[str, str]:
+        """The owner's Plex sign-in and the breaks library's name."""
+        found, missing = engine.delivery_settings(config.load())
         if missing:
             raise SetupError("Set up Plex first.")
-        try:
-            machine = PlexClient(found["url"], found["token"], timeout=15).get("/identity")["MediaContainer"][
-                "machineIdentifier"
-            ]
-        except (PlexError, KeyError, TypeError) as e:
-            raise SetupError(f"Booth couldn't reach your Plex server ({e}).") from None
-        client_id = settings.get("plex_client_id") or onboard.new_client_id()
-        return found["token"], client_id, machine, found["library"]
+        return found["token"], found["library"]
 
     def plex_users(self) -> dict:
-        """The Plex users a person's playlists can be shared with."""
-        token, client_id, _, _ = self._plex()
+        """The Plex users a person's playlists can be shared with (plex.tv only: the server can be asleep)."""
+        token, _ = self._plex()
         try:
-            return {"users": plexshare.users(token, client_id)}
+            return {"users": plexshare.users(token, config.plex_client_id())}
         except PlexError as e:
             raise SetupError(f"Booth couldn't get your Plex users ({e}).") from None
 
@@ -358,15 +349,19 @@ class App:
             raise SetupError("Booth doesn't make shows for that person any more.")
         user, said = None, ""
         if user_id not in (None, ""):
-            token, client_id, machine, library = self._plex()
+            token, library = self._plex()
+            found, _ = engine.delivery_settings(config.load())
+            client_id = config.plex_client_id()
             try:
+                identity = PlexClient(found["url"], token, timeout=15).get("/identity")
+                machine = identity["MediaContainer"]["machineIdentifier"]
                 user = next(
                     (u for u in plexshare.users(token, client_id) if str(u["id"]) == str(user_id)), None
                 )
                 if user is None:
                     raise SetupError("That Plex user isn't one of yours any more. Reload this page.")
                 sees = plexshare.sees_library(token, client_id, machine, user["id"], library)
-            except PlexError as e:
+            except (PlexError, KeyError, TypeError) as e:
                 raise SetupError(f"Booth couldn't check that Plex user ({e}).") from None
             if sees is False:
                 said = (

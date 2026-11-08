@@ -35,7 +35,13 @@ Examples are in [`examples/`](examples/) and are checked by the test suite.
 server and Booth DJ. It asks plex.tv for a sign-in code (sending only Booth's name and a random id for this
 install), waits while you sign in on Plex's page, and then lists the Plex servers your account owns, to find
 yours. Your Plex token is saved only in Booth Engineer's local config file. Nothing from your library goes
-to plex.tv.
+to plex.tv, with one exception you choose:
+
+When someone shares your Booth Engineer and you pick their Plex user on Booth's page, Booth Engineer asks
+plex.tv for your Plex users (`GET /api/users`) and whether your server shares the Radio Booth library with
+that user (`GET /api/servers/<server id>/shared_servers`). After each of that person's shows, it shares the
+new playlist with them (`POST /api/v2/shared_items`), sending the user's id, your server's id, the playlist's
+id and its title, as Plex Web's "Grant Access" does.
 
 ## Updates
 
