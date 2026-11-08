@@ -16,3 +16,11 @@ The Mac app isn't signed with an Apple Developer ID or notarized yet, so macOS a
 (System Settings > Privacy & Security > Open Anyway). Signing and notarizing needs a paid Apple Developer
 account; with one, the workflow would sign with that certificate and run `notarytool` instead of signing ad
 hoc, and the question goes away.
+
+## How the apps run
+
+Neither app has a window of its own. Opened, Booth starts in the background and opens its page in the
+browser (`src/radiobooth/web.py`, served on 127.0.0.1 only); opened again, it just opens that page. The
+Windows build is made with `--noconsole`, so its messages go to `booth.log` next to the config file. Both
+apps update themselves from GitHub releases (`src/radiobooth/update.py`): the release workflow publishes
+`SHA256SUMS` with the downloads, and an app installs only a download that matches it.

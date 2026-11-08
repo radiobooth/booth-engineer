@@ -2,7 +2,7 @@
 
 Everything Booth Engineer says to the Booth DJ service, and everything it hears back. Booth Engineer only
 makes outbound HTTPS requests (plain HTTP only to a DJ on localhost, for development); nothing on your
-network listens. Bodies are JSON unless noted.
+network can connect in. (The app's own page listens on 127.0.0.1 only: this computer, never the network.) Bodies are JSON unless noted.
 
 After pairing, every call below carries `Authorization: Bearer <device token>`. The token is kept in
 Booth Engineer's local config file, readable only by you. Errors come back as `{"error": "..."}` with an

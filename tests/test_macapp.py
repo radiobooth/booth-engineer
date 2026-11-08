@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from radiobooth import autostart, cli, macapp
 
 
@@ -56,19 +58,24 @@ def test_an_app_already_in_applications_stays_put(tmp_path):
     assert macapp.install(app, tmp_path, [apps]) == app
 
 
-def test_opened_from_finder_it_opens_terminal_on_the_installed_app(tmp_path, monkeypatch):
+def test_opened_from_finder_it_starts_the_installed_app(tmp_path, monkeypatch):
     app = make_app(tmp_path / "Downloads")
     monkeypatch.setattr(macapp, "folders", lambda home: [tmp_path / "Applications"])
-    ran = []
-    code = macapp.open_in_terminal(
+    started = []
+    code = macapp.open_app(
         app / "Contents" / "MacOS" / "booth-arm64",
         tmp_path,
-        run=lambda a: ran.append(a) or SimpleNamespace(returncode=0),
+        run=lambda *a, **k: pytest.fail("nothing to restart"),
+        popen=lambda args, **k: started.append(args),
     )
     assert code == 0
-    assert ran == [
-        ["open", "-a", "Terminal", str(tmp_path / "Applications/Radio Booth.app/Contents/MacOS/Radio Booth")]
-    ]
+    assert started == [[str(tmp_path / "Applications/Radio Booth.app/Contents/MacOS/Radio Booth"), "app"]]
+
+
+def test_an_app_already_in_applications_carries_on_itself(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "Applications")
+    monkeypatch.setattr(macapp, "folders", lambda home: [tmp_path / "Applications"])
+    assert macapp.open_app(app / "Contents" / "MacOS" / "booth-arm64", tmp_path, popen=pytest.fail) is None
 
 
 def test_only_the_mac_app_opened_without_a_window_hands_over(tmp_path, monkeypatch):
@@ -83,11 +90,11 @@ def test_only_the_mac_app_opened_without_a_window_hands_over(tmp_path, monkeypat
     assert not macapp.opened_from_finder([], "darwin")  # already in Terminal
 
 
-def test_the_main_entry_opens_terminal_for_the_mac_app(monkeypatch):
+def test_the_main_entry_hands_over_to_the_app_in_applications(monkeypatch):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "argv", ["booth-arm64"])
     monkeypatch.setattr(macapp, "opened_from_finder", lambda argv: True)
-    monkeypatch.setattr(macapp, "open_in_terminal", lambda exe: 7)
+    monkeypatch.setattr(macapp, "open_app", lambda exe: 7)
     assert cli.main() == 7
 
 
@@ -106,7 +113,9 @@ def test_starting_at_sign_in_uses_the_app_in_applications(tmp_path, monkeypatch)
     said = autostart.install("darwin", tmp_path, run=lambda *a, **k: None)
     assert "Applications" in said
     plist = plistlib.loads((tmp_path / "Library/LaunchAgents/com.radiobooth.engineer.plist").read_bytes())
-    assert plist["ProgramArguments"] == [str(apps / "Radio Booth.app/Contents/MacOS/Radio Booth"), "run"]
+    launcher = str(apps / "Radio Booth.app/Contents/MacOS/Radio Booth")
+    assert plist["ProgramArguments"] == [launcher, "app", "--background"]
+    assert plist["KeepAlive"] == {"SuccessfulExit": False}  # turned off on its page, it stays off
     assert plist["AssociatedBundleIdentifiers"] == ["com.radiobooth.engineer"]
     assert not legacy.exists() and (legacy.parent / "breaks").is_dir()  # only the old program goes
 
@@ -131,19 +140,29 @@ def test_the_app_bundle_is_put_together(tmp_path):
     assert (app / "Contents" / "Resources" / "booth.icns").read_bytes()[:4] == b"icns"
 
 
-def test_an_update_restarts_the_booth_that_starts_at_sign_in(tmp_path, monkeypatch):
+def test_a_newer_download_restarts_the_booth_that_starts_at_sign_in(tmp_path, monkeypatch):
     app = make_app(tmp_path / "Downloads", b"new")
     make_app(tmp_path / "Applications", b"old")
     agents = tmp_path / "Library" / "LaunchAgents"
     agents.mkdir(parents=True)
-    (agents / "com.radiobooth.engineer.plist").write_text("<plist/>")
+    (agents / "com.radiobooth.engineer.plist").write_text("<plist>an older version's: booth run</plist>")
     monkeypatch.setattr(macapp, "folders", lambda home: [tmp_path / "Applications"])
-    monkeypatch.setattr(macapp.os, "getuid", lambda: 501, raising=False)
-    ran = []
-    macapp.open_in_terminal(
+    monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
+    ran, started = [], []
+    macapp.open_app(
         app / "Contents" / "MacOS" / "booth-arm64",
         tmp_path,
-        run=lambda a: ran.append(a) or SimpleNamespace(returncode=0),
+        run=lambda a, **k: ran.append(a) or SimpleNamespace(returncode=0),
+        popen=lambda args, **k: started.append(args),
     )
-    assert ran[0] == ["launchctl", "kickstart", "-k", "gui/501/com.radiobooth.engineer"]
-    assert ran[1][:3] == ["open", "-a", "Terminal"]
+    assert [a[:2] for a in ran] == [["launchctl", "unload"], ["launchctl", "load"]]
+    plist = plistlib.loads((agents / "com.radiobooth.engineer.plist").read_bytes())
+    assert plist["ProgramArguments"][1:] == ["app", "--background"]  # the new way to start
+    assert started[0][1:] == ["app"]
+
+
+def test_turning_start_at_sign_in_back_on_doesnt_stop_the_booth_launchd_started(tmp_path, monkeypatch):
+    monkeypatch.setenv("XPC_SERVICE_NAME", macapp.BUNDLE_ID)
+    ran = []
+    autostart.install("darwin", tmp_path, run=lambda a, **k: ran.append(a), cmd=["/x/Radio Booth"])
+    assert ran == [] and macapp.agent_plist(tmp_path).is_file()

@@ -46,22 +46,6 @@ def test_index_needs_plex_settings(monkeypatch, capsys):
     assert "PLEX_URL" in capsys.readouterr().err
 
 
-def test_name_window_titles_a_terminal(monkeypatch, capsys):
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    cli.name_window(platform="darwin")
-    assert capsys.readouterr().out == "\033]0;Radio Booth\007"
-
-
-def test_name_window_leaves_pipes_alone(monkeypatch, capsys):
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-    cli.name_window(platform="linux")
-    assert capsys.readouterr().out == ""
-
-
-def test_name_window_never_fails_on_windows():
-    cli.name_window(platform="win32")  # no ctypes.windll here: quietly does nothing
-
-
 def test_a_mac_checks_https_against_its_own_certificates(monkeypatch, tmp_path):
     import ssl
     from types import SimpleNamespace
@@ -90,3 +74,52 @@ def test_a_mac_with_working_certificates_is_left_alone(monkeypatch):
     monkeypatch.setattr(ssl, "get_default_verify_paths", lambda: found)
     cli.use_system_certificates("darwin")
     assert "SSL_CERT_FILE" not in os.environ
+
+
+def test_the_app_command_starts_booths_page(monkeypatch):
+    from radiobooth import web
+
+    seen = []
+    monkeypatch.setattr(web, "main", lambda name, background, wait: seen.append((background, wait)) or 0)
+    assert main(["app", "--background"]) == 0 and seen == [(True, False)]
+
+
+def test_the_double_clicked_app_opens_booths_page(monkeypatch):
+    from radiobooth import macapp
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "argv", ["RadioBooth.exe"])
+    monkeypatch.setattr(macapp, "opened_from_finder", lambda argv: False)
+    monkeypatch.setattr(cli, "windows_home", lambda: None)
+    seen = []
+    monkeypatch.setattr(cli, "dispatch", lambda argv: seen.append(argv) or 0)
+    assert main() == 0 and seen == [["app"]]
+
+
+def test_without_a_console_messages_go_to_a_log_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    cli.without_console()
+    print("hello from the Windows app", file=sys.stderr)
+    sys.stderr.flush()
+    assert "hello from the Windows app" in (tmp_path / "booth.log").read_text()
+    sys.stderr.close()
+
+
+def test_the_windows_app_moves_into_its_own_folder_and_starts_there(monkeypatch, tmp_path):
+    exe = tmp_path / "Downloads" / "RadioBooth-Windows.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"MZ app")
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "cfg" / "config.json"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+    monkeypatch.setattr(cli.Path, "home", lambda: tmp_path)
+    started = []
+    assert cli.windows_home("win32", popen=lambda args, **k: started.append(args)) == 0
+    home = tmp_path / "Local" / "Radio Booth" / "RadioBooth.exe"
+    assert started == [[str(home)]] and home.read_bytes() == b"MZ app"
+    monkeypatch.setattr(sys, "executable", str(home))
+    assert cli.windows_home("win32", popen=lambda args, **k: started.append(args)) is None  # already there
+    assert cli.windows_home("darwin") is None

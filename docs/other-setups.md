@@ -174,7 +174,7 @@ Booth as a command, for example on a Mac you reach over SSH, install it with
 [uv](https://docs.astral.sh/uv/getting-started/installation/), in Terminal:
 
 ```sh
-uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.4
+uv tool install git+https://github.com/radiobooth/booth-engineer@v0.2.0
 booth setup
 ```
 

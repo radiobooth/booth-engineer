@@ -10,7 +10,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from pathlib import Path
+
+_changing = threading.Lock()
 
 # Booth DJ addresses that have moved. Saved settings follow the move; the pairing token stays valid.
 MOVED = {"https://booth-dj-juvsqx4frq-uc.a.run.app": "https://my.radiobooth.fm"}
@@ -45,3 +48,12 @@ def save(settings: dict) -> Path:
         Path(tmp).unlink(missing_ok=True)
         raise
     return p
+
+
+def update(changes: dict) -> dict:
+    """Change some settings and keep the rest. One change at a time, so two parts of Booth saving at once
+    (the page and setup, say) never lose each other's settings."""
+    with _changing:
+        settings = load() | changes
+        save(settings)
+        return settings
