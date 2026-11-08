@@ -490,3 +490,16 @@ def test_an_older_versions_sign_in_item_is_noticed(tmp_path, monkeypatch):
     assert not autostart.outdated("darwin", tmp_path)
     plist.write_text("<plist><string>run</string></plist>")
     assert autostart.outdated("darwin", tmp_path)
+
+
+def test_the_start_menu_entry_is_made_without_start_at_sign_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData"))
+    programs = tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs"
+    programs.mkdir(parents=True)
+    (programs / "Radio Booth setup.lnk").write_text("0.1's setup shortcut")
+    ran = []
+    autostart.start_menu(tmp_path, run=lambda a, **k: ran.append(a), cmd=[r"C:\Booth\RadioBooth.exe"])
+    (script,) = [a[-1] for a in ran]
+    assert str(programs / "Radio Booth.lnk") in script and "$s.Arguments = ''" in script
+    assert not (programs / "Radio Booth setup.lnk").exists()
+    assert not (programs / "Startup").exists()  # starting at sign-in is a separate choice

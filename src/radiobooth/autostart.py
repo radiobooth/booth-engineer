@@ -181,6 +181,18 @@ def outdated(platform: str = sys.platform, home: Path | None = None) -> bool:
     return False
 
 
+def start_menu(home: Path | None = None, run=subprocess.run, cmd: list[str] | None = None) -> None:
+    """Windows: the Start-menu entry that opens Booth's page, whether or not Booth starts at sign-in. Made
+    each time the app starts, so it's there for settings carried over from an older version too, and always
+    points at the app as it is now."""
+    home = home or Path.home()
+    programs = _windows_paths(home)[0]
+    programs.mkdir(parents=True, exist_ok=True)
+    (programs / "Radio Booth setup.lnk").unlink(missing_ok=True)  # setup is on Booth's page now
+    script = shortcut_script(programs / "Radio Booth.lnk", cmd or command(), "")
+    checked(run, ["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+
+
 def install(
     platform: str = sys.platform, home: Path | None = None, run=subprocess.run, cmd: list[str] | None = None
 ) -> str:

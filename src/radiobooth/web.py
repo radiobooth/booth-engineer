@@ -340,6 +340,13 @@ def main(
     if getattr(sys, "frozen", False) and autostart.outdated():
         with contextlib.suppress(OSError):  # an older version's sign-in item: start as the app from now on
             autostart.install()
+    if getattr(sys, "frozen", False) and sys.platform == "win32":
+
+        def start_menu():
+            with contextlib.suppress(OSError):
+                autostart.start_menu()
+
+        threading.Thread(target=start_menu, name="booth-start-menu", daemon=True).start()
     app = App(name)
     key = page_key()
     httpd, link = serve(app, bind(), key)
