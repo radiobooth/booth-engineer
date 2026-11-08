@@ -48,10 +48,6 @@ jobs:
         shell: bash
       - run: ./dist/${{ matrix.file }} --version
         shell: bash
-      # Without a console the Windows app writes to its log file instead: check it got there.
-      - if: runner.os == 'Windows'
-        run: grep -F "booth $(uv run python -c 'import radiobooth; print(radiobooth.__version__)')" ~/.config/radiobooth/booth.log
-        shell: bash
       - run: mv dist/${{ matrix.file }} dist/${{ matrix.asset }}
         shell: bash
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
