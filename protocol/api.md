@@ -21,6 +21,20 @@ expired.
 This is the only call made without a token. It creates nothing unless the code is right, so nobody can
 block pairing for others by sending made-up requests.
 
+### Sharing one Booth Engineer
+
+Someone with their own Radio Booth account can share your Booth Engineer (**Add another person** on Booth's
+page). They get a pairing code on their phone, signed in as themselves, and Booth Engineer trades it with the
+same `POST /v0/pair`, under this computer's name. Booth Engineer then keeps one device token per account in
+its config file, and makes every call below once per account, each with that account's token: separate
+check-ins, catalogs, deliveries and show lists, so each account's shows and show time stay its own. It reads
+`GET /v0/me` with the new token to learn the account's name. Booth DJ sees an ordinary paired Booth Engineer
+on each account and needs nothing else.
+
+All of their shows are made from this computer's library and go into the same Plex, with this computer's Plex
+sign-in, so the playlist title starts with the person's name ("Jennifer: Rainy drive home"). That name is
+added on this computer; the playlist title reported back in the delivery result includes it.
+
 ## Check-in
 
 `POST /v0/checkin` `{"version": "0.0.1"}` (Booth Engineer's version), about once a minute.
@@ -64,7 +78,7 @@ Shows are asked for on the Booth page on your phone, or on Booth's own page on t
 asks through Booth Engineer, with the device token, exactly as the phone page does:
 
 `GET /v0/me` → the DJs and voices to pick from (`roster`), asked for now and then; the reply also names your
-account and its show time, which Booth doesn't use.
+account, which Booth's page shows under **People**, and its show time, which Booth doesn't use.
 
 `GET /v0/shows` → `{"shows": [...], "allowance": {...}}`: your shows, newest first, with their status
 (`queued`, `making`, `ready`, `delivered`, `failed`, `expired`), and the show time left. Booth's page asks

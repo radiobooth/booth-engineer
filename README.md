@@ -49,8 +49,14 @@ booth run                         # stays connected; leave it running
 `booth deliver` puts a show folder into Plex by hand.
 
 So new shows don't repeat what you've just heard, Booth Engineer remembers which tracks were in the shows it
-delivered, in `history.json` next to its config file (normally `~/.config/radiobooth/`). That history stays
+delivered, in `history.json` next to its config file (normally `~/.config/radiobooth/`), and in
+`history-<id>.json` for each other person sharing this Booth (see below). That history stays
 on your machine except inside a show's catalog. Delete the file to start over.
+
+Someone with their own Radio Booth account can share this Booth: on Booth's page, under **Settings**, click
+**Add another person** and type the pairing code from their phone. Their shows come from the same music and go
+into the same Plex, with their name at the start of each playlist's title, and count against their own show
+time. `booth run` makes shows for everyone added there.
 
 ## Development
 

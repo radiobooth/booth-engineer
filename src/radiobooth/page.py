@@ -142,8 +142,9 @@ HTML = f"""<!doctype html>
   <section id="new-show" class="hidden">
     <p class="label">New show</p>
     <h2>What's the show?</h2>
-    <p class="muted hidden" id="allowance"></p>
     <form id="show-form">
+      <label for="who" class="hidden" id="who-row">Who's it for <select id="who"></select></label>
+      <p class="muted hidden" id="allowance"></p>
       <label for="prompt">Describe it
         <textarea id="prompt" required maxlength="2000" placeholder="Rainy drive home, something warm"></textarea>
       </label>
@@ -227,6 +228,22 @@ HTML = f"""<!doctype html>
         <p class="muted">Installs new versions when no show is on its way.</p></div>
       <label class="switch"><input type="checkbox" id="auto-update"><span></span></label>
     </div>
+    <div class="row" id="row-people">
+      <div><b>People</b>
+        <p class="muted" id="people-text"></p></div>
+      <button class="quiet" id="add-person">Add another person</button>
+    </div>
+    <ul class="shows hidden" id="people"></ul>
+    <div class="hidden" id="person-add">
+      <p class="muted">Share this Booth with someone who has their own Radio Booth account. On their phone,
+        signed in as them, they open their Booth page and tap <b>Get a pairing code</b>. Their shows come from
+        this computer's music and go into the same Plex, with their name at the start of each playlist.</p>
+      <form class="actions" id="person-form">
+        <input type="text" id="person-code" autocomplete="off" spellcheck="false" aria-label="Their pairing code"
+          placeholder="Their code">
+        <button type="submit" id="person-go">Add</button>
+      </form>
+    </div>
     <div class="row">
       <div><b>Change Booth's setup</b>
         <p class="muted">A different Plex server or music library, or a new pairing.</p></div>
@@ -264,6 +281,7 @@ const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
+let adding = false, peopleShown = "";
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -388,6 +406,45 @@ function render(s) {
     ? "Connected as " + JSON.stringify(s.account.name) + "."
     : "On your phone, open your Booth page and tap “Get a pairing code”. Type the code here.";
   show($("pair-form"), !pairDone || changing);
+
+  // People sharing this Booth, and whose show the form asks for
+  const people = s.account.people || [];
+  const own = s.account.account_name || "You";
+  $("people-text").textContent = people.length
+    ? "Booth makes shows for " + [own, ...people.map((p) => p.name)].join(", ") + "."
+    : "Booth makes shows for " + (s.account.account_name || "your account") + ". Someone else with their own Radio Booth account can use it too.";
+  const peopleKey = JSON.stringify([own, people]);
+  if (peopleKey !== peopleShown) {
+    peopleShown = peopleKey;
+    const ul = $("people");
+    ul.replaceChildren(...people.map((p) => {
+      const li = document.createElement("li");
+      const t = document.createElement("span");
+      t.className = "title";
+      t.textContent = p.name;
+      const st = document.createElement("span");
+      st.className = "st" + (p.unpaired ? " failed" : "");
+      st.textContent = p.unpaired ? "Their Booth account no longer knows this computer. Add them again with a new code."
+        : "Their playlists start with “" + p.name + ":”";
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.append(button("Remove", async () => {
+        if (!confirm("Stop making shows for " + p.name + " on this computer?")) return;
+        await post("remove_person", {id: p.id}).catch((x) => error("settings-error", x.message));
+        refresh();
+      }, true));
+      li.append(t, st, actions);
+      return li;
+    }));
+    show(ul, people.length > 0);
+    const who = $("who"), picked = who.value;
+    who.replaceChildren(new Option(own, ""), ...people.map((p) => new Option(p.name, p.id)));
+    who.value = picked;
+    if (who.selectedIndex < 0) { who.value = ""; whoChanged(); }
+    show($("who-row"), people.length > 0);
+  }
+  show($("person-add"), adding);
+  $("add-person").textContent = adding ? "Cancel" : "Add another person";
 
   // Settings
   show($("settings"), ready);
@@ -516,7 +573,8 @@ async function loadShows() {
   let wait = 30000;
   const ask = ++showsAsk;  // only the latest answer counts: an older one arriving late is dropped
   try {
-    const r = await fetch("/api/shows", {cache: "no-store"});
+    const who = $("who").value;
+    const r = await fetch("/api/shows" + (who ? "?who=" + encodeURIComponent(who) : ""), {cache: "no-store"});
     const data = await r.json().catch(() => ({}));
     if (ask !== showsAsk) return;
     if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
@@ -538,7 +596,32 @@ async function loadShows() {
   if (showsWanted) showsTimer = setTimeout(loadShows, wait);
 }
 
+function whoChanged() {
+  // Someone else's show time and shows: don't leave the last person's on view meanwhile.
+  showsAsk += 1;
+  renderShows([]);
+  $("allowance").textContent = "";
+  show($("allowance"), false);
+  loadShows();
+}
+
 function wire() {
+  $("who").onchange = whoChanged;
+  $("add-person").onclick = () => { adding = !adding; error("settings-error", ""); if (last) render(last); };
+  $("person-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    error("settings-error", "");
+    $("person-go").disabled = true;
+    try {
+      const {name} = await post("add_person", {code: $("person-code").value});
+      $("person-code").value = "";
+      adding = false;
+      $("show-ok").textContent = "Booth makes shows for " + name + " too now.";
+      show($("show-ok"), true);
+    } catch (x) { error("settings-error", x.message); }
+    $("person-go").disabled = false;
+    refresh();
+  };
   $("show-form").onsubmit = async (ev) => {
     ev.preventDefault();
     error("show-error", "");
@@ -547,7 +630,7 @@ function wire() {
     $("make").disabled = true;
     try {
       await post("new_show", {
-        prompt: $("prompt").value, minutes: Number($("minutes").value), dj: $("dj").value,
+        who: $("who").value, prompt: $("prompt").value, minutes: Number($("minutes").value), dj: $("dj").value,
         voice: $("voice").value, dj_name: $("dj-name").value, station: $("station").value,
       });
       $("prompt").value = "";

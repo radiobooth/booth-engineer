@@ -90,8 +90,12 @@ def find_breaks(client, section_key: str, folder: str, names: dict[str, str]) ->
     return found
 
 
-def deliver(client, show_dir: Path, library: str, dest_root: Path, *, wait=SCAN_TIMEOUT, sleep=time.sleep):
+def deliver(
+    client, show_dir: Path, library: str, dest_root: Path, *, wait=SCAN_TIMEOUT, sleep=time.sleep, prefix=""
+):
+    """`prefix` goes before the playlist's title: whose show it is, when people share this Booth."""
     package = load_package(show_dir)
+    title = f"{prefix}{package['title']}"
     section = section_named(client, library)
     folder = folder_name(package)
     if not (dest_root / folder).resolve().is_relative_to(dest_root.resolve()):
@@ -119,13 +123,11 @@ def deliver(client, show_dir: Path, library: str, dest_root: Path, *, wait=SCAN_
     keys = [found[i["id"]] if i["type"] == "break" else i["track_id"] for i in package["items"]]
     machine = client.get("/identity")["MediaContainer"]["machineIdentifier"]
     uri = f"server://{machine}/com.plexapp.plugins.library/library/metadata/{','.join(keys)}"
-    out = client.request(
-        "POST", "/playlists", {"type": "audio", "title": package["title"], "smart": 0, "uri": uri}
-    )
+    out = client.request("POST", "/playlists", {"type": "audio", "title": title, "smart": 0, "uri": uri})
     playlist = out["MediaContainer"]["Metadata"][0]
     return Delivery(
         playlist_key=str(playlist["ratingKey"]),
-        title=playlist.get("title", package["title"]),
+        title=playlist.get("title", title),
         tracks=sum(1 for i in package["items"] if i["type"] == "track"),
         breaks=len(names),
         folder=dest_root / folder,

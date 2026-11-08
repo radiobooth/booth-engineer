@@ -224,31 +224,68 @@ def deliver(link: Link, station: Station, item: dict) -> dict:
     return {"playlist": playlist}
 
 
+def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float, float]:
+    """One check-in and whatever it asks for. Returns how long to wait before the next one, and the backoff
+    to carry: on network trouble it doubles, 10 s up to 5 minutes. Only a 401 (not paired) raises."""
+    try:
+        reply = link.checkin()
+        for item in reply["shows"]:
+            show_id = item["show_id"]
+            try:
+                handle(link, station, item)
+            except LinkError:
+                raise
+            except Exception as e:  # e.g. Plex unreachable while reading the library: try next time
+                if station.problems.get(show_id) != str(e):
+                    station.problems[show_id] = str(e)
+                    station.log(f"{show_id}: {e} (Booth keeps trying; this is logged once)")
+            else:
+                station.problems.pop(show_id, None)
+        return reply["next_checkin_s"], 0.0
+    except LinkError as e:
+        if e.status == 401:
+            raise
+        backoff = min(max(backoff * 2, 10.0), 300.0)
+        station.log(f"{e} (trying again in {backoff:.0f} s)")
+        return backoff, backoff
+
+
 def run(link: Link, station: Station, *, once: bool = False, sleep=None) -> None:
     """Check in, act, and wait as long as Booth DJ asks; on network trouble back off up to 5 minutes."""
-    sleep, backoff = sleep or time.sleep, 0.0
-    while True:
+    run_all([(link, station)], once=once, sleep=sleep)
+
+
+def run_all(
+    desks: list[tuple[Link, Station]],
+    *,
+    once: bool = False,
+    sleep=None,
+    unpaired: Callable[[int], None] | None = None,
+) -> None:
+    """`run` for each Booth account this computer is connected to (the first is its own; the others are
+    people sharing it), one at a time, each checking in when its Booth DJ asks it to.
+
+    A 401 on the first stops everything: this computer isn't paired any more. On another one it stops only
+    that person's check-ins, and `unpaired(index)` hears about it; without `unpaired`, it raises too."""
+    sleep = sleep or time.sleep
+    now = 0.0  # time passes here only by waiting, so a wait is exactly what was asked for
+    due = dict.fromkeys(range(len(desks)), 0.0)
+    backoff = dict.fromkeys(due, 0.0)
+    while due:
+        i = min(due, key=lambda k: (due[k], k))
+        if due[i] > now:
+            sleep(due[i] - now)
+            now = due[i]
+        link, station = desks[i]
         try:
-            reply = link.checkin()
-            for item in reply["shows"]:
-                show_id = item["show_id"]
-                try:
-                    handle(link, station, item)
-                except LinkError:
-                    raise
-                except Exception as e:  # e.g. Plex unreachable while reading the library: try next time
-                    if station.problems.get(show_id) != str(e):
-                        station.problems[show_id] = str(e)
-                        station.log(f"{show_id}: {e} (Booth keeps trying; this is logged once)")
-                else:
-                    station.problems.pop(show_id, None)
-            wait, backoff = reply["next_checkin_s"], 0.0
-        except LinkError as e:
-            if e.status == 401:
+            wait, backoff[i] = check_in(link, station, backoff[i])
+        except LinkError:
+            if i == 0 or unpaired is None:
                 raise
-            backoff = min(max(backoff * 2, 10.0), 300.0)
-            station.log(f"{e} (trying again in {backoff:.0f} s)")
-            wait = backoff
+            unpaired(i)
+            del due[i]
+            continue
         if once:
-            return
-        sleep(wait)
+            del due[i]
+        else:
+            due[i] = now + wait

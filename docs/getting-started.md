@@ -76,6 +76,19 @@ the show**. The page tells you how it's going. When it says **In Plex**, open Pl
 
 Your shows count against a weekly amount of show time, which both pages show above the form.
 
+## Sharing Booth with someone in your home
+
+Someone else with their own Radio Booth account can use your Booth too, so they don't need Booth on a computer
+of their own. On Booth's page, under **Settings**, click **Add another person**. On their phone, signed in to
+their own account, they tap **Get a pairing code**; type that code into Booth's page and click **Add**.
+
+Their shows are made from the same music and go into the same Plex, with their name at the start of each
+playlist (for example "Jennifer: Rainy drive home"). They count against their own show time, and Booth keeps
+a separate history for them, so their shows don't skip tracks just because they were in yours. On Booth's
+page, **Who's it for** on the New show form picks whose show it is. To stop, click **Remove** next to their
+name. If they also run Booth on a computer of their own, shows they ask for on their phone may go to either
+one, so it's simplest to keep just one.
+
 ## What Booth sends, and what it doesn't
 
 When you ask for a show, and only then, Booth sends the details of your music library: titles, artists,

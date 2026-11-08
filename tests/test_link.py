@@ -13,7 +13,7 @@ from test_deliver import make_show
 
 from radiobooth import config
 from radiobooth.cli import main
-from radiobooth.link import GENERIC_FAILURE, Link, LinkError, PackageError, Station, handle, run
+from radiobooth.link import GENERIC_FAILURE, Link, LinkError, PackageError, Station, handle, run, run_all
 
 
 class FakeDJ:
@@ -509,3 +509,40 @@ def test_a_refused_plex_token_from_the_shell_says_to_unset_it(dj, tmp_path, monk
     assert main(["run", "--once"]) == 0
     err = capsys.readouterr().err
     assert "Sign in to Plex again" in err and "PLEX_TOKEN is set here" in err
+
+
+class ScriptedLink:
+    """A Link whose check-ins answer from a script: a wait in seconds, or an exception to raise."""
+
+    def __init__(self, name, answers, seen):
+        self.name, self.answers, self.seen = name, list(answers), seen
+
+    def checkin(self):
+        self.seen.append(self.name)
+        answer = self.answers.pop(0) if self.answers else StopIteration()
+        if isinstance(answer, BaseException):
+            raise answer
+        return {"shows": [], "next_checkin_s": answer}
+
+
+def test_people_sharing_booth_each_check_in_when_asked(monkeypatch):
+    log, seen, waits, dropped = [], [], [], []
+    own = ScriptedLink("own", [60, 60, 60], seen)
+    theirs = ScriptedLink(
+        "theirs", [10, 10, 10, 10, 10, LinkError("Booth DJ: Unknown Booth Engineer", 401)], seen
+    )
+    with pytest.raises(StopIteration):
+        run_all([(own, station(log)), (theirs, station(log))], sleep=waits.append, unpaired=dropped.append)
+    # Each as often as its Booth DJ asks; when one account forgets this computer, the other carries on.
+    assert seen == ["own", *["theirs"] * 6, "own", "own", "own"]
+    assert dropped == [1]
+    assert waits == [10] * 6 + [60, 60]
+
+
+def test_a_forgotten_own_account_stops_everything():
+    seen = []
+    own = ScriptedLink("own", [LinkError("Booth DJ: Unknown Booth Engineer", 401)], seen)
+    theirs = ScriptedLink("theirs", [10], seen)
+    with pytest.raises(LinkError):
+        run_all([(own, station([])), (theirs, station([]))], sleep=lambda s: None, unpaired=lambda i: None)
+    assert seen == ["own"]

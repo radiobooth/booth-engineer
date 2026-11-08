@@ -268,17 +268,17 @@ def test_the_engine_says_how_booth_is_doing(tmp_path, monkeypatch):
         states.append(eng.state)
 
     eng._checked_in = checked_in
-    monkeypatch.setattr(engine, "run_link", _fast_run_link)
+    monkeypatch.setattr(engine, "run_desks", _fast_run_desks)
     eng.start()
     wait_for(lambda: eng.state == engine.NEEDS_PAIRING)
     assert states == [engine.ON_AIR] and eng.last_checkin
     assert any("trying again" in line for line in eng.lines)
 
 
-def _fast_run_link(link, station, sleep):
-    from radiobooth.link import run
+def _fast_run_desks(desks, sleep, unpaired):
+    from radiobooth.link import run_all
 
-    return run(link, station, sleep=lambda s: sleep(min(s, 0.01)))
+    return run_all(desks, sleep=lambda s: sleep(min(s, 0.01)), unpaired=unpaired)
 
 
 def test_the_engine_waits_for_setup(monkeypatch):
@@ -479,3 +479,111 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
     # It talks to the server it's paired with, whatever BOOTH_SERVER says now.
     monkeypatch.setenv("BOOTH_SERVER", "https://elsewhere.example")
     assert app._link().server == "https://booth.example"
+
+
+def test_another_person_can_share_this_booth(booth, monkeypatch):
+    app, port, key, _ = booth
+    config.update({"device_token": "be_own", "server": "https://booth.example", "name": "Den PC"})
+    names = {"be_own": "Thomas", "be_jen": "Jennifer", "be_own2": "Thomas", "be_jen2": "Jennifer"}
+    codes = {"JENN-0001": "be_jen", "THOM-0001": "be_own2", "JENN-0002": "be_jen2"}
+    redeemed, gets, asked = [], [], []
+
+    def redeem(self, code, name):
+        redeemed.append((self.server, code, name))
+        if code not in codes:
+            raise LinkError("Booth DJ: That code didn't work.", 404)
+        return codes[code]
+
+    def get(self, path):
+        gets.append((self.token, path))
+        if path == "/v0/me":
+            return {"name": names[self.token], "roster": {"djs": [{"id": "penrose"}]}}
+        return {"shows": [{"show_id": self.token}], "allowance": {"text": self.token}}
+
+    def ask(self, request):
+        asked.append((self.token, request))
+        return {"show_id": "show_new"}
+
+    monkeypatch.setattr(web.Link, "redeem", redeem)
+    monkeypatch.setattr(web.Link, "get", get)
+    monkeypatch.setattr(web.Link, "ask", ask)
+    monkeypatch.setattr(app.engine, "start", lambda: None)
+
+    status, data = act(port, key, "add_person", {"code": "NOPE-0000"})
+    assert status == 422 and "didn't work" in data["error"]
+    status, data = act(port, key, "add_person", {"code": "JENN-0001"})
+    assert status == 200 and data == {"name": "Jennifer"}
+    assert redeemed[-1] == ("https://booth.example", "JENN-0001", "Den PC")  # the server Booth checks in with
+    [jen] = config.people(config.load())
+    assert jen["name"] == "Jennifer" and jen["device_token"] == "be_jen" and jen["id"].startswith("p_")
+    people = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])[
+        "account"
+    ]
+    assert people["people"] == [{"id": jen["id"], "name": "Jennifer", "unpaired": False}]
+
+    # The New show form asks and lists as whoever it's for.
+    _, _, body = call(port, "GET", f"/api/shows?who={jen['id']}", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert json.loads(body)["shows"] == [{"show_id": "be_jen"}]
+    _, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert json.loads(body)["shows"] == [{"show_id": "be_own"}]
+    assert config.load()["account_name"] == "Thomas"
+    app.engine.state = engine.ON_AIR
+    assert act(port, key, "new_show", {"prompt": "rain", "who": jen["id"]})[0] == 200
+    assert act(port, key, "new_show", {"prompt": "sun"})[0] == 200
+    assert asked == [("be_jen", {"prompt": "rain"}), ("be_own", {"prompt": "sun"})]
+    status, _, body = call(port, "GET", "/api/shows?who=p_gone", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert status == 422 and "any more" in json.loads(body)["error"]
+
+    # A code from the account Booth already makes shows for isn't a second person: it's a fresh connection.
+    status, data = act(port, key, "add_person", {"code": "THOM-0001"})
+    assert status == 422 and "already makes shows for" in data["error"]
+    assert config.load()["device_token"] == "be_own2" and len(config.people(config.load())) == 1
+    # The same person again (after Radio Booth forgot this computer, say) replaces their connection.
+    assert act(port, key, "add_person", {"code": "JENN-0002"})[1] == {"name": "Jennifer"}
+    assert [p["device_token"] for p in config.people(config.load())] == ["be_jen2"]
+
+    assert act(port, key, "remove_person", {"id": jen["id"]})[0] == 200
+    assert config.people(config.load()) == []
+    assert act(port, key, "remove_person", {"id": jen["id"]})[0] == 422
+
+
+def test_a_shared_booth_checks_in_and_delivers_for_each_person(tmp_path, monkeypatch):
+    for k in ("PLEX_URL", "PLEX_TOKEN", "BOOTH_BREAKS_LIBRARY", "BOOTH_BREAKS_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    settings = {
+        "server": "https://booth.example",
+        "device_token": "be_own",
+        "plex_url": "http://plex",
+        "plex_token": "t",
+        "breaks_library": "Radio Booth",
+        "breaks_dir": str(tmp_path),
+        "people": [
+            {"id": "p_jen", "device_token": "be_jen", "name": "Jennifer"},
+            {"id": "bad id", "device_token": "be_x"},  # not one Booth made: left out
+        ],
+    }
+    log = []
+    found, people = engine.desks(settings, log.append, lambda server, token: (server, token))
+    assert [link for link, _ in found] == [
+        ("https://booth.example", "be_own"),
+        ("https://booth.example", "be_jen"),
+    ]
+    assert [p["id"] for p in people] == ["p_jen"]
+    found[1][1].log("sent 3 tracks")
+    assert log == ["Jennifer: sent 3 tracks"]
+
+    delivered = []
+    monkeypatch.setattr(
+        engine.plex_target, "deliver", lambda *a, prefix="", **k: delivered.append(prefix) or _Done(prefix)
+    )
+    remembered = []
+    monkeypatch.setattr(engine, "remember", lambda show_dir, log, person=None: remembered.append(person))
+    assert found[1][1].deliver(tmp_path) == "Jennifer: x"
+    assert found[0][1].deliver(tmp_path) == "x"
+    assert delivered == ["Jennifer: ", ""] and remembered == ["p_jen", None]
+
+
+class _Done:
+    def __init__(self, prefix):
+        self.title = f"{prefix}x"

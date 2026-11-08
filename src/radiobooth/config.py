@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import secrets
 import tempfile
 import threading
 from pathlib import Path
@@ -57,3 +59,33 @@ def update(changes: dict) -> dict:
         settings = load() | changes
         save(settings)
         return settings
+
+
+def people(settings: dict) -> list[dict]:
+    """The other Booth accounts sharing this computer ("Add another person" on Booth's page), each
+    {"id", "device_token", "name"}. This computer's own account is `device_token`, as always."""
+    found = settings.get("people")
+    if not isinstance(found, list):
+        return []
+    return [
+        p
+        for p in found
+        if isinstance(p, dict)
+        and isinstance(p.get("device_token"), str)
+        and p["device_token"]
+        and isinstance(p.get("id"), str)
+        and re.fullmatch(r"p_[a-z0-9]{1,32}", p["id"])
+    ]
+
+
+def new_person_id() -> str:
+    return f"p_{secrets.token_hex(4)}"
+
+
+def change_people(change) -> list[dict]:
+    """Save `change(people)`'s list of people, with the same one-at-a-time care as `update`."""
+    with _changing:
+        settings = load()
+        settings["people"] = change(people(settings))
+        save(settings)
+        return settings["people"]

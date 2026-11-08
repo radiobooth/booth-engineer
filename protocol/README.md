@@ -13,7 +13,8 @@ repo so anyone can read exactly what leaves your machine. Version 0: expect chan
 The catalog is sent only when you ask for a show, and Booth DJ never stores it.
 
 Your show history (which tracks were in which delivered show, so new shows don't repeat them) is kept by
-Booth Engineer on your machine, in `history.json` next to its config file. It travels only inside the
+Booth Engineer on your machine, in `history.json` next to its config file (and `history-<id>.json` for each
+other person sharing your Booth Engineer, so their shows keep their own history). It travels only inside the
 catalog, as each track's `last_in_show_at`, so Booth DJ forgets it along with the catalog. Delete the file
 to start the history over.
 
