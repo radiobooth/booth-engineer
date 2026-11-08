@@ -194,9 +194,14 @@ class App:
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
             raise SetupError("Say what the show is about.")
+        link = self._link()
+        if self.engine.state != engine.ON_AIR:
+            # A show asked for here is made from this computer's music and delivered here, so it waits for
+            # this Booth; asked for while it can't make one, it would hold up the shows asked for after it.
+            raise SetupError("Booth isn't on the air right now (see above), so it can't make a show yet.")
         choices = {k: body[k] for k in SHOW_CHOICES if isinstance(body.get(k), str | int)}
         try:
-            made = self._link().ask({"prompt": prompt, **choices})
+            made = link.ask({"prompt": prompt, **choices})
         except LinkError as e:
             raise self._said(e) from None
         config.update({"show_choices": choices})

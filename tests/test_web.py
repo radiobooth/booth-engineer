@@ -407,6 +407,9 @@ def test_shows_are_asked_for_on_the_page(booth, monkeypatch):
     assert status == 422 and "Connect Booth" in data["error"]  # not paired yet
 
     config.update({"device_token": "be_device", "server": "https://booth.example"})
+    status, data = act(port, key, "new_show", {"prompt": "rain"})
+    assert status == 422 and "on the air" in data["error"]  # it would wait for this Booth, so not yet
+    app.engine.state = engine.ON_AIR
     asked, gets = [], []
     roster = {"djs": [{"id": "penrose", "name": "Penrose", "role": "night owl"}], "voices": ["A", "B"]}
     allowance = {"week": {"left": 50}, "text": "50 min of show time left this week."}
@@ -458,6 +461,7 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
 
     monkeypatch.setattr(web.Link, "get", offline)
     monkeypatch.setattr(web.Link, "ask", unknown)
+    app.engine.state = engine.ON_AIR
     status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert status == 422 and "Is this computer online?" in json.loads(body)["error"]
     status, data = act(port, key, "new_show", {"prompt": "rain"})

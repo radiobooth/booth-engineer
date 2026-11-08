@@ -262,7 +262,7 @@ SCRIPT = r"""
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
-let showsTimer = null, showsWanted = false, rosterFilled = false;
+let showsTimer = null, showsWanted = false, rosterFilled = false, asking = false;
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -338,6 +338,8 @@ function render(s) {
   // New show: once Booth is set up
   const canAsk = ready && e.state !== "needs_pairing";
   show($("new-show"), canAsk);
+  $("make").disabled = asking || !onAir;
+  $("make").title = onAir ? "" : "Booth makes shows while it's on the air";
   if (canAsk && !showsWanted) { showsWanted = true; loadShows(); }
   if (!canAsk) { showsWanted = false; clearTimeout(showsTimer); }
 
@@ -482,6 +484,7 @@ function renderShows(list) {
     if (s.waiting_for_earlier) text = "Up next, after your earlier show reaches Plex";
     if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
     if (s.status === "failed" && s.error) text += ". " + s.error;
+    if (s.for_computer) text += " (made on " + s.for_computer + ")";
     st.textContent = text;
     const m = document.createElement("span");
     m.className = "muted";
@@ -516,6 +519,7 @@ function wire() {
     ev.preventDefault();
     error("show-error", "");
     show($("show-ok"), false);
+    asking = true;
     $("make").disabled = true;
     try {
       await post("new_show", {
@@ -526,7 +530,8 @@ function wire() {
       $("show-ok").textContent = "Requested. It shows up in Plex in a few minutes.";
       show($("show-ok"), true);
     } catch (x) { error("show-error", x.message); }
-    $("make").disabled = false;
+    asking = false;
+    if (last) render(last);
     loadShows();
   };
   $("plex-go").onclick = async () => {

@@ -74,6 +74,10 @@ names your account and its paired computers.
 when it doesn't fit your show time. Booth Engineer remembers the choices (not the prompt) in its local config
 for next time.
 
+A show asked for this way is made from this computer's library and delivered here: Booth DJ asks only this
+Booth Engineer for its catalog, and lists it with `"for_computer": "<this machine's name>"` while it waits.
+Booth's page only asks while Booth is on the air.
+
 Nothing else is sent: no catalog goes with a request. It's sent later, on a check-in, as above.
 
 ## What Booth DJ does with the rest
