@@ -159,3 +159,10 @@ def test_a_newer_download_restarts_the_booth_that_starts_at_sign_in(tmp_path, mo
     plist = plistlib.loads((agents / "com.radiobooth.engineer.plist").read_bytes())
     assert plist["ProgramArguments"][1:] == ["app", "--background"]  # the new way to start
     assert started[0][1:] == ["app"]
+
+
+def test_turning_start_at_sign_in_back_on_doesnt_stop_the_booth_launchd_started(tmp_path, monkeypatch):
+    monkeypatch.setenv("XPC_SERVICE_NAME", macapp.BUNDLE_ID)
+    ran = []
+    autostart.install("darwin", tmp_path, run=lambda a, **k: ran.append(a), cmd=["/x/Radio Booth"])
+    assert ran == [] and macapp.agent_plist(tmp_path).is_file()

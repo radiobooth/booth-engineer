@@ -16,6 +16,11 @@ from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError, music_sections
 
+
+class _Superseded(Exception):
+    """This setup run was cancelled or replaced by a newer one: stop quietly, change nothing."""
+
+
 PLEX_KEYS = ("plex_url", "plex_token", "music_library", "breaks_library", "breaks_dir")
 
 
@@ -34,10 +39,12 @@ class WebSetup:
     ):
         self._booth, self._name, self._on_saved, self._ob = server, name, on_saved, onboard
         self._lock = threading.Lock()
+        self._here_run = threading.local()  # which run a background step belongs to
         self._run_id = 0
         self.reset()
 
     def reset(self) -> None:
+        """Cancel whatever was half done (a step still running in the background stops at its next check)."""
         self._run_id += 1
         self.step = "idle"  # idle | plex_wait | working | server | library | folder | done
         self.error = ""
@@ -52,6 +59,10 @@ class WebSetup:
         self._breaks: dict | None = None
         self._chosen: dict | None = None
 
+    def cancel(self) -> None:
+        with self._lock:
+            self.reset()
+
     def state(self) -> dict:
         return {
             "step": self.step,
@@ -61,12 +72,20 @@ class WebSetup:
             "folder_hint": self.folder_hint,
         }
 
+    def _check(self) -> None:
+        """Called between steps: a run that's been cancelled or replaced goes no further."""
+        if getattr(self._here_run, "id", None) != self._run_id:
+            raise _Superseded
+
     def _background(self, work: Callable[[], None]) -> None:
         run_id = self._run_id
 
         def go():
+            self._here_run.id = run_id
             try:
                 work()
+            except _Superseded:
+                pass
             except SetupError as e:
                 if run_id == self._run_id:
                     self.step, self.error = "idle", str(e)
@@ -85,7 +104,7 @@ class WebSetup:
             settings = config.load()
             client_id = settings.get("plex_client_id") or self._ob.new_client_id()
             if not settings.get("plex_client_id"):
-                config.save(config.load() | {"plex_client_id": client_id})
+                config.update({"plex_client_id": client_id})
             self._client_id = client_id
             pin, url = self._ob.start_sign_in(client_id)
             self.step, self.sign_in_url = "plex_wait", url
@@ -99,9 +118,11 @@ class WebSetup:
             return url
 
     def _signed_in(self, token: str) -> None:
+        self._check()
         self.step = "working"
         self._token = token
         servers = self._ob.owned_servers(token, self._client_id)
+        self._check()
         if not servers:
             raise SetupError(
                 "That Plex account has no server of its own. Sign in with the account that owns your Plex"
@@ -129,8 +150,10 @@ class WebSetup:
             raise SetupError("There's nothing to choose right now.")
 
     def _use_server(self, server: dict) -> None:
+        self._check()
         self._server = server
         url, here = self._ob.reach(server, self._token)
+        self._check()
         token = server.get("accessToken") or self._token
         self._url, self._here, self._token = url, here, token
         self._plex = PlexClient(url, token)
@@ -138,6 +161,7 @@ class WebSetup:
             sections = music_sections(self._plex)
         except PlexError as e:
             raise SetupError(f"Couldn't read the libraries on that Plex server ({e}).") from None
+        self._check()
         self._breaks = next((s for s in sections if s.get("title") == self._ob.BREAKS_LIBRARY), None)
         self._music = [s for s in sections if s is not self._breaks]
         if not self._music:
@@ -149,6 +173,7 @@ class WebSetup:
             self.step = "library"
 
     def _use_library(self, chosen: dict) -> None:
+        self._check()
         self._chosen = chosen
         ob, breaks = self._ob, self._breaks
         if breaks is None and self._here:
@@ -188,20 +213,22 @@ class WebSetup:
             raise SetupError(
                 "That folder isn't reachable from here. Check it's shared and connected, then try again."
             )
+        self._here_run.id = self._run_id  # asked for on the page, for the run that's showing
         self._save_plex(path)
 
     def _save_plex(self, breaks_dir: str) -> None:
-        config.save(
-            config.load()
-            | {
-                "plex_url": self._url,
-                "plex_token": self._token,
-                "music_library": self._chosen.get("title"),
-                "breaks_library": self._ob.BREAKS_LIBRARY,
-                "breaks_dir": breaks_dir,
-            }
-        )
-        self.step, self.error, self.choices = "done", "", []
+        with self._lock:  # a cancel or a new sign-in can't slip in between the check and the save
+            self._check()
+            config.update(
+                {
+                    "plex_url": self._url,
+                    "plex_token": self._token,
+                    "music_library": self._chosen.get("title"),
+                    "breaks_library": self._ob.BREAKS_LIBRARY,
+                    "breaks_dir": breaks_dir,
+                }
+            )
+            self.step, self.error, self.choices = "done", "", []
         self._on_saved()
 
     # Booth account
@@ -220,6 +247,6 @@ class WebSetup:
                     "That code didn't work. Codes last 10 minutes and work once; get a new one and try again."
                 ) from None
             raise SetupError(str(e)) from None
-        config.save(config.load() | {"server": server, "device_token": token, "name": self._name})
+        config.update({"server": server, "device_token": token, "name": self._name})
         self._on_saved()
         return self._name

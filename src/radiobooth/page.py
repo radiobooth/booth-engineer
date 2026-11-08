@@ -316,7 +316,7 @@ function render(s) {
   const u = s.update;
   const ua = $("update-actions");
   ua.replaceChildren();
-  if (u.state === "installing") $("update-text").textContent = u.message;
+  if (u.state === "installing" || u.state === "installed") $("update-text").textContent = u.message;
   else if (u.available && u.can_install) {
     $("update-text").textContent = "Version " + u.latest + " is ready (you have " + u.current + ").";
     ua.append(button("Update now", () => post("install_update").then(refresh)));

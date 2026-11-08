@@ -292,12 +292,110 @@ def test_updates_wait_until_no_show_is_on_its_way(monkeypatch):
     monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
     busy = [True]
     restarted = []
-    up = update.Updater(busy=lambda: busy[0], restart=lambda: restarted.append(1), auto=lambda: True)
+    up = update.Updater(busy=lambda: busy[0], restart=lambda: restarted.append(up.message), auto=lambda: True)
     monkeypatch.setattr(update, "latest_release", lambda: {"version": "99.0", "assets": {}})
     monkeypatch.setattr(update, "apply", lambda release: release["version"])
     monkeypatch.setattr(update, "tidy", lambda: None)
     monkeypatch.setattr(update, "FIRST_CHECK_S", 0)
-    monkeypatch.setattr(update.time, "sleep", lambda s: busy.__setitem__(0, False))
+
+    def sleep(seconds):
+        if restarted:  # the real app has exited by now: park the updater's thread
+            threading.Event().wait()
+        busy[0] = False  # a minute later, the show is in Plex
+
+    monkeypatch.setattr(update.time, "sleep", sleep)
     up.start()
     wait_for(lambda: restarted)
-    assert up.status()["latest"] == "99.0" and "installed" in up.message
+    assert up.status()["latest"] == "99.0" and "installed" in restarted[0]
+
+
+def test_a_restart_never_runs_two_booths_at_once(tmp_path, monkeypatch):
+    (tmp_path / "breaks").mkdir()
+    settings = {
+        "server": "https://booth.example",
+        "device_token": "be",
+        "plex_url": "http://plex",
+        "plex_token": "t",
+        "breaks_library": "Radio Booth",
+        "breaks_dir": str(tmp_path / "breaks"),
+    }
+    for k in ("PLEX_URL", "PLEX_TOKEN", "BOOTH_BREAKS_LIBRARY", "BOOTH_BREAKS_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    inside, most, release = [0], [0], threading.Event()
+    lock = threading.Lock()
+
+    def checkin(self):
+        with lock:
+            inside[0] += 1
+            most[0] = max(most[0], inside[0])
+        release.wait(5)  # a slow check-in, or a delivery in hand
+        with lock:
+            inside[0] -= 1
+        return {"shows": [], "next_checkin_s": 5}
+
+    monkeypatch.setattr(engine.Link, "checkin", checkin)
+    eng = engine.Engine(load=lambda: settings, retry_s=0.01, echo=False)
+    eng.start()
+    wait_for(lambda: inside[0] == 1)
+    eng.start()  # setup saved while the first is busy
+    eng.start()
+    time.sleep(0.2)
+    release.set()
+    wait_for(lambda: eng.state == engine.ON_AIR)
+    assert most[0] == 1
+    eng.stop()
+    assert eng.state == engine.STOPPED
+
+
+def test_a_cancelled_setup_changes_nothing(plex_home, monkeypatch):
+    tmp_path, plex, signed = plex_home
+    reached = threading.Event()
+    go_on = threading.Event()
+
+    def slow_reach(server, token):
+        reached.set()
+        go_on.wait(5)
+        return onboard.LOCAL_PLEX, True
+
+    monkeypatch.setattr(onboard, "reach", slow_reach)
+    monkeypatch.setattr(onboard, "owned_servers", lambda token, cid: [SERVER])
+    setup = websetup.WebSetup(lambda: "https://booth.example", "pc", on_saved=lambda: pytest.fail("saved"))
+    setup.start_plex()
+    signed.set()
+    reached.wait(5)
+    setup.cancel()  # "Done" on the page while Booth was still looking at the server
+    go_on.set()
+    time.sleep(0.3)
+    assert setup.step == "idle" and not setup.error
+    assert "plex_url" not in config.load()
+
+
+def test_settings_saved_at_once_are_all_kept(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    threads = [threading.Thread(target=config.update, args=({f"k{i}": i},)) for i in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert config.load() == {f"k{i}": i for i in range(20)}
+
+
+def test_update_now_waits_for_a_show_in_hand(monkeypatch):
+    monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
+    up = update.Updater(busy=lambda: True, restart=lambda: pytest.fail("restarted"), auto=lambda: True)
+    up._release = {"version": "99.0", "assets": {}}
+    monkeypatch.setattr(update, "apply", lambda release: pytest.fail("installed while busy"))
+    up._install()
+    assert "once the show" in up.message
+
+
+def test_a_broken_reply_from_github_doesnt_stop_update_checks(monkeypatch):
+    import http.client
+
+    def cut_short():
+        raise http.client.IncompleteRead(b"")
+
+    monkeypatch.setattr(update, "latest_release", cut_short)
+    up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: True)
+    up.check()
+    assert up.state == "failed" and "Couldn't check" in up.message

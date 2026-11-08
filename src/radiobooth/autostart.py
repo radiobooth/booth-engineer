@@ -153,7 +153,7 @@ def _windows_paths(home: Path) -> tuple[Path, Path]:
 
 
 def _mac_paths(home: Path) -> tuple[Path, Path]:
-    return home / "Library" / "LaunchAgents" / f"{macapp.BUNDLE_ID}.plist", home / "Library" / "Logs"
+    return macapp.agent_plist(home), home / "Library" / "Logs"
 
 
 def installed(platform: str = sys.platform, home: Path | None = None) -> bool:
@@ -217,8 +217,11 @@ def install(
         plist.parent.mkdir(parents=True, exist_ok=True)
         logs.mkdir(parents=True, exist_ok=True)
         plist.write_text(mac_plist(cmd, logs / "radiobooth.log"), encoding="utf-8")
-        run(["launchctl", "unload", str(plist)], capture_output=True)  # an older copy, if any
-        checked(run, ["launchctl", "load", str(plist)])
+        if os.environ.get("XPC_SERVICE_NAME") != macapp.BUNDLE_ID:
+            run(["launchctl", "unload", str(plist)], capture_output=True)  # an older copy, if any
+            checked(run, ["launchctl", "load", str(plist)])
+        # else this is that sign-in item, running now: unloading it would stop this very Booth. It's still
+        # loaded, and the new file is what starts Booth next time.
         done = "Booth now runs in the background and starts each time you sign in to this Mac."
         if macapp.bundle(cmd[0]):
             # The bare program the Mac download kept before it was an app; nothing starts it any more.

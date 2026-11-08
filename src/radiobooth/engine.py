@@ -154,6 +154,7 @@ class Engine:
         self._retry_s = retry_s
         self._echo = echo
         self._lock = threading.Lock()
+        self._control = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._busy = 0
@@ -187,20 +188,25 @@ class Engine:
     # Control
 
     def start(self) -> None:
-        """Start (or restart, with the settings as they are now)."""
-        self.stop()
-        self.state = STARTING  # settings may have changed (signed in again, paired again): look afresh
-        self._stop = threading.Event()
-        self._thread = threading.Thread(
-            target=self._loop, args=(self._stop,), name="booth-engine", daemon=True
-        )
-        self._thread.start()
-
-    def stop(self, wait: float = 5) -> None:
-        if self._thread and self._thread.is_alive():
+        """Start (or restart, with the settings as they are now). Never two at once: a new start waits for
+        the one before it to finish what it's doing (a delivery, say) before checking in itself."""
+        with self._control:
+            previous = self._thread
             self._stop.set()
-            self._thread.join(wait)
-        self._thread = None
+            self.state = STARTING  # settings may have changed (signed in again, paired again): look afresh
+            self._stop = threading.Event()
+            self._thread = threading.Thread(
+                target=self._loop, args=(self._stop, previous), name="booth-engine", daemon=True
+            )
+            self._thread.start()
+
+    def stop(self, wait: float | None = 5) -> None:
+        """Stop; waits up to `wait` seconds (None: as long as it takes) for a show in hand to be finished."""
+        with self._control:
+            thread, self._thread = self._thread, None
+            self._stop.set()
+        if thread is not None:  # each start waits for the one before it, so the newest is the last to end
+            thread.join(wait)
 
     def _mark(self, on: bool) -> None:
         with self._lock:
@@ -219,10 +225,16 @@ class Engine:
         if self.state == NEEDS_PLEX:  # signed in again since
             self.state = ON_AIR
 
-    def _loop(self, stop: threading.Event) -> None:
+    def _loop(self, stop: threading.Event, previous: threading.Thread | None = None) -> None:
         def sleep(seconds: float) -> None:
             if stop.wait(seconds):
                 raise _Stopped
+
+        if previous is not None:
+            previous.join()
+        if stop.is_set():
+            return
+        self.state = STARTING
 
         while not stop.is_set():
             settings = self._load()
@@ -262,11 +274,13 @@ class Engine:
             except LinkError as e:
                 if e.status == 401:
                     self.log("Booth DJ no longer knows this computer: connect it to your account again.")
-                    self.state = NEEDS_PAIRING
+                    if not stop.is_set():
+                        self.state = NEEDS_PAIRING
                     return
                 self.log(str(e))
             except Exception as e:  # noqa: BLE001 - say what, and try again in a minute
                 self.log(f"Something went wrong: {e}")
             if stop.wait(self._retry_s):
                 break
-        self.state = STOPPED
+        if self._thread is None:  # stopped, not replaced by a newer start
+            self.state = STOPPED

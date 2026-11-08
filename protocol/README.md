@@ -43,4 +43,4 @@ The Booth app (Windows and Mac) asks GitHub every few hours for this repository'
 `radiobooth/<version>` and nothing else. When there's a newer version it downloads the file for your
 computer and the release's `SHA256SUMS` from this repository's release page, and installs it only if the
 checksum matches. Turn it off on Booth's page under **Update by itself**. The `booth` command and the
-Docker image don't check.
+Docker image never check by themselves (`booth app` shows a **Check now** button).

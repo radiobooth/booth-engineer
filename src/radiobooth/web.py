@@ -35,7 +35,6 @@ from radiobooth.websetup import WebSetup, plex_ready
 HOST = "127.0.0.1"
 PORT = 48231  # the same address each time when it's free, so a page left open finds Booth again
 COOKIE = "booth_key"
-DEFAULT_SERVER = "https://my.radiobooth.fm"
 
 
 def page_file() -> Path:
@@ -44,11 +43,8 @@ def page_file() -> Path:
 
 
 def page_key() -> str:
-    settings = config.load()
-    if not settings.get("page_key"):
-        settings = settings | {"page_key": secrets.token_urlsafe(32)}
-        config.save(settings)
-    return settings["page_key"]
+    key = config.load().get("page_key")
+    return key or config.update({"page_key": secrets.token_urlsafe(32)})["page_key"]
 
 
 def bind(port: int = PORT) -> socket.socket:
@@ -109,14 +105,15 @@ class App:
         self.restarting = False
 
     def server(self) -> str:
+        from radiobooth.cli import DEFAULT_SERVER
+
         return os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
 
     def _saved(self) -> None:
         settings = config.load()
         if plex_ready(settings) and settings.get("device_token"):
-            first = not settings.get("set_up_once")
-            if first:
-                config.save(settings | {"set_up_once": True})
+            if not settings.get("set_up_once"):
+                config.update({"set_up_once": True})
                 if self.platform in ("win32", "darwin") and not autostart.installed(self.platform):
                     # Recommended, and what testers expect: shows arrive without opening anything.
                     with contextlib.suppress(OSError):
@@ -124,9 +121,9 @@ class App:
             self.engine.start()
 
     def restart(self) -> None:
-        """After an update: start the new version and stop this one."""
+        """After an update: start the new version and stop this one, once any show in hand is in Plex."""
         self.restarting = True
-        self.engine.stop()
+        self.engine.stop(wait=None)
         update.relaunch(self.platform)
         self.quit.set()
 
@@ -158,7 +155,7 @@ class App:
         if action == "plex":
             return {"url": self.setup.start_plex()}
         if action == "cancel":
-            self.setup.reset()
+            self.setup.cancel()
         elif action == "choose":
             self.setup.choose(int(body.get("index", -1)))
         elif action == "folder":
@@ -173,7 +170,7 @@ class App:
                 raise SetupError(f"Couldn't change that ({e}).") from None
             return {"said": said}
         elif action == "auto_update":
-            config.save(config.load() | {"auto_update": bool(body.get("on"))})
+            config.update({"auto_update": bool(body.get("on"))})
         elif action == "check_update":
             self.updater.check_now()
         elif action == "install_update":
@@ -291,6 +288,17 @@ def write_page_file(link: str) -> None:
         json.dump({"url": link, "pid": os.getpid()}, f)
 
 
+def notice(text: str, platform: str = sys.platform) -> None:
+    """Tell the person something when there's no page to show it on. The Windows app has no console, so a
+    message box; elsewhere, the terminal (or the log)."""
+    print(text, file=sys.stderr)
+    if platform == "win32" and getattr(sys, "frozen", False):
+        with contextlib.suppress(AttributeError, OSError):
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(None, text, "Radio Booth", 0x40)  # MB_ICONINFORMATION
+
+
 def open_running(open_browser: Callable[[str], bool], wait_s: float = 15) -> bool:
     """Open the page of the Booth already running here, waiting a little for it to come up."""
     deadline = time.monotonic() + wait_s
@@ -323,7 +331,10 @@ def main(
     if lock is None:
         if background or open_running(open_browser):
             return 0
-        print("Booth is already running on this computer (as `booth run`, without a page).", file=sys.stderr)
+        notice(
+            "Booth is already running on this computer, in an older version or as `booth run`, so it has no"
+            " page to show. Close that Booth (its window, or `booth run`), then open Radio Booth again."
+        )
         return 5
 
     if getattr(sys, "frozen", False) and autostart.outdated():
@@ -336,7 +347,8 @@ def main(
     settings = config.load()
     if plex_ready(settings) and settings.get("device_token"):
         app.engine.start()
-    app.updater.start()
+    if app.updater.can_install:  # the apps only: the `booth` command never asks GitHub by itself
+        app.updater.start()
     if not background:
         open_browser(link)
     try:

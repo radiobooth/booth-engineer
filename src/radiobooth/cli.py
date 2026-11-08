@@ -79,9 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def setting(env: str, key: str) -> str | None:
     """A setting from the environment, else from the config file `booth setup` wrote."""
-    from radiobooth import config
+    from radiobooth import config, engine
 
-    return os.environ.get(env) or config.load().get(key) or None
+    return engine.setting(config.load(), env, key)
 
 
 def plex_login() -> tuple[str | None, str | None]:

@@ -197,12 +197,11 @@ class Updater:
 
     def __init__(self, busy: Callable[[], bool], restart: Callable[[], None], auto: Callable[[], bool]):
         self._busy, self._restart, self._auto = busy, restart, auto
-        self._wake = threading.Event()
         self._lock = threading.Lock()
         self.can_install = installed() is not None
         self.latest: str | None = None
         self.checked_at: float | None = None
-        self.state = "idle"  # idle | checking | available | installing | failed
+        self.state = "idle"  # idle | checking | available | installing | installed | failed
         self.message = ""
         self._release: dict | None = None
 
@@ -221,7 +220,8 @@ class Updater:
         threading.Thread(target=self._loop, name="booth-updates", daemon=True).start()
 
     def check_now(self) -> None:
-        self._wake.set()
+        """The page's "Check now". Works without the background checks too (the `booth` command)."""
+        threading.Thread(target=self.check, name="booth-update-check", daemon=True).start()
 
     def install_now(self) -> None:
         threading.Thread(target=self._install, name="booth-update-now", daemon=True).start()
@@ -230,7 +230,7 @@ class Updater:
         self.state, self.message = "checking", ""
         try:
             release = latest_release()
-        except UpdateError as e:
+        except Exception as e:  # noqa: BLE001 - a cut-short reply too: say so, and try again later
             self.state, self.message = "failed", f"Couldn't check for updates: {e}."
             return
         self.checked_at = time.time()
@@ -250,11 +250,15 @@ class Updater:
             if self._release is None or not newer(self._release["version"]):
                 return
             self.state, self.message = "installing", f"Installing version {self._release['version']}..."
+            if self._busy():
+                self.message = "The update installs once the show on its way is in Plex."
+                return
             try:
                 apply(self._release)
-            except (UpdateError, OSError) as e:
+            except Exception as e:  # noqa: BLE001 - say what; the old version keeps running
                 self.state, self.message = "failed", f"Couldn't install the update: {e}."
                 return
+            self.state = "installed"
             self.message = f"Version {self._release['version']} installed; Booth is starting again."
             self._restart()
         finally:
@@ -264,13 +268,14 @@ class Updater:
         tidy()
         wait = FIRST_CHECK_S
         while True:
-            self._wake.wait(wait)
-            self._wake.clear()
+            time.sleep(wait)
             self.check()
             wait = CHECK_EVERY_S
-            # Install when nothing's on its way into Plex; check again in a minute if something is.
+            # Install when nothing's on its way into Plex; check again in a minute if something is. (A show
+            # that starts during the download is still finished first: restarting waits for it.)
             while self.state == "available" and self.can_install and self._auto():
                 if not self._busy():
                     self._install()
-                    break
+                    if self.state != "available":
+                        break
                 time.sleep(60)
