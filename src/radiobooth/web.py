@@ -188,8 +188,9 @@ class App:
 
     def shows(self) -> dict:
         """For the page's New show section: the DJs and voices, show time left, and the latest shows."""
+        paired = self._paired  # before the settings: a pairing saved after this makes the roster stale
         settings = config.load()
-        link, paired = self._link(settings), self._paired
+        link = self._link(settings)
         try:
             if not self._roster or time.monotonic() - self._roster[0] > ROSTER_S:
                 roster = link.get("/v0/me").get("roster")
