@@ -114,6 +114,7 @@ class App:
         return os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
 
     def _saved(self) -> None:
+        self._roster = None  # paired again, maybe with another Radio Booth: ask it for its DJs
         settings = config.load()
         if plex_ready(settings) and settings.get("device_token"):
             if not settings.get("set_up_once"):
@@ -154,8 +155,8 @@ class App:
             "restarting": self.restarting,
         }
 
-    def _link(self) -> Link:
-        settings = config.load()
+    def _link(self, settings: dict | None = None) -> Link:
+        settings = settings or config.load()
         token = settings.get("device_token")
         if not token:
             raise SetupError("Connect Booth to your account first.")
@@ -167,19 +168,27 @@ class App:
 
     def _said(self, e: LinkError) -> SetupError:
         """What the page says when Booth DJ couldn't take or answer a request."""
+        said = str(e).removeprefix("Booth DJ: ")
         if e.status is None:
-            if str(e).startswith("Could not reach"):
+            if "timed out" in said:
+                return SetupError(
+                    "Radio Booth took too long to answer. Look for your show in the list before asking again."
+                )
+            if said.startswith("Could not reach"):
                 return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
             return SetupError("Radio Booth sent an answer Booth didn't understand. Try again in a moment.")
         if e.status == 401:
-            if self.engine.state == engine.ON_AIR:  # check-ins work, so this computer is still paired
+            if self.engine.state != engine.NEEDS_PAIRING:  # check-ins still work, so it's still paired
                 return SetupError("Radio Booth can't take shows from this page yet. Ask on your phone.")
             return SetupError("Your Booth account doesn't know this computer. Connect it again in Settings.")
-        return SetupError(str(e).removeprefix("Booth DJ: "))
+        if said.startswith("HTTP "):  # no message of its own (a 502 from in front of it, say)
+            return SetupError("Radio Booth is having trouble right now. Try again in a moment.")
+        return SetupError(said)
 
     def shows(self) -> dict:
         """For the page's New show section: the DJs and voices, show time left, and the latest shows."""
-        link = self._link()
+        settings = config.load()
+        link = self._link(settings)
         try:
             if not self._roster or time.monotonic() - self._roster[0] > ROSTER_S:
                 roster = link.get("/v0/me").get("roster")
@@ -194,7 +203,7 @@ class App:
             "roster": self._roster[1],
             "allowance": listed.get("allowance"),
             "shows": shows[:6] if isinstance(shows, list) else [],
-            "choices": config.load().get("show_choices") or {},
+            "choices": settings.get("show_choices") or {},
         }
 
     def new_show(self, body: dict) -> dict:

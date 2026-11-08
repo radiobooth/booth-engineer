@@ -153,6 +153,7 @@ HTML = f"""<!doctype html>
             <option value="20">20 min</option><option value="30">30 min</option>
             <option value="40" selected>40 min</option><option value="60">1 hour</option>
             <option value="90">90 min</option><option value="120">2 hours</option>
+            <option value="180">3 hours</option><option value="240">4 hours</option>
           </select>
         </label>
         <label for="dj">DJ <select id="dj"></select></label>
@@ -339,7 +340,7 @@ function render(s) {
   const canAsk = ready && e.state !== "needs_pairing";
   show($("new-show"), canAsk);
   const wantShows = canAsk && e.state !== "stopped";  // paused: no need to keep asking Radio Booth
-  $("make").disabled = asking || !onAir;
+  $("make").disabled = asking || !onAir || !rosterShown;
   $("make").title = onAir ? "" : "Booth makes shows while it's on the air";
   if (wantShows && !showsWanted) { showsWanted = true; loadShows(); }
   if (!wantShows) { showsWanted = false; clearTimeout(showsTimer); }
@@ -452,10 +453,14 @@ function showOff() {
 
 function fillRoster(roster, saved) {
   // Keeps what's picked now, else what was used last time, as long as it's still offered.
-  const dj = $("dj"), voice = $("voice");
-  if (rosterShown) saved = {dj: dj.value, voice: voice.value};
+  const dj = $("dj"), voice = $("voice"), minutes = $("minutes");
+  if (rosterShown) saved = {dj: dj.value, voice: voice.value, minutes: minutes.value};
   dj.replaceChildren(...(roster.djs || []).map((d) => new Option(d.name + ", " + d.role, d.id)));
   voice.replaceChildren(...(roster.voices || []).map((v) => new Option("Voice " + v, v)));
+  if (Array.isArray(roster.lengths) && roster.lengths.length) {  // the lengths Radio Booth offers now
+    minutes.replaceChildren(...roster.lengths.map((l) => new Option(l.label, String(l.minutes))));
+    minutes.value = "40";
+  }
   const ids = {minutes: "minutes", dj: "dj", voice: "voice", dj_name: "dj-name", station: "station"};
   for (const [k, id] of Object.entries(ids)) if (saved[k] !== undefined && saved[k] !== null) {
     const el = $(id), before = el.value;
@@ -464,7 +469,7 @@ function fillRoster(roster, saved) {
   }
 }
 
-function renderAllowance(a) {
+function renderAllowance(a, pick) {
   const sel = $("minutes");
   let left = Infinity;
   for (const k of ["day", "week"]) if (a && a[k]) left = Math.min(left, a[k].left);
@@ -472,7 +477,8 @@ function renderAllowance(a) {
   show($("allowance"), !!(a && a.text));
   // Lengths that don't fit stay visible but can't be picked; Radio Booth says why if one is sent anyway.
   for (const opt of sel.options) opt.disabled = Number(opt.value) > left;
-  if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) {  // the longest that still fits, if any
+  // Only as the form opens: later, a length the person chose is never changed behind their back.
+  if (pick && sel.selectedOptions[0] && sel.selectedOptions[0].disabled) {  // the longest that fits, if any
     const fits = [...sel.options].filter((o) => !o.disabled);
     if (fits.length) sel.value = fits[fits.length - 1].value;
   }
@@ -492,8 +498,7 @@ function renderShows(list) {
     if (s.waiting_for_earlier) text = "Up next, after your earlier show reaches Plex";
     if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
     if (s.status === "failed" && s.error) text += ". " + s.error;
-    const here = last && last.account.name;
-    if (s.for_computer && s.for_computer !== here) text += " (made on " + s.for_computer + ")";
+    if (s.for_computer) text += " (made on " + s.for_computer + ")";  // another computer's show
     st.textContent = text;
     const m = document.createElement("span");
     m.className = "muted";
@@ -511,9 +516,10 @@ async function loadShows() {
     const r = await fetch("/api/shows", {cache: "no-store"});
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
-    const roster = JSON.stringify(data.roster);
-    if (roster !== rosterShown) { fillRoster(data.roster, data.choices); rosterShown = roster; }
-    renderAllowance(data.allowance);
+    const roster = JSON.stringify(data.roster), first = !rosterShown;
+    if (roster !== rosterShown) { fillRoster(data.roster, data.choices || {}); rosterShown = roster; }
+    renderAllowance(data.allowance, first);
+    if (first && last) render(last);  // the button waits for the DJs and voices
     renderShows(data.shows);
     if (data.shows.some((s) => ["queued", "making", "ready"].includes(s.status))) wait = 5000;
     error("shows-error", "");

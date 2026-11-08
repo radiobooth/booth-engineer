@@ -75,8 +75,8 @@ when it doesn't fit your show time. Booth Engineer remembers the choices (not th
 for next time.
 
 A show asked for this way is made from this computer's library and delivered here: Booth DJ asks only this
-Booth Engineer for its catalog. While a show like that waits, `GET /v0/shows` lists it with `"for_computer"`,
-the name of the computer it was asked for on (this one or another of yours).
+Booth Engineer for its catalog. While a show asked for on another of your computers waits, `GET /v0/shows`
+lists it with `"for_computer"`, that computer's name.
 Booth's page only asks while Booth is on the air.
 
 Nothing else is sent: no catalog goes with a request. It's sent later, on a check-in, as above.
