@@ -64,62 +64,70 @@ def keep_app(cmd: list[str], home: Path, platform: str) -> list[str]:
     return [str(target)]
 
 
-def shortcut(target: str, args: str = "") -> bytes:
-    """A Windows shortcut (.lnk) to `target` with `args`, written byte for byte (Microsoft's [MS-SHLLINK]
-    format) rather than by starting PowerShell: a program with no window that starts PowerShell is just what
-    antivirus software looks for. Unicode throughout, so a path like C:\\Users\\José works."""
-    import struct
+def _com_shortcut(link: Path, target: str, args: str, workdir: str) -> None:
+    """Make a Windows shortcut (.lnk) through the shell's own IShellLink, the way installers do, called
+    directly rather than by starting PowerShell: a program with no window that starts PowerShell is just what
+    antivirus software looks for."""
+    import ctypes
+    from ctypes import POINTER, WINFUNCTYPE, byref, c_ulong, c_void_p, c_wchar_p
 
-    def counted(text: str) -> bytes:
-        return struct.pack("<H", len(text)) + text.encode("utf-16-le")
+    ole32 = ctypes.OleDLL("ole32")  # an HRESULT failure raises OSError
 
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("a", ctypes.c_ulong),
+            ("b", ctypes.c_ushort),
+            ("c", ctypes.c_ushort),
+            ("d", ctypes.c_ubyte * 8),
+        ]
+
+    def guid(text: str) -> GUID:
+        g = GUID()
+        ole32.CLSIDFromString(c_wchar_p(text), byref(g))
+        return g
+
+    def method(obj: c_void_p, index: int, *argtypes, restype=ctypes.HRESULT):
+        table = ctypes.cast(obj, POINTER(POINTER(c_void_p))).contents
+        fn = WINFUNCTYPE(restype, c_void_p, *argtypes)(table[index])
+        return lambda *a: fn(obj, *a)
+
+    try:
+        ole32.CoInitializeEx(None, 2)  # COINIT_APARTMENTTHREADED, for this thread
+        started = True
+    except OSError:  # already initialised differently on this thread: fine to use as it is
+        started = False
+    link_obj, file_obj = c_void_p(), c_void_p()
+    try:
+        ole32.CoCreateInstance(
+            byref(guid("{00021401-0000-0000-C000-000000000046}")),  # ShellLink
+            None,
+            1,  # CLSCTX_INPROC_SERVER
+            byref(guid("{000214F9-0000-0000-C000-000000000046}")),  # IShellLinkW
+            byref(link_obj),
+        )
+        method(link_obj, 20, c_wchar_p)(target)  # SetPath
+        method(link_obj, 11, c_wchar_p)(args)  # SetArguments
+        method(link_obj, 9, c_wchar_p)(workdir)  # SetWorkingDirectory
+        method(link_obj, 0, POINTER(GUID), POINTER(c_void_p))(  # QueryInterface
+            byref(guid("{0000010B-0000-0000-C000-000000000046}")),
+            byref(file_obj),  # IPersistFile
+        )
+        method(file_obj, 6, c_wchar_p, ctypes.c_int)(str(link), 1)  # Save
+    finally:
+        for obj in (file_obj, link_obj):
+            if obj.value:
+                method(obj, 2, restype=c_ulong)()  # Release
+        if started:
+            ole32.CoUninitialize()
+
+
+def write_shortcut(link: Path, cmd: list[str], action: str, make=None) -> None:
+    """A shortcut at `link` that runs `cmd` with `action`, for the Start menu or the Startup folder."""
     import ntpath
 
-    workdir = ntpath.dirname(target)
-    has_args, has_workdir = bool(args), bool(workdir)
-    # HasLinkInfo | HasWorkingDir? | HasArguments? | IsUnicode
-    flags = 0x02 | (0x10 if has_workdir else 0) | (0x20 if has_args else 0) | 0x80
-    header = struct.pack(
-        "<I16sIIQQQIiIHHII",
-        0x4C,
-        bytes.fromhex("0114020000000000c000000000000046"),  # the shell link class id
-        flags,
-        0x20,  # FILE_ATTRIBUTE_ARCHIVE
-        0,
-        0,
-        0,
-        0,
-        0,
-        1,  # SW_SHOWNORMAL
-        0,
-        0,
-        0,
-        0,
-    )
-    # LinkInfo: the target as a local path, in ANSI (what fits) and in full Unicode.
-    volume = struct.pack("<IIII", 0x11, 3, 0, 0x10) + b"\0"  # a fixed drive, no label
-    ansi = target.encode("mbcs" if sys.platform == "win32" else "ascii", "replace") + b"\0"
-    unicode = target.encode("utf-16-le") + b"\0\0"
-    head = 0x24
-    volume_at = head
-    path_at = volume_at + len(volume)
-    suffix_at = path_at + len(ansi)
-    upath_at = suffix_at + 1
-    usuffix_at = upath_at + len(unicode)
-    body = volume + ansi + b"\0" + unicode + b"\0\0"
-    info = struct.pack(
-        "<IIIIIIIII", head + len(body), head, 1, volume_at, path_at, 0, suffix_at, upath_at, usuffix_at
-    )
-    strings = (counted(workdir) if has_workdir else b"") + (counted(args) if has_args else b"")
-    return header + info + body + strings + b"\0\0\0\0"  # no extra data blocks
-
-
-def write_shortcut(link: Path, cmd: list[str], action: str) -> None:
     args = " ".join([*(f'"{c}"' for c in cmd[1:]), *([action] if action else [])])
     link.parent.mkdir(parents=True, exist_ok=True)
-    staged = link.with_name(link.name + ".new")
-    staged.write_bytes(shortcut(cmd[0], args))
-    os.replace(staged, link)
+    (make or _com_shortcut)(link, cmd[0], args, ntpath.dirname(cmd[0]))
 
 
 APP_ARGS = ["app", "--background"]
@@ -221,7 +229,7 @@ def outdated(platform: str = sys.platform, home: Path | None = None) -> bool:
     return False
 
 
-def start_menu(home: Path | None = None, cmd: list[str] | None = None) -> None:
+def start_menu(home: Path | None = None, cmd: list[str] | None = None, make=None) -> None:
     """Windows: the Start-menu entry that opens Booth's page, whether or not Booth starts at sign-in. Made
     each time the app starts, so it's there for settings carried over from an older version too, and always
     points at the app as it is now."""
@@ -229,11 +237,15 @@ def start_menu(home: Path | None = None, cmd: list[str] | None = None) -> None:
     programs = _windows_paths(home)[0]
     programs.mkdir(parents=True, exist_ok=True)
     (programs / "Radio Booth setup.lnk").unlink(missing_ok=True)  # setup is on Booth's page now
-    write_shortcut(programs / "Radio Booth.lnk", cmd or command(), "")
+    write_shortcut(programs / "Radio Booth.lnk", cmd or command(), "", make)
 
 
 def install(
-    platform: str = sys.platform, home: Path | None = None, run=subprocess.run, cmd: list[str] | None = None
+    platform: str = sys.platform,
+    home: Path | None = None,
+    run=subprocess.run,
+    cmd: list[str] | None = None,
+    make=None,  # how a Windows shortcut is made (tests use a stand-in)
 ) -> str:
     """Set Booth to start at sign-in; returns what was done, in words."""
     home = home or Path.home()
@@ -245,8 +257,8 @@ def install(
         startup.mkdir(parents=True, exist_ok=True)
         (startup / "Radio Booth.cmd").unlink(missing_ok=True)  # how versions before 0.2 started
         (programs / "Radio Booth setup.lnk").unlink(missing_ok=True)  # setup is on Booth's page now
-        write_shortcut(startup / "Radio Booth.lnk", cmd, " ".join(APP_ARGS))
-        write_shortcut(programs / "Radio Booth.lnk", cmd, "")
+        write_shortcut(startup / "Radio Booth.lnk", cmd, " ".join(APP_ARGS), make)
+        write_shortcut(programs / "Radio Booth.lnk", cmd, "", make)
         return (
             "Booth will start by itself, in the background, each time you sign in to Windows. To see its"
             " page, open Radio Booth from the Start menu."

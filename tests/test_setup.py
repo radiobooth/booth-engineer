@@ -277,16 +277,22 @@ def test_autostart_files(tmp_path, monkeypatch):
     (menu / "Startup").mkdir(parents=True)
     (menu / "Startup" / "Radio Booth.cmd").write_text("how 0.1 started")
     (menu / "Radio Booth setup.lnk").write_text("0.1's setup shortcut")
-    ran = []
-    assert "Windows" in autostart.install("win32", tmp_path, run=lambda *a, **k: ran.append(a[0]))
+    ran, made = [], {}
+
+    def make(link, target, args, workdir):  # stands in for the shell's own shortcut maker
+        made[link.relative_to(menu).as_posix()] = (target, args, workdir)
+        link.write_bytes(b"lnk")
+
+    assert "Windows" in autostart.install("win32", tmp_path, run=lambda *a, **k: ran.append(a[0]), make=make)
     assert (
         not (menu / "Startup" / "Radio Booth.cmd").exists() and not (menu / "Radio Booth setup.lnk").exists()
     )
-    assert ran == []  # shortcuts are written directly: no PowerShell, which antivirus software dislikes
-    startup = (menu / "Startup" / "Radio Booth.lnk").read_bytes()
-    assert startup[:4] == b"\x4c\0\0\0" and "app --background".encode("utf-16-le") in startup
-    assert r"C:\Users\Al\Downloads\booth.exe".encode("utf-16-le") in startup
-    assert "app".encode("utf-16-le") not in (menu / "Radio Booth.lnk").read_bytes()
+    assert ran == []  # no PowerShell, which antivirus software dislikes
+    exe, folder = r"C:\Users\Al\Downloads\booth.exe", r"C:\Users\Al\Downloads"
+    assert made == {
+        "Startup/Radio Booth.lnk": (exe, "app --background", folder),
+        "Radio Booth.lnk": (exe, "", folder),
+    }
     assert autostart.installed("win32", tmp_path)
     autostart.remove("win32", tmp_path)
     assert not autostart.installed("win32", tmp_path)
@@ -507,8 +513,8 @@ def test_the_start_menu_entry_is_made_without_start_at_sign_in(tmp_path, monkeyp
     programs = tmp_path / "AppData/Microsoft/Windows/Start Menu/Programs"
     programs.mkdir(parents=True)
     (programs / "Radio Booth setup.lnk").write_text("0.1's setup shortcut")
-    autostart.start_menu(tmp_path, cmd=[r"C:\Booth\RadioBooth.exe"])
-    lnk = (programs / "Radio Booth.lnk").read_bytes()
-    assert r"C:\Booth\RadioBooth.exe".encode("utf-16-le") in lnk
+    made = []
+    autostart.start_menu(tmp_path, cmd=[r"C:\Booth\RadioBooth.exe"], make=lambda *a: made.append(a))
+    assert made == [(programs / "Radio Booth.lnk", r"C:\Booth\RadioBooth.exe", "", r"C:\Booth")]
     assert not (programs / "Radio Booth setup.lnk").exists()
     assert not (programs / "Startup").exists()  # starting at sign-in is a separate choice
