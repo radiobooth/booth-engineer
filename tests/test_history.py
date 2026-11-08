@@ -53,3 +53,17 @@ def test_history_trouble_never_fails_a_delivery(tmp_path, monkeypatch):
     log = []
     remember(show, log.append)
     assert "disk full" in log[0]
+
+
+def test_each_person_sharing_booth_has_their_own_history(tmp_path, cfg):
+    history.record(["101"], datetime(2026, 11, 5, tzinfo=UTC))
+    history.record(["202"], datetime(2026, 11, 6, tzinfo=UTC), person="p_ab12")
+    assert (cfg / "history-p_ab12.json").is_file()
+    assert history.load() == {"101": "2026-11-05T00:00:00Z"}
+    assert history.load("p_ab12") == {"202": "2026-11-06T00:00:00Z"}
+    assert [
+        t.get("last_in_show_at") for t in history.annotate(catalog("101", "202"), "p_ab12")["tracks"]
+    ] == [
+        None,
+        "2026-11-06T00:00:00Z",
+    ]

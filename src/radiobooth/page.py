@@ -92,9 +92,9 @@ body.off #off { display: block; }
 body.off main > section:not(#off) { display: none; }
 body.off .light { color: var(--chalk); border-color: var(--chalk); }
 #show-form { display: grid; gap: 12px; margin-top: 10px; }
-#show-form label { display: grid; gap: 6px; font: 12px/1.3 var(--label); letter-spacing: .1em;
+#show-form label, .people-share { display: grid; gap: 6px; font: 12px/1.3 var(--label); letter-spacing: .1em;
   text-transform: uppercase; color: var(--muted); }
-#show-form textarea, #show-form select, #show-form input { font: 16px/1.4 var(--text); padding: 10px 12px;
+#show-form textarea, #show-form select, #show-form input, .people-share select { font: 16px/1.4 var(--text); padding: 10px 12px;
   border-radius: 9px; border: 1px solid var(--line); background: var(--studio); color: var(--chalk);
   width: 100%; min-width: 0; text-transform: none; letter-spacing: normal; }
 #show-form textarea { min-height: 76px; resize: vertical; }
@@ -142,8 +142,9 @@ HTML = f"""<!doctype html>
   <section id="new-show" class="hidden">
     <p class="label">New show</p>
     <h2>What's the show?</h2>
-    <p class="muted hidden" id="allowance"></p>
     <form id="show-form">
+      <label for="who" class="hidden" id="who-row">Who's it for <select id="who"></select></label>
+      <p class="muted hidden" id="allowance"></p>
       <label for="prompt">Describe it
         <textarea id="prompt" required maxlength="2000" placeholder="Rainy drive home, something warm"></textarea>
       </label>
@@ -227,6 +228,22 @@ HTML = f"""<!doctype html>
         <p class="muted">Installs new versions when no show is on its way.</p></div>
       <label class="switch"><input type="checkbox" id="auto-update"><span></span></label>
     </div>
+    <div class="row" id="row-people">
+      <div><b>People</b>
+        <p class="muted" id="people-text"></p></div>
+      <button class="quiet" id="add-person">Add another person</button>
+    </div>
+    <ul class="shows hidden" id="people"></ul>
+    <div class="hidden" id="person-add">
+      <p class="muted">Share this Booth with someone who has their own Radio Booth account. On their phone,
+        signed in as them, they open their Booth page and tap <b>Get a pairing code</b>. Their shows come from
+        this computer's music and go into the same Plex, with their name at the start of each playlist.</p>
+      <form class="actions" id="person-form">
+        <input type="text" id="person-code" autocomplete="off" spellcheck="false" aria-label="Their pairing code"
+          placeholder="Their code">
+        <button type="submit" id="person-go">Add</button>
+      </form>
+    </div>
     <div class="row">
       <div><b>Change Booth's setup</b>
         <p class="muted">A different Plex server or music library, or a new pairing.</p></div>
@@ -264,6 +281,7 @@ const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
+let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false;
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -388,6 +406,81 @@ function render(s) {
     ? "Connected as " + JSON.stringify(s.account.name) + "."
     : "On your phone, open your Booth page and tap “Get a pairing code”. Type the code here.";
   show($("pair-form"), !pairDone || changing);
+
+  // People sharing this Booth, and whose show the form asks for
+  const people = s.account.people || [];
+  const own = s.account.account_name || "You";
+  $("people-text").textContent = people.length
+    ? "Booth makes shows for " + [own, ...people.map((p) => p.name)].join(", ") + "."
+    : "Booth makes shows for " + (s.account.account_name || "your account") + ". Someone else with their own Radio Booth account can use it too.";
+  if (people.length && !plexUsersAsked) {  // whom their playlists can be shared with, asked for once
+    plexUsersAsked = true;
+    fetch("/api/plex_users", {cache: "no-store"}).then((r) => r.json().then((d) => {
+      if (!r.ok) throw new Error(d.error || "Booth didn't answer.");
+      plexUsers = d.users;
+      peopleShown = "";
+      if (last) render(last);
+    })).catch((x) => {
+      error("settings-error", x.message);
+      setTimeout(() => { plexUsersAsked = false; }, 30000);  // ask again on a later refresh
+    });
+  }
+  const peopleKey = JSON.stringify([own, people, plexUsers]);
+  if (peopleKey !== peopleShown) {
+    peopleShown = peopleKey;
+    const ul = $("people");
+    ul.replaceChildren(...people.map((p) => {
+      const li = document.createElement("li");
+      const t = document.createElement("span");
+      t.className = "title";
+      t.textContent = p.name;
+      const st = document.createElement("span");
+      st.className = "st" + (p.unpaired ? " failed" : "");
+      st.textContent = p.unpaired ? "Their Booth account no longer knows this computer. Add them again with a new code."
+        : "Their playlists start with “" + p.name + ":”" +
+          (p.plex_user ? ". New ones are shared with " + p.plex_user.title + " in Plex." : ". They stay in your Plex.");
+      const share = document.createElement("label");
+      share.className = "people-share";
+      share.textContent = "Share their playlists in Plex with";
+      const pick = document.createElement("select");
+      const users = [...(plexUsers || [])];
+      if (p.plex_user && !users.some((u) => u.id === p.plex_user.id))  // not (or not yet) in the list
+        users.push({id: p.plex_user.id, title: p.plex_user.title + (plexUsers ? " (no longer in your Plex)" : "")});
+      pick.replaceChildren(new Option("Nobody (only in your Plex)", ""),
+        ...users.map((u) => new Option(u.title, String(u.id))));
+      pick.value = p.plex_user ? String(p.plex_user.id) : "";
+      pick.onchange = async () => {
+        error("settings-error", "");
+        pick.disabled = true;
+        try {
+          const {said} = await post("person_plex", {id: p.id, user: pick.value || null});
+          const before = p.plex_user ? " Playlists already shared with " + p.plex_user.title +
+            " stay shared; you can change that in Plex." : "";
+          if (said || before) error("settings-error", (said + before).trim());
+        } catch (x) { error("settings-error", x.message); }
+        pick.disabled = false;
+        refresh();
+      };
+      share.append(pick);
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.append(button("Remove", async () => {
+        if (!confirm("Stop making shows for " + p.name + " on this computer?")) return;
+        await post("remove_person", {id: p.id}).catch((x) => error("settings-error", x.message));
+        refresh();
+      }, true));
+      li.append(t, st, share, actions);
+      return li;
+    }));
+    show(ul, people.length > 0);
+    const who = $("who"), picked = who.value;
+    who.replaceChildren(new Option(own, ""), ...people.map((p) => new Option(p.name, p.id)));
+    who.value = picked;
+    if (who.selectedIndex < 0) { who.value = ""; whoChanged(); }
+    show($("who-row"), people.length > 0);
+  }
+  show($("person-add"), adding);
+  $("add-person").textContent = adding ? "Cancel" : "Add another person";
 
   // Settings
   show($("settings"), ready);
@@ -516,7 +609,8 @@ async function loadShows() {
   let wait = 30000;
   const ask = ++showsAsk;  // only the latest answer counts: an older one arriving late is dropped
   try {
-    const r = await fetch("/api/shows", {cache: "no-store"});
+    const who = $("who").value;
+    const r = await fetch("/api/shows" + (who ? "?who=" + encodeURIComponent(who) : ""), {cache: "no-store"});
     const data = await r.json().catch(() => ({}));
     if (ask !== showsAsk) return;
     if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
@@ -538,7 +632,32 @@ async function loadShows() {
   if (showsWanted) showsTimer = setTimeout(loadShows, wait);
 }
 
+function whoChanged() {
+  // Someone else's show time and shows: don't leave the last person's on view meanwhile.
+  showsAsk += 1;
+  renderShows([]);
+  $("allowance").textContent = "";
+  show($("allowance"), false);
+  loadShows();
+}
+
 function wire() {
+  $("who").onchange = whoChanged;
+  $("add-person").onclick = () => { adding = !adding; error("settings-error", ""); if (last) render(last); };
+  $("person-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    error("settings-error", "");
+    $("person-go").disabled = true;
+    try {
+      const {name} = await post("add_person", {code: $("person-code").value});
+      $("person-code").value = "";
+      adding = false;
+      $("show-ok").textContent = "Booth makes shows for " + name + " too now.";
+      show($("show-ok"), true);
+    } catch (x) { error("settings-error", x.message); }
+    $("person-go").disabled = false;
+    refresh();
+  };
   $("show-form").onsubmit = async (ev) => {
     ev.preventDefault();
     error("show-error", "");
@@ -547,7 +666,7 @@ function wire() {
     $("make").disabled = true;
     try {
       await post("new_show", {
-        prompt: $("prompt").value, minutes: Number($("minutes").value), dj: $("dj").value,
+        who: $("who").value, prompt: $("prompt").value, minutes: Number($("minutes").value), dj: $("dj").value,
         voice: $("voice").value, dj_name: $("dj-name").value, station: $("station").value,
       });
       $("prompt").value = "";

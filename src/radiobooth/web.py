@@ -28,9 +28,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from radiobooth import __version__, autostart, config, engine, page, update
+from radiobooth import __version__, autostart, config, engine, history, page, plexshare, update
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
+from radiobooth.sources.plex import PlexClient, PlexError
 from radiobooth.websetup import WebSetup, plex_ready
 
 HOST = "127.0.0.1"
@@ -136,6 +137,7 @@ class App:
 
     def state(self) -> dict:
         settings = config.load()
+        unpaired = self.engine.unpaired
         return {
             "version": __version__,
             "platform": self.platform,
@@ -145,7 +147,20 @@ class App:
                 "url": settings.get("plex_url"),
                 "breaks_dir": settings.get("breaks_dir"),
             },
-            "account": {"paired": bool(settings.get("device_token")), "name": settings.get("name")},
+            "account": {
+                "paired": bool(settings.get("device_token")),
+                "name": settings.get("name"),
+                "account_name": settings.get("account_name"),
+                "people": [
+                    {
+                        "id": p["id"],
+                        "name": p["name"],
+                        "unpaired": p["id"] in unpaired,
+                        "plex_user": p.get("plex_user"),
+                    }
+                    for p in config.people(settings)
+                ],
+            },
             "server": self.server(),
             "setup": self.setup.state(),
             "engine": self.engine.status(),
@@ -157,20 +172,33 @@ class App:
             "restarting": self.restarting,
         }
 
-    def _link(self, settings: dict | None = None) -> Link:
+    def _link(self, settings: dict | None = None, who: str | None = None) -> Link:
+        """The link for this computer's own account, or (`who`) for another person sharing it."""
         settings = settings or config.load()
         token = settings.get("device_token")
         if not token:
             raise SetupError("Connect Booth to your account first.")
+        if who:
+            person = next((p for p in config.people(settings) if p["id"] == who), None)
+            if person is None:
+                raise SetupError("Booth doesn't make shows for that person any more. Reload this page.")
+            token = person["device_token"]
         try:
             # The server it paired with and checks in with, never another one the token would mean nothing to.
             return Link(settings.get("server") or self.server(), token, timeout=30)
         except LinkError as e:
             raise SetupError(str(e)) from None
 
-    def _said(self, e: LinkError, asked: bool = False) -> SetupError:
-        """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show)."""
+    def _said(self, e: LinkError, asked: bool = False, who: str | None = None) -> SetupError:
+        """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show; `who`:
+        for another person sharing this Booth)."""
         said = str(e).removeprefix("Booth DJ: ")
+        if who and e.status == 401:
+            name = next((p["name"] for p in config.people(config.load()) if p["id"] == who), "Their")
+            return SetupError(
+                f"{name}'s Booth account no longer knows this computer. Add them again in Settings with a new"
+                " code from their phone."
+            )
         if asked and (e.network or e.status is None or e.status >= 500):
             # It may have got there and the answer was lost or garbled: don't ask for the same show twice.
             return SetupError("Radio Booth didn't answer. Check the list below before asking again.")
@@ -186,23 +214,29 @@ class App:
             return SetupError("Radio Booth is having trouble right now. Try again in a moment.")
         return SetupError(said)
 
-    def shows(self) -> dict:
-        """For the page's New show section: the DJs and voices, show time left, and the latest shows."""
+    def shows(self, who: str | None = None) -> dict:
+        """For the page's New show section: the DJs and voices, show time left, and the latest shows, for this
+        computer's own account or (`who`) another person sharing it."""
         paired = self._paired  # before the settings: a pairing saved after this makes the roster stale
         settings = config.load()
-        link = self._link(settings)
+        link = self._link(settings, who)
         try:
             if not self._roster or time.monotonic() - self._roster[0] > ROSTER_S:
-                roster = link.get("/v0/me").get("roster")
+                me = link.get("/v0/me")
+                roster = me.get("roster")
                 if not isinstance(roster, dict) or not roster.get("djs"):
                     raise LinkError("Booth DJ sent no DJs to pick from.")
                 if paired == self._paired:
                     self._roster = (time.monotonic(), roster)
+                name = me.get("name")
+                if not who and isinstance(name, str) and name and name != settings.get("account_name"):
+                    with contextlib.suppress(OSError):  # whose Booth this is, for the page's People list
+                        config.update({"account_name": name})
             else:
                 roster = self._roster[1]
             listed = link.get("/v0/shows")
         except LinkError as e:
-            raise self._said(e) from None
+            raise self._said(e, who=who) from None
         shows = listed.get("shows")
         return {
             "roster": roster,
@@ -216,7 +250,9 @@ class App:
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
             raise SetupError("Say what the show is about.")
-        link = self._link()
+        who = body.get("who")
+        who = who if isinstance(who, str) and who else None
+        link = self._link(who=who)
         if self.engine.state != engine.ON_AIR:
             # A show asked for here is made from this computer's music and delivered here, so it waits for
             # this Booth; asked for while it can't make one, it would hold up the shows asked for after it.
@@ -225,10 +261,129 @@ class App:
         try:
             made = link.ask({"prompt": prompt, **choices})
         except LinkError as e:
-            raise self._said(e, asked=True) from None
+            raise self._said(e, asked=True, who=who) from None
         with contextlib.suppress(OSError):  # the show is asked for; not remembering choices is no failure
             config.update({"show_choices": choices})
         return {"show_id": made.get("show_id")}
+
+    def _account_name(self, link: Link) -> str | None:
+        try:
+            name = link.get("/v0/me").get("name")
+        except LinkError:
+            return None
+        return (name.strip()[:60] or None) if isinstance(name, str) else None
+
+    def add_person(self, code: str) -> dict:
+        """Connect another person's Booth account to this computer too, with a pairing code from their phone.
+        Their shows are made from the same music and go into the same Plex, with their name before each
+        playlist's title."""
+        code = code.strip()
+        if not code:
+            raise SetupError("Type the code from their phone first.")
+        settings = config.load()
+        main = self._link(settings)
+        try:
+            # Under a name of its own, so a code from this computer's own account by mistake can't take this
+            # computer's unfinished shows over (Radio Booth hands those to a computer paired again under the
+            # same name), while the same person added again does get theirs back.
+            computer = settings.get("name") or self.setup._name
+            token = Link(main.server).redeem(code, f"{computer} (shared)")
+        except LinkError as e:
+            if e.status == 404:
+                raise SetupError(
+                    "That code didn't work. Codes last 10 minutes and work once; get a new one and try again."
+                ) from None
+            raise self._said(e) from None
+        name = self._account_name(Link(main.server, token, timeout=30))
+        if not name:
+            raise SetupError(
+                "Radio Booth took the code but didn't say whose account it is. Get a new code and try again."
+            )
+        own = self._account_name(main)
+        if own and own != settings.get("account_name"):
+            config.update({"account_name": own})
+        if name == (own or settings.get("account_name")):
+            # Most likely a code from the account Booth already makes shows for. Radio Booth has no account id
+            # to tell, so nothing changes rather than risk mixing two accounts up.
+            raise SetupError(
+                f"That code is from an account named {name}, like the one Booth already makes shows for. To"
+                " add someone else, get the code on their phone while they're signed in to their own account."
+                " (Booth tells accounts apart by name, so two with the same name can't share it.)"
+            )
+        unpaired = self.engine.unpaired
+
+        def change(people: list[dict]) -> list[dict]:
+            again = next((p for p in people if p["name"] == name and p["id"] in unpaired), None)
+            if again:  # them again, after their Booth account forgot this computer: their history carries on
+                return [p | {"device_token": token} if p is again else p for p in people]
+            person = {
+                "id": config.new_person_id(),
+                "device_token": token,
+                "name": name,
+                "server": main.server,
+            }
+            return [*people, person]
+
+        config.change_people(change)
+        self.engine.start()
+        return {"name": name}
+
+    def _plex(self) -> tuple[str, str]:
+        """The owner's Plex sign-in and the breaks library's name."""
+        found, missing = engine.delivery_settings(config.load())
+        if missing:
+            raise SetupError("Set up Plex first.")
+        return found["token"], found["library"]
+
+    def plex_users(self) -> dict:
+        """The Plex users a person's playlists can be shared with (plex.tv only: the server can be asleep)."""
+        token, _ = self._plex()
+        try:
+            return {"users": plexshare.users(token, config.plex_client_id())}
+        except PlexError as e:
+            raise SetupError(f"Booth couldn't get your Plex users ({e}).") from None
+
+    def person_plex(self, who: str, user_id) -> dict:
+        """Share this person's playlists with a Plex user from now on (None: nobody; they stay in yours)."""
+        if not any(p["id"] == who for p in config.people(config.load())):
+            raise SetupError("Booth doesn't make shows for that person any more.")
+        user, said = None, ""
+        if user_id not in (None, ""):
+            token, library = self._plex()
+            found, _ = engine.delivery_settings(config.load())
+            client_id = config.plex_client_id()
+            try:
+                identity = PlexClient(found["url"], token, timeout=15).get("/identity")
+                machine = identity["MediaContainer"]["machineIdentifier"]
+                user = next(
+                    (u for u in plexshare.users(token, client_id) if str(u["id"]) == str(user_id)), None
+                )
+                if user is None:
+                    raise SetupError("That Plex user isn't one of yours any more. Reload this page.")
+                sees = plexshare.sees_library(token, client_id, machine, user["id"], library)
+            except (PlexError, KeyError, TypeError) as e:
+                raise SetupError(f"Booth couldn't check that Plex user ({e}).") from None
+            if sees is False:
+                said = (
+                    f"Your Plex server doesn't share the {library!r} library with {user['title']}, so the"
+                    " DJ's breaks won't play for them. In Plex, add it to the libraries they can see."
+                )
+            user = {"id": user["id"], "title": user["title"]}
+
+        def change(people: list[dict]) -> list[dict]:
+            return [p | {"plex_user": user} if p["id"] == who else p for p in people]
+
+        config.change_people(change)
+        self.engine.start()
+        return {"said": said}
+
+    def remove_person(self, who: str) -> None:
+        if not any(p["id"] == who for p in config.people(config.load())):
+            raise SetupError("Booth doesn't make shows for that person any more.")
+        config.change_people(lambda people: [p for p in people if p["id"] != who])
+        with contextlib.suppress(OSError):  # their show history goes with them
+            history.path(who).unlink(missing_ok=True)
+        self.engine.start()
 
     def act(self, action: str, body: dict) -> dict:
         """What a button on the page asks for. SetupError: something to tell the person."""
@@ -242,6 +397,12 @@ class App:
             self.setup.use_folder(str(body.get("path", "")))
         elif action == "new_show":
             return self.new_show(body)
+        elif action == "add_person":
+            return self.add_person(str(body.get("code", "")))
+        elif action == "person_plex":
+            return self.person_plex(str(body.get("id", "")), body.get("user"))
+        elif action == "remove_person":
+            self.remove_person(str(body.get("id", "")))
         elif action == "pair":
             return {"name": self.setup.pair(str(body.get("code", "")))}
         elif action == "autostart":
@@ -326,9 +487,17 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                 return self._send(200, page.SCRIPT.encode(), "text/javascript; charset=utf-8")
             if path == "/api/state":
                 return self._json(200, app.state())
-            if path == "/api/shows":
+            if path == "/api/plex_users":
                 try:
-                    return self._json(200, app.shows())
+                    return self._json(200, app.plex_users())
+                except SetupError as e:
+                    return self._json(422, {"error": str(e)})
+                except Exception as e:  # noqa: BLE001 - say what on the page
+                    return self._json(500, {"error": f"Something went wrong: {e}"})
+            if path == "/api/shows":
+                who = next((v for k, _, v in (p.partition("=") for p in query.split("&")) if k == "who"), "")
+                try:
+                    return self._json(200, app.shows(who or None))
                 except SetupError as e:
                     return self._json(422, {"error": str(e)})
                 except Exception as e:  # noqa: BLE001 - say what on the page

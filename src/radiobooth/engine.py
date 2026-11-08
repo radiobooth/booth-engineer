@@ -17,9 +17,9 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
-from radiobooth import config, history
+from radiobooth import config, history, plexshare
 from radiobooth.link import Link, LinkError, Station
-from radiobooth.link import run as run_link
+from radiobooth.link import run_all as run_desks
 from radiobooth.sources import plex as plex_source
 from radiobooth.sources.plex import PlexAuthError, PlexClient
 from radiobooth.targets import plex as plex_target
@@ -47,10 +47,11 @@ def delivery_settings(settings: dict) -> tuple[dict, list[str]]:
     return found, [names[k] for k, v in found.items() if not v]
 
 
-def remember(show_dir: Path, log: Callable[[str], None]) -> None:
+def remember(show_dir: Path, log: Callable[[str], None], person: str | None = None) -> None:
     """Note a delivered show's tracks so later shows skip them. Never fails the delivery."""
     try:
-        history.record_package(json.loads((show_dir / "show.json").read_text(encoding="utf-8")))
+        package = json.loads((show_dir / "show.json").read_text(encoding="utf-8"))
+        history.record_package(package, person=person)
     except Exception as e:
         log(f"Couldn't update the show history ({e}); later shows may repeat these tracks.")
 
@@ -62,8 +63,14 @@ def station(
     on_plex_refused: Callable[[], None] | None = None,
     busy: Callable[[bool], None] | None = None,
     on_delivered: Callable[[str], None] | None = None,
+    person: dict | None = None,
 ) -> Station:
-    """The link loop's view of this machine, from saved settings (and the environment, which wins)."""
+    """The link loop's view of this machine, from saved settings (and the environment, which wins).
+    `person`: another person sharing this Booth (see config.people), with their own show history and their
+    name before their playlists' titles; their shows go into the same Plex, with this computer's sign-in."""
+    who = person["id"] if person else None
+    prefix = f"{person['name']}: " if person else ""
+    share_with = person.get("plex_user") if person else None
     found, _ = delivery_settings(settings)
     plex = PlexClient(found["url"], found["token"])
     library, dest = found["library"], Path(found["dest"])
@@ -97,7 +104,7 @@ def station(
         mark(True)
         try:
             return history.annotate(
-                signed_in(lambda: plex_source.build_catalog(plex, music, exclude=library)[0])
+                signed_in(lambda: plex_source.build_catalog(plex, music, exclude=library)[0]), who
             )
         finally:
             mark(False)
@@ -105,15 +112,55 @@ def station(
     def deliver_show(show_dir: Path) -> str:
         mark(True)
         try:
-            title = signed_in(lambda: plex_target.deliver(plex, show_dir, library, dest)).title
-            remember(show_dir, log)
+            done = signed_in(lambda: plex_target.deliver(plex, show_dir, library, dest, prefix=prefix))
+            title = done.title
+            remember(show_dir, log, who)
+            if share_with:
+                share(done, share_with)
             if on_delivered:
                 on_delivered(title)
             return title
         finally:
             mark(False)
 
+    def share(done, user: dict) -> None:
+        """Share a person's new playlist with their Plex user. The show is in Plex either way, so a problem
+        here is logged, not a failed delivery."""
+        try:
+            client_id = config.plex_client_id()
+            plexshare.share_playlist(
+                plex.token, client_id, done.machine, done.playlist_key, done.title, user["id"]
+            )
+            log(f"Shared {done.title!r} with {user.get('title')!r} in Plex.")
+        except Exception as e:
+            log(
+                f"Couldn't share {done.title!r} with {user.get('title')!r} in Plex ({e})."
+                " Grant them access to it in Plex Web."
+            )
+
     return Station(catalog=catalog, deliver=deliver_show, log=log)
+
+
+def desks(
+    settings: dict,
+    log: Callable[[str], None],
+    link_for: Callable[[str, str], Link],
+    skip: set[str] = frozenset(),
+    **station_args,
+) -> tuple[list[tuple[Link, Station]], list[dict]]:
+    """What `run_desks` checks in for: this computer's own Booth account first, then each other person
+    sharing it (and the list of those people, in the same order), less those in `skip` (already known to be
+    forgotten by their Booth account)."""
+    people = [p for p in config.people(settings) if p["id"] not in skip]
+    server = settings["server"]
+    out = [(link_for(server, settings["device_token"]), station(settings, log, **station_args))]
+    for p in people:
+
+        def said(msg: str, name: str = p["name"]) -> None:
+            log(f"{name}: {msg}")
+
+        out.append((link_for(server, p["device_token"]), station(settings, said, person=p, **station_args)))
+    return out, people
 
 
 # What the Booth page says about the engine.
@@ -162,6 +209,7 @@ class Engine:
         self.state = NOT_SET_UP
         self.last_checkin: float | None = None
         self.last_show: dict | None = None
+        self.unpaired: set[str] = set()  # people sharing this Booth whose accounts no longer know it
 
     # What the page reads
 
@@ -182,6 +230,7 @@ class Engine:
             "busy": self.busy,
             "last_checkin": self.last_checkin,
             "last_show": self.last_show,
+            "unpaired": sorted(self.unpaired),
             "log": list(self.lines)[-40:],
         }
 
@@ -194,6 +243,7 @@ class Engine:
             previous = self._thread
             self._stop.set()
             self.state = STARTING  # settings may have changed (signed in again, paired again): look afresh
+            self.unpaired = set()
             self._stop = threading.Event()
             self._thread = threading.Thread(
                 target=self._loop, args=(self._stop, previous), name="booth-engine", daemon=True
@@ -251,24 +301,36 @@ class Engine:
             if self.state != NEEDS_PLEX:
                 self.state = STARTING
             try:
-                st = station(
+                found_desks, people = desks(
                     settings,
                     self.log,
+                    lambda server, token: _WatchedLink(server, token, self._checked_in),
+                    skip=set(self.unpaired),
                     on_plex_refused=self._plex_refused,
                     busy=self._mark,
                     on_delivered=self._delivered,
                 )
-                original_log = st.log
+                for _, st in found_desks:
+                    original_log = st.log
 
-                def logged(msg: str, _log=original_log) -> None:
-                    _log(msg)
-                    if msg.startswith("Could not reach Booth DJ"):
-                        self.state = OFFLINE
+                    def logged(msg: str, _log=original_log) -> None:
+                        _log(msg)
+                        if msg.startswith("Could not reach Booth DJ"):
+                            self.state = OFFLINE
 
-                st.log = logged
-                link = _WatchedLink(settings["server"], settings["device_token"], self._checked_in)
+                    st.log = logged
+
+                def unpaired(i: int, people: list[dict] = people) -> None:
+                    person = people[i - 1]
+                    self.unpaired.add(person["id"])
+                    name = person["name"]
+                    self.log(f"{name}'s Booth account no longer knows this computer: add them again.")
+
                 self.log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
-                run_link(link, st, sleep=sleep)
+                if people:
+                    names = ", ".join(p["name"] for p in people)
+                    self.log(f"Also making shows for {names}.")
+                run_desks(found_desks, sleep=sleep, unpaired=unpaired)
             except _Stopped:
                 break
             except LinkError as e:

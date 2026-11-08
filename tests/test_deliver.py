@@ -149,3 +149,11 @@ def test_package_fields_cannot_steer_paths(tmp_path):
     (show / "show.json").write_text(json.dumps(data))
     with pytest.raises(PlexError, match="outside the show folder"):
         target.load_package(show)
+
+
+def test_a_shared_booth_puts_whose_show_it_is_first(tmp_path):
+    show, dest, plex = make_show(tmp_path), tmp_path / "nas", FakePlex()
+    dest.mkdir()
+    result = target.deliver(plex, show, "Radio Booth", dest, sleep=lambda s: None, prefix="Jennifer: ")
+    assert plex.calls[-1][2]["title"] == "Jennifer: Wipers On, Long Way Home"
+    assert result.title == "Jennifer: Wipers On, Long Way Home"

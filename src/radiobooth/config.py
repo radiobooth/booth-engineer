@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import secrets
 import tempfile
 import threading
+import uuid
 from pathlib import Path
 
 _changing = threading.Lock()
@@ -57,3 +60,57 @@ def update(changes: dict) -> dict:
         settings = load() | changes
         save(settings)
         return settings
+
+
+def plex_client_id() -> str:
+    """This install's id for plex.tv (X-Plex-Client-Identifier), made and saved the first time it's needed,
+    so plex.tv sees one device, not a new one each call."""
+    with _changing:
+        settings = load()
+        if not settings.get("plex_client_id"):
+            settings["plex_client_id"] = f"radiobooth-{uuid.uuid4()}"
+            save(settings)
+        return settings["plex_client_id"]
+
+
+def _plex_user(value) -> dict | None:
+    if isinstance(value, dict) and type(value.get("id")) is int and isinstance(value.get("title"), str):
+        return {"id": value["id"], "title": value["title"]}
+    return None
+
+
+def people(settings: dict) -> list[dict]:
+    """The other Booth accounts sharing this computer ("Add another person" on Booth's page), each
+    {"id", "device_token", "name", "server"}. This computer's own account is `device_token`, as always.
+    Only those paired with the Booth DJ this computer checks in with now: a token goes to no other server."""
+    found = settings.get("people")
+    if not isinstance(found, list):
+        return []
+    server = str(settings.get("server") or "").rstrip("/")
+    return [
+        p
+        | {
+            "name": p.get("name") if isinstance(p.get("name"), str) and p.get("name") else "Guest",
+            "plex_user": _plex_user(p.get("plex_user")),
+        }
+        for p in found
+        if isinstance(p, dict)
+        and isinstance(p.get("device_token"), str)
+        and p["device_token"]
+        and isinstance(p.get("id"), str)
+        and re.fullmatch(r"p_[a-z0-9]{1,32}", p["id"])
+        and str(p.get("server") or "").rstrip("/") == server
+    ]
+
+
+def new_person_id() -> str:
+    return f"p_{secrets.token_hex(4)}"
+
+
+def change_people(change) -> list[dict]:
+    """Save `change(people)`'s list of people, with the same one-at-a-time care as `update`."""
+    with _changing:
+        settings = load()
+        settings["people"] = change(people(settings))  # people of another server are dropped
+        save(settings)
+        return settings["people"]

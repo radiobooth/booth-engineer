@@ -202,7 +202,7 @@ def pair(args: argparse.Namespace) -> int:
 def run(args: argparse.Namespace) -> int:
     from radiobooth import config, engine
     from radiobooth.link import Link, LinkError
-    from radiobooth.link import run as run_link
+    from radiobooth.link import run_all as run_desks
 
     settings = config.load()
     if not settings.get("device_token"):
@@ -223,10 +223,14 @@ def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return ALREADY_RUNNING
-    station = engine.station(settings, log, music=args.library)
+    desks, people = engine.desks(settings, log, Link, music=args.library)
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
+
+    def unpaired(i: int) -> None:
+        log(f"{people[i - 1]['name']}'s Booth account no longer knows this computer.")
+
     try:
-        run_link(Link(settings["server"], settings["device_token"]), station, once=args.once)
+        run_desks(desks, once=args.once, unpaired=unpaired)
     except LinkError as e:
         hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
         print(f"booth run: {e}.{hint}", file=sys.stderr)

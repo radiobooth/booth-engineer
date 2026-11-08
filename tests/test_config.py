@@ -19,3 +19,30 @@ def test_other_saved_addresses_stay_put(monkeypatch, tmp_path):
 
 def test_old_addresses_move_to_the_default():
     assert set(config.MOVED.values()) == {cli.DEFAULT_SERVER}
+
+
+def test_plex_client_id_is_made_once(tmp_path, monkeypatch):
+    from radiobooth import config
+
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    first = config.plex_client_id()
+    assert first.startswith("radiobooth-") and config.plex_client_id() == first
+    assert config.load()["plex_client_id"] == first
+
+
+def test_people_with_an_odd_plex_user_share_with_nobody(tmp_path, monkeypatch):
+    from radiobooth import config
+
+    settings = {
+        "server": "https://booth.example",
+        "people": [
+            {"id": "p_a", "device_token": "a", "server": "https://booth.example", "plex_user": 3427736},
+            {
+                "id": "p_b",
+                "device_token": "b",
+                "server": "https://booth.example",
+                "plex_user": {"id": 5, "title": "j"},
+            },
+        ],
+    }
+    assert [p["plex_user"] for p in config.people(settings)] == [None, {"id": 5, "title": "j"}]
