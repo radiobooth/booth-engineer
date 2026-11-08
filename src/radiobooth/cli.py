@@ -265,7 +265,12 @@ def setup(args: argparse.Namespace) -> int:
 
 
 def app(args: argparse.Namespace) -> int:
-    from radiobooth import web
+    from radiobooth import update, web
+
+    if update.started_by_old_update(sys.argv):
+        # Running on the old version's unpacked files, which vanish once it exits: start again, afresh.
+        update.relaunch()
+        return 0
 
     return web.main(args.name, background=args.background, wait=args.wait)
 
@@ -345,7 +350,9 @@ def windows_home(platform: str = sys.platform, popen=None) -> int | None:
         target = autostart.keep_app([sys.executable], Path.home(), platform)[0]
     except OSError:
         return None
-    (popen or subprocess.Popen)([target], close_fds=True)
+    from radiobooth import update
+
+    (popen or subprocess.Popen)([target], close_fds=True, env=update.fresh_env())
     return 0
 
 

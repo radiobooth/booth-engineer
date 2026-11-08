@@ -141,9 +141,27 @@ def test_restarting_starts_the_new_version_in_the_background(monkeypatch, tmp_pa
     ((args, kwargs),) = started
     assert args == [r"C:\Radio Booth\RadioBooth.exe", "app", "--background", "--wait"]
     assert kwargs["creationflags"]
+    # Its own unpacked files, not the old version's (which go when the old version exits).
+    assert kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1" and kwargs["env"][update.FRESH] == "1"
 
     ran = []
     monkeypatch.setenv("XPC_SERVICE_NAME", "com.radiobooth.engineer")
     monkeypatch.setattr(update.os, "getuid", lambda: 501, raising=False)
     update.relaunch("darwin", popen=pytest.fail, run=lambda args: ran.append(args))
     assert ran == [["launchctl", "kickstart", "-k", "gui/501/com.radiobooth.engineer"]]
+
+
+def test_a_version_started_by_an_older_update_starts_again_afresh(monkeypatch):
+    from radiobooth import cli
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.delenv(update.FRESH, raising=False)
+    argv = ["RadioBooth.exe", "app", "--background", "--wait"]
+    assert update.started_by_old_update(argv)
+    assert not update.started_by_old_update(["RadioBooth.exe", "app", "--background"])  # sign-in start
+    relaunched = []
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(update, "relaunch", lambda *a, **k: relaunched.append(1))
+    assert cli.app(cli.build_parser().parse_args(argv[1:])) == 0 and relaunched == [1]
+    monkeypatch.setenv(update.FRESH, "1")  # started by relaunch() from now on: carries on
+    assert not update.started_by_old_update(argv)

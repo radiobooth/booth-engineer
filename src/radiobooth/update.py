@@ -179,12 +179,28 @@ def restart_command(platform: str = sys.platform, exe: str | None = None) -> lis
     return [exe, "app", "--background", "--wait"]
 
 
+# Set when this app starts itself the way relaunch() does from 0.2.2 on.
+FRESH = "BOOTH_FRESH_START"
+
+
+def fresh_env() -> dict:
+    """The environment for starting Booth's app from Booth's app. A one-file app started by itself (same path)
+    otherwise reuses the starting process's unpacked files, and those are deleted as that process exits:
+    the new one then fails as soon as it loads anything more ("No such file ... base_library.zip")."""
+    return {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1", FRESH: "1"}
+
+
+def started_by_old_update(argv: list[str]) -> bool:
+    """Started by an update from a version whose relaunch() didn't use fresh_env() (0.2.1 and before)."""
+    return bool(getattr(sys, "frozen", False)) and "--wait" in argv and os.environ.get(FRESH) != "1"
+
+
 def relaunch(platform: str = sys.platform, popen=subprocess.Popen, run=subprocess.run) -> None:
     """Start the new version; the caller then exits. Under launchd, launchd restarts Booth itself."""
     if platform == "darwin" and os.environ.get("XPC_SERVICE_NAME") == macapp.BUNDLE_ID:
         run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{macapp.BUNDLE_ID}"])
         return
-    kwargs: dict = {"close_fds": True}
+    kwargs: dict = {"close_fds": True, "env": fresh_env()}
     if platform == "win32":
         kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     else:
