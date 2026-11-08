@@ -107,6 +107,7 @@ class App:
         self.quit = threading.Event()
         self.restarting = False
         self._roster: tuple[float, dict] | None = None
+        self._paired = 0  # counts pairings, so a roster from before the latest one isn't kept
 
     def server(self) -> str:
         from radiobooth.cli import DEFAULT_SERVER
@@ -115,6 +116,7 @@ class App:
 
     def _saved(self) -> None:
         self._roster = None  # paired again, maybe with another Radio Booth: ask it for its DJs
+        self._paired += 1
         settings = config.load()
         if plex_ready(settings) and settings.get("device_token"):
             if not settings.get("set_up_once"):
@@ -169,7 +171,8 @@ class App:
     def _said(self, e: LinkError, asked: bool = False) -> SetupError:
         """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show)."""
         said = str(e).removeprefix("Booth DJ: ")
-        if e.network and asked:  # it may have got there before the answer was lost: don't ask twice
+        if asked and (e.network or e.status is None or e.status >= 500):
+            # It may have got there and the answer was lost or garbled: don't ask for the same show twice.
             return SetupError("Radio Booth didn't answer. Check the list below before asking again.")
         if e.network:
             return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
@@ -186,13 +189,14 @@ class App:
     def shows(self) -> dict:
         """For the page's New show section: the DJs and voices, show time left, and the latest shows."""
         settings = config.load()
-        link = self._link(settings)
+        link, paired = self._link(settings), self._paired
         try:
             if not self._roster or time.monotonic() - self._roster[0] > ROSTER_S:
                 roster = link.get("/v0/me").get("roster")
                 if not isinstance(roster, dict) or not roster.get("djs"):
                     raise LinkError("Booth DJ sent no DJs to pick from.")
-                self._roster = (time.monotonic(), roster)
+                if paired == self._paired:
+                    self._roster = (time.monotonic(), roster)
             else:
                 roster = self._roster[1]
             listed = link.get("/v0/shows")

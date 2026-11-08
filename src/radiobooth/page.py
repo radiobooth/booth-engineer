@@ -525,8 +525,10 @@ async function loadShows() {
     renderAllowance(data.allowance, first);
     if (first && last) render(last);  // the button waits for the DJs and voices
     renderShows(data.shows);
-    // Quicker while this computer has a show on its way (another computer's can wait an hour).
-    if (data.shows.some((s) => ["queued", "making", "ready"].includes(s.status) && !s.for_computer)) wait = 5000;
+    // Quicker while a show asked for in the last hour is on its way, unless another computer makes it.
+    const soon = (s) => ["queued", "making", "ready"].includes(s.status) && !s.for_computer &&
+      Date.now() - Date.parse(s.created_at) < 3600000;
+    if (data.shows.some(soon)) wait = 5000;
     error("shows-error", "");
   } catch (x) {
     if (ask !== showsAsk) return;
@@ -578,6 +580,9 @@ function wire() {
       await post("pair", {code: $("pair-code").value});
       $("pair-code").value = "";
       changing = false;
+      rosterShown = "";  // maybe another account or Radio Booth: start the New show section afresh
+      renderShows([]);
+      loadShows();
     } catch (x) { error("pair-error", x.message); }
     $("pair-go").disabled = false;
     refresh();
