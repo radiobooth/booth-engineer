@@ -618,8 +618,11 @@ function fillRoster(roster, saved) {
 
 function renderAllowance(a, pick) {
   const sel = $("minutes");
+  // The longest show that fits the person's shows and show time (null: any). A Radio Booth from before
+  // plans sends only the day and week show time.
   let left = Infinity;
-  for (const k of ["day", "week"]) if (a && a[k]) left = Math.min(left, a[k].left);
+  if (a && "most_minutes" in a) left = a.most_minutes ?? Infinity;
+  else for (const k of ["day", "week"]) if (a && a[k]) left = Math.min(left, a[k].left);
   $("allowance").textContent = (a && a.text) || "";
   show($("allowance"), !!(a && a.text));
   // Lengths that don't fit stay visible but can't be picked; Radio Booth says why if one is sent anyway.
