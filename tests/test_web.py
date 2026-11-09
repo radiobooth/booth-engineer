@@ -59,6 +59,16 @@ def act(port, key, action, body=None):
     return status, json.loads(data)
 
 
+def test_state_has_the_phone_page_qr_code(booth, monkeypatch):
+    app, port, key, link = booth
+    monkeypatch.setenv("BOOTH_SERVER", "https://my.radiobooth.fm")
+    status, _, body = call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})
+    data = json.loads(body)
+    assert data["server"] == "https://my.radiobooth.fm"
+    assert data["phone_qr"] == web.phone_qr("https://my.radiobooth.fm")
+    assert data["phone_qr"].startswith("data:image/svg+xml;base64,")
+
+
 def test_the_link_the_app_opens_lets_the_browser_in(booth):
     app, port, key, link = booth
     assert link == f"http://127.0.0.1:{port}/?k={key}"
