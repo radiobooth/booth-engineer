@@ -2,17 +2,55 @@ name: Release
 
 # Builds the double-click apps testers download: RadioBooth-Windows.exe, and Radio Booth.app for macOS (one
 # app for Apple silicon and Intel: Booth is built on an arm64 and an Intel runner, then put together).
-# Push a tag like v0.1.0 to publish them on a GitHub release; run it by hand to just build them.
+# Two ways to publish them on a GitHub release: push a tag like v0.1.0, or run this workflow by hand on main
+# with "release" set to the version in pyproject.toml (the workflow then makes the tag itself). Run it by hand
+# with "release" empty to just build them.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Version to release, e.g. 0.2.4 (must match pyproject.toml). Leave empty to just build."
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
+  # Works out which release this run publishes, if any, and refuses a version that doesn't match the code.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - id: tag
+        env:
+          REQUESTED: ${{ inputs.release }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)
+          tag=""
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          elif [ -n "$REQUESTED" ]; then
+            if [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error::Releases are made from main, not $GITHUB_REF_NAME"; exit 1
+            fi
+            tag="v${REQUESTED#v}"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              echo "::error::$tag already exists"; exit 1
+            fi
+          fi
+          if [ -n "$tag" ] && [ "$tag" != "v$version" ]; then
+            echo "::error::$tag doesn't match pyproject.toml's version $version"; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release: ${tag:-none (build only)}"
+
   build:
+    needs: version
     strategy:
       matrix:
         include:
@@ -91,8 +129,8 @@ jobs:
           path: dist/RadioBooth-macOS.zip
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, mac-app]
+    if: needs.version.outputs.tag != ''
+    needs: [version, build, mac-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write  # only this job publishes the release
@@ -104,10 +142,13 @@ jobs:
           merge-multiple: true
       # The apps update themselves only to files that match these checksums.
       - run: cd dist && sha256sum RadioBooth-* > SHA256SUMS && cat SHA256SUMS
+      # On a run started by hand this also makes the tag, on the commit that was built. (A tag made with
+      # this token doesn't start the workflow again.)
       - run: >-
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
-          --title "Radio Booth $GITHUB_REF_NAME"
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+          --title "Radio Booth $TAG"
           --notes "Download the file for your computer. Setup steps:
           https://github.com/$GITHUB_REPOSITORY/blob/main/docs/getting-started.md"
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
