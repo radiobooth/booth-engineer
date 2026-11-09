@@ -107,6 +107,13 @@ body.off .light { color: var(--chalk); border-color: var(--chalk); }
 .shows .st { font-size: 14px; }
 .shows .st.delivered { color: #b9dccf; }
 .shows .st.failed, .shows .st.expired { color: #ffb4a3; }
+.phone { position: relative; display: inline-block; }
+.phone .qr { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); z-index: 2;
+  width: 172px; padding: 10px; border-radius: 12px; background: var(--chalk); color: var(--studio);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45); text-align: center; font: 12px/1.3 var(--text);
+  opacity: 0; visibility: hidden; transition: opacity .15s, visibility .15s; }
+.phone .qr img { display: block; width: 152px; height: 152px; margin-bottom: 6px; image-rendering: pixelated; }
+.phone:hover .qr, .phone:focus-within .qr, .phone.open .qr { opacity: 1; visibility: visible; }
 footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
 """
 
@@ -317,8 +324,53 @@ function error(id, message) {
   show($(id), !!message);
 }
 
+// "{phone}" in a status line: "on your phone", linked to the phone page, with its QR code on hover or focus
+// (a tap toggles it too), so it's easy to open there.
+function setText(el, text, s) {
+  const [before, after] = text.split("{phone}");
+  if (after === undefined || !/^https?:\/\//.test(s.server)) {
+    el.textContent = text.replace("{phone}", "on your phone");
+    delete el.dataset.phone;
+    return;
+  }
+  const url = s.server.replace(/\/+$/, "") + "/";
+  const key = url + "|" + (s.phone_qr || "") + "|" + text;
+  if (el.dataset.phone === key) return;  // refreshed every few seconds: keep an open QR code open
+  const wrap = document.createElement("span");
+  wrap.className = "phone";
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = "on your phone";
+  wrap.append(a);
+  if (s.phone_qr) {
+    const id = "phone-qr";
+    const tip = document.createElement("span");
+    tip.className = "qr";
+    tip.id = id;
+    tip.setAttribute("role", "tooltip");
+    const img = document.createElement("img");
+    img.src = s.phone_qr;
+    img.alt = "QR code for your Booth page";
+    tip.append(img, "Scan with your phone's camera");
+    wrap.append(tip);
+    a.setAttribute("aria-describedby", id);
+    a.addEventListener("touchend", (ev) => {  // first tap shows the code, a second one opens the page
+      if (!wrap.classList.contains("open")) { ev.preventDefault(); wrap.classList.add("open"); }
+    });
+    a.addEventListener("keydown", (ev) => { if (ev.key === "Escape") a.blur(); });
+  }
+  el.replaceChildren(before, wrap, after);
+  el.dataset.phone = key;
+}
+
+document.addEventListener("touchstart", (ev) => {  // a tap anywhere else puts the QR code away
+  for (const p of document.querySelectorAll(".phone.open")) if (!p.contains(ev.target)) p.classList.remove("open");
+});
+
 const STATUS = {
-  on_air: ["Booth is on the air", "Ask for a show below or on your phone. It shows up in Plex as a playlist a few minutes later."],
+  on_air: ["Booth is on the air", "Ask for a show below or {phone}. It shows up in Plex as a playlist a few minutes later."],
   starting: ["Booth is starting", "Connecting to your Booth account..."],
   offline: ["Booth can't reach Radio Booth", "Is this computer online? Booth keeps trying by itself."],
   needs_plex: ["Plex needs you to sign in again", "Plex stopped accepting Booth's sign-in. Sign in again below."],
@@ -340,7 +392,7 @@ function render(s) {
   show($("status"), ready);
   const [title, text] = STATUS[e.state] || ["Booth", ""];
   $("status-title").textContent = title;
-  $("status-text").textContent = text;
+  setText($("status-text"), text, s);
   const meta = [];
   if (e.last_checkin) meta.push("Checked in " + ago(e.last_checkin));
   if (e.last_show) meta.push("Last show: " + e.last_show.playlist + ", " + ago(e.last_show.at));

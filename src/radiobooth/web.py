@@ -12,6 +12,7 @@ reach, and needs no router or firewall change. Other websites open in the same b
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hmac
 import json
@@ -28,7 +29,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from radiobooth import __version__, autostart, config, engine, history, page, plexshare, update
+from radiobooth import __version__, autostart, config, engine, history, page, plexshare, qr, update
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError
@@ -91,6 +92,19 @@ def answering(link: str, timeout: float = 2) -> bool:
             return resp.read() == b"booth"
     except OSError:
         return False
+
+
+def phone_qr(server: str) -> str | None:
+    """The phone page's address as a QR code (an SVG data URL), for the page to show next to its link."""
+    if not server.startswith(("https://", "http://")):
+        return None
+    try:
+        return (
+            "data:image/svg+xml;base64,"
+            + base64.b64encode(qr.svg(server.rstrip("/") + "/").encode()).decode()
+        )
+    except ValueError:  # an address too long for the small QR maker: the link alone is fine
+        return None
 
 
 class App:
@@ -162,6 +176,7 @@ class App:
                 ],
             },
             "server": self.server(),
+            "phone_qr": phone_qr(self.server()),
             "setup": self.setup.state(),
             "engine": self.engine.status(),
             "update": self.updater.status() | {"auto": settings.get("auto_update", True)},
