@@ -98,7 +98,24 @@ Booth Engineer for its catalog. Until a show asked for on another of your comput
 `GET /v0/shows` lists it with `"for_computer"`, that computer's name. Booth's page only asks for a show (`POST`) while Booth
 is on the air.
 
-Nothing else is sent: no catalog goes with a request. It's sent later, on a check-in, as above.
+### Rating shows and flagging breaks
+
+For a show that reached Plex (`"feedback": true` in the list), Booth's page offers the phone page's **How was
+it?**, for whoever is picked in **Who's it for**, with that person's device token:
+
+`GET /v0/shows/{show_id}` → the show with its `breaks` (`id`, `number`, `transcript`: what the DJ said), the
+feedback already given (`mine`) and the reasons a break can be flagged for. Asked for when you open it.
+
+`PUT /v0/shows/{show_id}/feedback` `{"rating": 4, "note": "..."}` (1 to 5 stars, a note of up to 1,000
+characters), or `DELETE` it with `{}` to take it back.
+
+`PUT /v0/shows/{show_id}/breaks/{break_id}/feedback` `{"reasons": ["said"], "note": "..."}`, or `DELETE` it
+with `{}`.
+
+Only what you pick and type goes: the stars, the reasons and your note. Booth checks the show and break ids
+before they go into a path.
+
+Nothing else is sent: no catalog goes with a request or with feedback. It's sent later, on a check-in, as above.
 
 ## What Booth DJ does with the rest
 

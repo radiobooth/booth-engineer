@@ -17,11 +17,13 @@ import contextlib
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import webbrowser
 from collections.abc import Callable
@@ -39,6 +41,8 @@ HOST = "127.0.0.1"
 PORT = 48231  # the same address each time when it's free, so a page left open finds Booth again
 COOKIE = "booth_key"
 SHOW_CHOICES = ("minutes", "dj", "voice", "dj_name", "station")  # kept for next time; the prompt isn't
+SHOW_ID = re.compile(r"show_[0-9a-z]{1,40}")  # Booth DJ's ids, checked before they go into a path
+BREAK_ID = re.compile(r"b[0-9]{1,3}")
 ROSTER_S = 600  # the DJs and voices change only with a new Booth DJ, so the page asks for them now and then
 
 
@@ -204,10 +208,15 @@ class App:
         except LinkError as e:
             raise SetupError(str(e)) from None
 
-    def _said(self, e: LinkError, asked: bool = False, who: str | None = None) -> SetupError:
+    def _said(
+        self, e: LinkError, asked: bool = False, who: str | None = None, rating: bool = False
+    ) -> SetupError:
         """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show; `who`:
-        for another person sharing this Booth)."""
+        for another person sharing this Booth; `rating`: feedback on a show)."""
         said = str(e).removeprefix("Booth DJ: ")
+        if rating and e.status == 401 and self._paired_ok(who):
+            # It still knows this account's token: a Radio Booth that takes ratings only on the phone page.
+            return SetupError("Radio Booth can't take ratings from this page yet. Rate it on your phone.")
         if who and e.status == 401:
             name = next((p["name"] for p in config.people(config.load()) if p["id"] == who), "Their")
             return SetupError(
@@ -228,6 +237,14 @@ class App:
         if said.startswith("HTTP "):  # no message of its own (a 502 from in front of it, say)
             return SetupError("Radio Booth is having trouble right now. Try again in a moment.")
         return SetupError(said)
+
+    def _paired_ok(self, who: str | None) -> bool:
+        """Booth DJ still knows this account's device token (it answers `/v0/me`)."""
+        try:
+            self._link(who=who).get("/v0/me")
+        except (LinkError, SetupError):
+            return False
+        return True
 
     def shows(self, who: str | None = None) -> dict:
         """For the page's New show section: the DJs and voices, show time left, and the latest shows, for this
@@ -265,8 +282,7 @@ class App:
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
             raise SetupError("Say what the show is about.")
-        who = body.get("who")
-        who = who if isinstance(who, str) and who else None
+        who = person(body.get("who"))
         link = self._link(who=who)
         if self.engine.state != engine.ON_AIR:
             # A show asked for here is made from this computer's music and delivered here, so it waits for
@@ -280,6 +296,33 @@ class App:
         with contextlib.suppress(OSError):  # the show is asked for; not remembering choices is no failure
             config.update({"show_choices": choices})
         return {"show_id": made.get("show_id")}
+
+    def show(self, show_id: str, who: str | None = None) -> dict:
+        """One show with its breaks and the feedback given on it, for rating it and flagging breaks here, as
+        on the phone page: for this computer's own account or (`who`) another person sharing it."""
+        if not SHOW_ID.fullmatch(show_id):
+            raise SetupError("No such show.")
+        try:
+            return self._link(who=who).get(f"/v0/shows/{show_id}")
+        except LinkError as e:
+            raise self._said(e, who=who, rating=True) from None
+
+    def feedback(self, body: dict) -> dict:
+        """Rate a show, or flag one of its breaks (`break`), for whoever it was made for; `clear` takes it
+        back. Booth DJ checks the stars, reasons and note, and says what's wrong."""
+        show_id, break_id = str(body.get("show_id") or ""), str(body.get("break") or "")
+        if not SHOW_ID.fullmatch(show_id) or (break_id and not BREAK_ID.fullmatch(break_id)):
+            raise SetupError("No such show.")
+        who = person(body.get("who"))
+        path = f"/v0/shows/{show_id}" + (f"/breaks/{break_id}" if break_id else "") + "/feedback"
+        given = {k: body[k] for k in ("note", "reasons" if break_id else "rating") if k in body}
+        try:
+            self._link(who=who).send(
+                "DELETE" if body.get("clear") else "PUT", path, {} if body.get("clear") else given
+            )
+        except LinkError as e:
+            raise self._said(e, who=who, rating=True) from None
+        return {}
 
     def _account_name(self, link: Link) -> str | None:
         try:
@@ -412,6 +455,8 @@ class App:
             self.setup.use_folder(str(body.get("path", "")))
         elif action == "new_show":
             return self.new_show(body)
+        elif action == "feedback":
+            return self.feedback(body)
         elif action == "add_person":
             return self.add_person(str(body.get("code", "")))
         elif action == "person_plex":
@@ -440,6 +485,11 @@ class App:
         else:
             raise SetupError("Booth doesn't know that button.")
         return {}
+
+
+def person(who) -> str | None:
+    """Whom the page asks for: another person sharing this Booth (their id), or None for its own account."""
+    return who if isinstance(who, str) and who else None
 
 
 def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandler]:
@@ -509,10 +559,13 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                     return self._json(422, {"error": str(e)})
                 except Exception as e:  # noqa: BLE001 - say what on the page
                     return self._json(500, {"error": f"Something went wrong: {e}"})
-            if path == "/api/shows":
-                who = next((v for k, _, v in (p.partition("=") for p in query.split("&")) if k == "who"), "")
+            if path in ("/api/shows", "/api/show"):
+                asked = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
+                who = person(asked.get("who"))
                 try:
-                    return self._json(200, app.shows(who or None))
+                    if path == "/api/show":
+                        return self._json(200, app.show(asked.get("id", ""), who))
+                    return self._json(200, app.shows(who))
                 except SetupError as e:
                     return self._json(422, {"error": str(e)})
                 except Exception as e:  # noqa: BLE001 - say what on the page
