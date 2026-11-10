@@ -17,11 +17,13 @@ import contextlib
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import webbrowser
 from collections.abc import Callable
@@ -39,6 +41,8 @@ HOST = "127.0.0.1"
 PORT = 48231  # the same address each time when it's free, so a page left open finds Booth again
 COOKIE = "booth_key"
 SHOW_CHOICES = ("minutes", "dj", "voice", "dj_name", "station")  # kept for next time; the prompt isn't
+SHOW_ID = re.compile(r"show_[0-9a-z]{1,40}")  # Booth DJ's ids, checked before they go into a path
+BREAK_ID = re.compile(r"b[0-9]{1,3}")
 ROSTER_S = 600  # the DJs and voices change only with a new Booth DJ, so the page asks for them now and then
 
 
@@ -281,6 +285,34 @@ class App:
             config.update({"show_choices": choices})
         return {"show_id": made.get("show_id")}
 
+    def show(self, show_id: str, who: str | None = None) -> dict:
+        """One show with its breaks and the feedback given on it, for rating it and flagging breaks here, as
+        on the phone page: for this computer's own account or (`who`) another person sharing it."""
+        if not SHOW_ID.fullmatch(show_id):
+            raise SetupError("No such show.")
+        try:
+            return self._link(who=who).get(f"/v0/shows/{show_id}")
+        except LinkError as e:
+            raise self._said(e, who=who) from None
+
+    def feedback(self, body: dict) -> dict:
+        """Rate a show, or flag one of its breaks (`break`), for whoever it was made for; `clear` takes it
+        back. Booth DJ checks the stars, reasons and note, and says what's wrong."""
+        show_id, break_id = str(body.get("show_id") or ""), str(body.get("break") or "")
+        if not SHOW_ID.fullmatch(show_id) or (break_id and not BREAK_ID.fullmatch(break_id)):
+            raise SetupError("No such show.")
+        who = body.get("who")
+        who = who if isinstance(who, str) and who else None
+        path = f"/v0/shows/{show_id}" + (f"/breaks/{break_id}" if break_id else "") + "/feedback"
+        given = {k: body[k] for k in ("note", "reasons" if break_id else "rating") if k in body}
+        try:
+            self._link(who=who).send(
+                "DELETE" if body.get("clear") else "PUT", path, {} if body.get("clear") else given
+            )
+        except LinkError as e:
+            raise self._said(e, who=who) from None
+        return {}
+
     def _account_name(self, link: Link) -> str | None:
         try:
             name = link.get("/v0/me").get("name")
@@ -412,6 +444,8 @@ class App:
             self.setup.use_folder(str(body.get("path", "")))
         elif action == "new_show":
             return self.new_show(body)
+        elif action == "feedback":
+            return self.feedback(body)
         elif action == "add_person":
             return self.add_person(str(body.get("code", "")))
         elif action == "person_plex":
@@ -509,10 +543,13 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                     return self._json(422, {"error": str(e)})
                 except Exception as e:  # noqa: BLE001 - say what on the page
                     return self._json(500, {"error": f"Something went wrong: {e}"})
-            if path == "/api/shows":
-                who = next((v for k, _, v in (p.partition("=") for p in query.split("&")) if k == "who"), "")
+            if path in ("/api/shows", "/api/show"):
+                asked = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
+                who = asked.get("who") or None
                 try:
-                    return self._json(200, app.shows(who or None))
+                    if path == "/api/show":
+                        return self._json(200, app.show(asked.get("id", ""), who))
+                    return self._json(200, app.shows(who))
                 except SetupError as e:
                     return self._json(422, {"error": str(e)})
                 except Exception as e:  # noqa: BLE001 - say what on the page

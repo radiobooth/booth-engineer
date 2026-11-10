@@ -706,3 +706,67 @@ def test_a_persons_new_playlist_is_shared_with_their_plex_user(tmp_path, monkeyp
         engine.station(settings, log.append, person=person).deliver(tmp_path) == "Jennifer: Rain"
     )  # still in
     assert "Grant them access to it in Plex Web" in log[-1]
+
+
+def test_shows_are_rated_and_breaks_flagged_on_the_page(booth, monkeypatch):
+    """Feedback as on the phone page, sent with the device token of whoever the show was made for."""
+    app, port, key, _ = booth
+    config.update({"device_token": "be_own", "server": "https://booth.example"})
+    jen = {"id": "p_jen", "name": "Jennifer", "device_token": "be_jen", "server": "https://booth.example"}
+    config.update({"people": [jen]})
+    gets, sent = [], []
+    detail = {"show_id": "show_abc", "breaks": [{"id": "b01", "number": 1, "transcript": "Hi"}], "mine": {}}
+
+    def get(self, path):
+        gets.append((self.token, path))
+        return detail
+
+    def send(self, method, path, data):
+        sent.append((self.token, method, path, data))
+        if data.get("rating") == 9:
+            raise LinkError("Booth DJ: A rating is 1 to 5 stars.", 400)
+        return 204, {}
+
+    monkeypatch.setattr(web.Link, "get", get)
+    monkeypatch.setattr(web.Link, "send", send)
+    cookie = {"Cookie": f"{web.COOKIE}={key}"}
+
+    status, _, body = call(port, "GET", "/api/show?id=show_abc", headers=cookie)
+    assert status == 200 and json.loads(body) == detail
+    status, _, body = call(port, "GET", "/api/show?id=show_abc&who=p_jen", headers=cookie)
+    assert status == 200 and gets == [("be_own", "/v0/shows/show_abc"), ("be_jen", "/v0/shows/show_abc")]
+    for bad in ("../me", "show_abc/hide", "show_ABC%3F"):  # only Booth DJ's own ids go into a path
+        status, _, body = call(port, "GET", f"/api/show?id={bad}", headers=cookie)
+        assert status == 422 and json.loads(body)["error"] == "No such show."
+    assert len(gets) == 2
+    assert call(port, "GET", "/api/show?id=show_abc")[0] == 403  # the page key, as for everything else
+
+    rate = {"show_id": "show_abc", "rating": 4, "note": "great", "reasons": ["x"], "extra": 1}
+    assert act(port, key, "feedback", rate) == (200, {})
+    flag = {
+        "who": "p_jen",
+        "show_id": "show_abc",
+        "break": "b01",
+        "reasons": ["said"],
+        "note": "",
+        "rating": 2,
+    }
+    assert act(port, key, "feedback", flag) == (200, {})
+    assert (
+        act(port, key, "feedback", {"who": "p_jen", "show_id": "show_abc", "break": "b01", "clear": True})[0]
+        == 200
+    )
+    assert act(port, key, "feedback", {"show_id": "show_abc", "clear": True, "rating": 3})[0] == 200
+    assert sent == [
+        ("be_own", "PUT", "/v0/shows/show_abc/feedback", {"rating": 4, "note": "great"}),
+        ("be_jen", "PUT", "/v0/shows/show_abc/breaks/b01/feedback", {"note": "", "reasons": ["said"]}),
+        ("be_jen", "DELETE", "/v0/shows/show_abc/breaks/b01/feedback", {}),
+        ("be_own", "DELETE", "/v0/shows/show_abc/feedback", {}),
+    ]
+    assert act(port, key, "feedback", {"show_id": "show_abc", "rating": 9}) == (
+        422,
+        {"error": "A rating is 1 to 5 stars."},
+    )
+    assert act(port, key, "feedback", {"show_id": "show_abc", "break": "b1/../x", "note": "n"})[0] == 422
+    assert act(port, key, "feedback", {"show_id": "show_abc", "who": "p_gone", "rating": 3})[0] == 422
+    assert len(sent) == 5

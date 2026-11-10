@@ -103,8 +103,11 @@ class Link:
         return self._call("GET", path)[1]
 
     def post(self, path: str, data: dict) -> tuple[int, dict]:
+        return self.send("POST", path, data)
+
+    def send(self, method: str, path: str, data: dict) -> tuple[int, dict]:
         body = json.dumps(data).encode()
-        return self._call("POST", path, body, {"Content-Type": "application/json"})
+        return self._call(method, path, body, {"Content-Type": "application/json"})
 
     # Pairing
 

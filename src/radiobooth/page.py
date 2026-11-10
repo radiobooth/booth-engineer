@@ -107,6 +107,32 @@ body.off .light { color: var(--chalk); border-color: var(--chalk); }
 .shows .st { font-size: 14px; }
 .shows .st.delivered { color: #b9dccf; }
 .shows .st.failed, .shows .st.expired { color: #ffb4a3; }
+.fb-open { justify-self: start; margin-top: 6px; padding: 6px 12px; font-size: 14px; }
+.fb { display: grid; gap: 14px; margin-top: 10px; padding: 14px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--studio); }
+.fb > div { display: grid; gap: 8px; }
+.flag-form { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.fb h3 { font: 12px/1.3 var(--label); letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  margin: 0; }
+.fb textarea { font: 15px/1.4 var(--text); padding: 10px 12px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--chalk); width: 100%; min-height: 64px; resize: vertical; }
+.fb .actions { margin-top: 0; align-items: center; display: flex; }
+.stars { display: flex; gap: 2px; }
+.stars button { background: none; border: 0; color: var(--line); font-size: 30px; line-height: 1;
+  padding: 2px 4px; margin: 0; }
+.stars button.on { color: var(--tally); }
+.brk { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.brk-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.brk-head .flagged { color: #ffb4a3; font-size: 14px; }
+.said { margin: 0; font-size: 14px; color: var(--muted); cursor: pointer; display: -webkit-box;
+  -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.said.full { display: block; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips button { background: none; color: var(--chalk); border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 12px; font-size: 14px; font-weight: 500; margin: 0; }
+.chips button[aria-pressed="true"] { background: var(--tally); border-color: var(--tally); color: var(--studio); }
+.fb .said-ok { color: #b9dccf; font-size: 14px; margin: 0; }
+.fb .said-bad { color: #ffb4a3; font-size: 14px; margin: 0; }
 .phone { position: relative; display: inline-block; }
 .phone .qr { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); z-index: 2;
   width: 172px; padding: 10px; border-radius: 12px; background: var(--chalk); color: var(--studio);
@@ -289,6 +315,7 @@ const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
 let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false;
+const panels = new Map();  // show id -> its open feedback panel, kept across list refreshes
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -654,8 +681,137 @@ function renderShows(list) {
     m.className = "muted";
     m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
     li.append(t, st, m);
+    if (s.feedback) li.append(feedbackButton(s));
+    if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
+}
+
+// Feedback, as on the phone page: stars for a show that reached Plex, and flags on breaks that didn't work.
+// It goes to the account of whoever the show was made for (the "Who's it for" picker), through Booth.
+
+function el(tag, props = {}, ...kids) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...kids);
+  return node;
+}
+
+function closePanel(id) {
+  panels.get(id)?.remove();
+  panels.delete(id);
+}
+
+function feedbackButton(s) {
+  const said = [];
+  if (s.rating) said.push("★".repeat(s.rating) + "☆".repeat(5 - s.rating));
+  if (s.flags) said.push(s.flags + " break" + (s.flags > 1 ? "s" : "") + " flagged");
+  const b = el("button", {type: "button", className: "quiet fb-open"});
+  b.textContent = panels.has(s.show_id) ? "Close" : said.length ? said.join(" · ") + " · Change" : "How was it?";
+  b.onclick = async () => {
+    if (panels.has(s.show_id)) { closePanel(s.show_id); loadShows(); return; }
+    b.disabled = true;
+    const who = $("who").value;
+    try {
+      const r = await fetch("/api/show?id=" + encodeURIComponent(s.show_id) +
+        (who ? "&who=" + encodeURIComponent(who) : ""), {cache: "no-store"});
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
+      if (who !== $("who").value) return;  // someone else picked meanwhile
+      panels.set(s.show_id, feedbackPanel(data, who));
+      loadShows();
+    } catch (x) { b.disabled = false; b.textContent = x.message; }
+  };
+  return b;
+}
+
+function feedbackPanel(sh, who) {
+  const msg = el("p");
+  const say = (text, ok = true) => { msg.className = ok ? "said-ok" : "said-bad"; msg.textContent = text; };
+  let rating = sh.mine.rating;
+  const stars = el("div", {className: "stars", role: "group", ariaLabel: "Rating"});
+  const paint = () => [...stars.children].forEach((b, i) => {
+    b.classList.toggle("on", rating > i);
+    b.setAttribute("aria-pressed", String(rating === i + 1));
+  });
+  for (let n = 1; n <= 5; n++) {
+    const b = el("button", {type: "button", textContent: "★", ariaLabel: n + " star" + (n > 1 ? "s" : "")});
+    b.onclick = () => { rating = rating === n ? null : n; paint(); };
+    stars.append(b);
+  }
+  paint();
+  const note = el("textarea", {maxLength: 1000, value: sh.mine.note,
+    placeholder: "Anything else? What worked, what didn't (optional)"});
+  const save = el("button", {type: "button", textContent: "Save"});
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      await post("feedback", {who, show_id: sh.show_id, rating, note: note.value});
+      say("Thanks! Saved.");
+      loadShows();
+    } catch (x) { say(x.message, false); }
+    save.disabled = false;
+  };
+  const whole = el("div", {}, el("h3", {textContent: "The show"}), stars, note,
+    el("div", {className: "actions"}, save), msg);
+  const breaks = el("div", {}, el("h3", {textContent: "Breaks"}), el("p", {className: "muted",
+    textContent: "Something off when the DJ talked? Flag that break. They're numbered the same in Plex."}));
+  for (const b of sh.breaks) breaks.append(breakRow(sh, b, who));
+  if (!sh.breaks.length) breaks.append(el("p", {className: "muted", textContent: "No breaks to show."}));
+  return el("div", {className: "fb"}, whole, breaks);
+}
+
+function breakRow(sh, b, who) {
+  let mine = sh.mine.breaks[b.id] || null;
+  const flagged = el("span", {className: "flagged"});
+  const flag = el("button", {type: "button", className: "quiet"});
+  const said = el("p", {className: "said", textContent: b.transcript, title: "Click to read it all"});
+  said.onclick = () => said.classList.toggle("full");
+  const form = el("div", {className: "flag-form hidden"});
+  const row = el("div", {className: "brk"},
+    el("div", {className: "brk-head"}, el("strong", {textContent: b.number ? "Break " + b.number : b.id}), flagged),
+    said, form, el("div", {className: "actions"}, flag));
+  const refresh = () => {
+    flagged.textContent = mine ? "Flagged" : "";
+    flag.textContent = mine ? "Change flag" : "Flag this break";
+    show(flag, form.classList.contains("hidden"));
+  };
+  flag.onclick = () => {
+    form.replaceChildren();
+    const picked = new Set(mine?.reasons || []);
+    const chips = el("div", {className: "chips"});
+    for (const r of sh.reasons) {
+      const c = el("button", {type: "button", textContent: r.label});
+      c.setAttribute("aria-pressed", String(picked.has(r.id)));
+      c.onclick = () => {
+        picked.has(r.id) ? picked.delete(r.id) : picked.add(r.id);
+        c.setAttribute("aria-pressed", String(picked.has(r.id)));
+      };
+      chips.append(c);
+    }
+    const note = el("textarea", {maxLength: 1000, value: mine?.note || "",
+      placeholder: "What was off? e.g. said a band's name wrong (optional)"});
+    const msg = el("p", {className: "said-bad"});
+    const send = async (given) => {
+      try {
+        await post("feedback", {who, show_id: sh.show_id, break: b.id, ...given});
+        mine = given.clear ? null : given;
+        show(form, false);
+        refresh();
+        loadShows();
+      } catch (x) { msg.textContent = x.message; }
+    };
+    const save = el("button", {type: "button", textContent: "Save flag"});
+    save.onclick = () => send({reasons: [...picked], note: note.value});
+    const cancel = el("button", {type: "button", className: "quiet", textContent: "Cancel"});
+    cancel.onclick = () => { show(form, false); refresh(); };
+    const actions = el("div", {className: "actions"}, save, cancel);
+    if (mine) actions.append(button("Remove flag", () => send({clear: true}), true));
+    form.append(chips, note, actions, msg);
+    show(form, true);
+    refresh();
+  };
+  refresh();
+  return row;
 }
 
 async function loadShows() {
@@ -690,6 +846,7 @@ async function loadShows() {
 function whoChanged() {
   // Someone else's show time and shows: don't leave the last person's on view meanwhile.
   showsAsk += 1;
+  for (const id of [...panels.keys()]) closePanel(id);
   renderShows([]);
   $("allowance").textContent = "";
   show($("allowance"), false);
