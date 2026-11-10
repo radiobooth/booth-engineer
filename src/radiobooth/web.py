@@ -208,10 +208,15 @@ class App:
         except LinkError as e:
             raise SetupError(str(e)) from None
 
-    def _said(self, e: LinkError, asked: bool = False, who: str | None = None) -> SetupError:
+    def _said(
+        self, e: LinkError, asked: bool = False, who: str | None = None, rating: bool = False
+    ) -> SetupError:
         """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show; `who`:
-        for another person sharing this Booth)."""
+        for another person sharing this Booth; `rating`: feedback on a show)."""
         said = str(e).removeprefix("Booth DJ: ")
+        if rating and e.status == 401 and self._paired_ok(who):
+            # It still knows this account's token: a Radio Booth that takes ratings only on the phone page.
+            return SetupError("Radio Booth can't take ratings from this page yet. Rate it on your phone.")
         if who and e.status == 401:
             name = next((p["name"] for p in config.people(config.load()) if p["id"] == who), "Their")
             return SetupError(
@@ -232,6 +237,14 @@ class App:
         if said.startswith("HTTP "):  # no message of its own (a 502 from in front of it, say)
             return SetupError("Radio Booth is having trouble right now. Try again in a moment.")
         return SetupError(said)
+
+    def _paired_ok(self, who: str | None) -> bool:
+        """Booth DJ still knows this account's device token (it answers `/v0/me`)."""
+        try:
+            self._link(who=who).get("/v0/me")
+        except (LinkError, SetupError):
+            return False
+        return True
 
     def shows(self, who: str | None = None) -> dict:
         """For the page's New show section: the DJs and voices, show time left, and the latest shows, for this
@@ -269,8 +282,7 @@ class App:
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
             raise SetupError("Say what the show is about.")
-        who = body.get("who")
-        who = who if isinstance(who, str) and who else None
+        who = person(body.get("who"))
         link = self._link(who=who)
         if self.engine.state != engine.ON_AIR:
             # A show asked for here is made from this computer's music and delivered here, so it waits for
@@ -293,7 +305,7 @@ class App:
         try:
             return self._link(who=who).get(f"/v0/shows/{show_id}")
         except LinkError as e:
-            raise self._said(e, who=who) from None
+            raise self._said(e, who=who, rating=True) from None
 
     def feedback(self, body: dict) -> dict:
         """Rate a show, or flag one of its breaks (`break`), for whoever it was made for; `clear` takes it
@@ -301,8 +313,7 @@ class App:
         show_id, break_id = str(body.get("show_id") or ""), str(body.get("break") or "")
         if not SHOW_ID.fullmatch(show_id) or (break_id and not BREAK_ID.fullmatch(break_id)):
             raise SetupError("No such show.")
-        who = body.get("who")
-        who = who if isinstance(who, str) and who else None
+        who = person(body.get("who"))
         path = f"/v0/shows/{show_id}" + (f"/breaks/{break_id}" if break_id else "") + "/feedback"
         given = {k: body[k] for k in ("note", "reasons" if break_id else "rating") if k in body}
         try:
@@ -310,7 +321,7 @@ class App:
                 "DELETE" if body.get("clear") else "PUT", path, {} if body.get("clear") else given
             )
         except LinkError as e:
-            raise self._said(e, who=who) from None
+            raise self._said(e, who=who, rating=True) from None
         return {}
 
     def _account_name(self, link: Link) -> str | None:
@@ -476,6 +487,11 @@ class App:
         return {}
 
 
+def person(who) -> str | None:
+    """Whom the page asks for: another person sharing this Booth (their id), or None for its own account."""
+    return who if isinstance(who, str) and who else None
+
+
 def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandler]:
     hosts = {o.removeprefix("http://") for o in origins}
 
@@ -545,7 +561,7 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                     return self._json(500, {"error": f"Something went wrong: {e}"})
             if path in ("/api/shows", "/api/show"):
                 asked = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
-                who = asked.get("who") or None
+                who = person(asked.get("who"))
                 try:
                     if path == "/api/show":
                         return self._json(200, app.show(asked.get("id", ""), who))

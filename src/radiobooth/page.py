@@ -202,6 +202,7 @@ HTML = f"""<!doctype html>
       <div class="error hidden" id="show-error"></div>
     </form>
     <div class="error hidden" id="shows-error"></div>
+    <div class="error hidden" id="feedback-error"></div>
     <ul class="shows hidden" id="shows"></ul>
   </section>
 
@@ -316,6 +317,7 @@ let last = null, changing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
 let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false;
 const panels = new Map();  // show id -> its open feedback panel, kept across list refreshes
+const opening = new Set();  // show ids whose feedback panel is on its way
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
@@ -662,6 +664,11 @@ function renderAllowance(a, pick) {
 }
 
 function renderShows(list) {
+  // Someone typing in an open feedback panel keeps the list as it is: moving the panel would lose their place.
+  if (list.length && [...panels.values()].some((p) => p.contains(document.activeElement))) return;
+  for (const id of [...panels.keys()]) {  // a show that left the list or stopped taking feedback
+    if (!list.some((s) => s.show_id === id && s.feedback)) closePanel(id);
+  }
   const ul = $("shows");
   show(ul, list.length > 0);
   ul.replaceChildren(...list.map((s) => {
@@ -707,8 +714,11 @@ function feedbackButton(s) {
   if (s.flags) said.push(s.flags + " break" + (s.flags > 1 ? "s" : "") + " flagged");
   const b = el("button", {type: "button", className: "quiet fb-open"});
   b.textContent = panels.has(s.show_id) ? "Close" : said.length ? said.join(" · ") + " · Change" : "How was it?";
+  b.disabled = opening.has(s.show_id);
   b.onclick = async () => {
     if (panels.has(s.show_id)) { closePanel(s.show_id); loadShows(); return; }
+    if (opening.has(s.show_id)) return;
+    opening.add(s.show_id);
     b.disabled = true;
     const who = $("who").value;
     try {
@@ -716,10 +726,11 @@ function feedbackButton(s) {
         (who ? "&who=" + encodeURIComponent(who) : ""), {cache: "no-store"});
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
-      if (who !== $("who").value) return;  // someone else picked meanwhile
-      panels.set(s.show_id, feedbackPanel(data, who));
-      loadShows();
-    } catch (x) { b.disabled = false; b.textContent = x.message; }
+      if (who === $("who").value) panels.set(s.show_id, feedbackPanel(data, who));  // else: someone else now
+      error("feedback-error", "");
+    } catch (x) { error("feedback-error", x.message); }
+    opening.delete(s.show_id);
+    loadShows();
   };
   return b;
 }
@@ -847,6 +858,7 @@ function whoChanged() {
   // Someone else's show time and shows: don't leave the last person's on view meanwhile.
   showsAsk += 1;
   for (const id of [...panels.keys()]) closePanel(id);
+  error("feedback-error", "");
   renderShows([]);
   $("allowance").textContent = "";
   show($("allowance"), false);

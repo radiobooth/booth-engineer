@@ -770,3 +770,20 @@ def test_shows_are_rated_and_breaks_flagged_on_the_page(booth, monkeypatch):
     assert act(port, key, "feedback", {"show_id": "show_abc", "break": "b1/../x", "note": "n"})[0] == 422
     assert act(port, key, "feedback", {"show_id": "show_abc", "who": "p_gone", "rating": 3})[0] == 422
     assert len(sent) == 5
+
+    # A Radio Booth that takes ratings only on the phone says so, rather than asking to pair again.
+    def old_dj(self, method, path, data):
+        raise LinkError("Booth DJ: Not signed in.", 401)
+
+    monkeypatch.setattr(web.Link, "send", old_dj)
+    status, data = act(port, key, "feedback", {"who": "p_jen", "show_id": "show_abc", "rating": 3})
+    assert status == 422 and data["error"].startswith("Radio Booth can't take ratings from this page yet")
+
+    def forgotten(self, path):  # Jennifer's account no longer knows this computer at all
+        raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
+
+    monkeypatch.setattr(web.Link, "get", forgotten)
+    status, data = act(port, key, "feedback", {"who": "p_jen", "show_id": "show_abc", "rating": 3})
+    assert status == 422 and data["error"].startswith(
+        "Jennifer's Booth account no longer knows this computer"
+    )
