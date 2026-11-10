@@ -27,7 +27,9 @@ your home screen or bookmark it. The link is yours alone; please don't share it.
 
 Go to the [latest release](https://github.com/radiobooth/booth-engineer/releases/latest) and download:
 
-- **Windows:** `RadioBooth-Windows.exe`
+- **Windows:** `RadioBooth-Windows.exe`. Your browser may warn that the file "isn't commonly downloaded",
+  because Booth is new. It's safe to keep: in **Chrome**, click **Keep** (or **Download suspicious file**);
+  in **Edge**, click the **...** next to the download, then **Keep**, **Show more** and **Keep anyway**.
 - **Mac:** `RadioBooth-macOS.zip`. Safari unzips it for you; with another browser, double-click it in
   Downloads. You get the **Radio Booth** app. It works on any Mac from macOS 11 (Big Sur) on, Apple silicon
   or Intel.
@@ -74,7 +76,15 @@ On your phone, or on Booth's page on the computer, describe the show, pick a len
 the show**. The page tells you how it's going. When it says **In Plex**, open Plex and look under
 **Playlists**.
 
-Your shows count against a weekly amount of show time, which both pages show above the form.
+If your account has a limit, both pages show what's left above the form.
+
+## 6. Tell us what you think
+
+Once a show is in Plex, your phone's Booth page shows **How was it?** under it. Tap it to give the show 1 to 5
+stars and, if you like, a note. Below that are the show's breaks (the bits where the DJ talks), numbered the
+same as in Plex. If the DJ got something wrong, said a name wrong, sounded off, or went on too long, tap
+**Flag this break** and pick what happened. That's the most useful thing you can do for us: every rating and
+flag is read.
 
 ## Sharing Booth with someone in your home
 
