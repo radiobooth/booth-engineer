@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from notices import render as notices  # noqa: E402
 from version_info import version  # noqa: E402
 
 APP = "Radio Booth.app"
@@ -36,7 +37,7 @@ def info_plist(v: str) -> dict:
         "LSMinimumSystemVersion": MIN_MACOS,
         # No window of its own (Booth shows its page in the browser), so no Dock icon for it.
         "LSUIElement": True,
-        "NSHumanReadableCopyright": "Radio Booth. GNU GPL v3 or later.",
+        "NSHumanReadableCopyright": "Copyright © 2026 the Radio Booth authors. GNU GPL v3 or later.",
     }
 
 
@@ -50,6 +51,9 @@ def build(out: Path, launcher: Path, arm64: Path, x86_64: Path, v: str) -> Path:
         shutil.copy2(src, macos / name)
         (macos / name).chmod(0o755)  # artifacts lose their permissions between jobs
     shutil.copy2(Path(__file__).parent / "booth.icns", resources / "booth.icns")
+    # The GPL and the notices for what's bundled travel inside the app, so self-updates carry them too.
+    shutil.copy2(Path(__file__).parent.parent / "LICENSE", resources / "LICENSE")
+    (resources / "NOTICES.txt").write_text(notices(), encoding="utf-8")
     with open(app / "Contents" / "Info.plist", "wb") as f:
         plistlib.dump(info_plist(v), f)
     (app / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")

@@ -80,8 +80,13 @@ jobs:
       - if: runner.os == 'Windows'
         run: uv run python packaging/version_info.py > version_info.txt
         shell: bash
+      # The GPL and the notices for what's bundled (Python itself) go inside the program, so they travel
+      # with every copy, self-updates included.
+      - run: uv run python packaging/notices.py > NOTICES.txt
+        shell: bash
       - run: >-
           uv run --locked --group build pyinstaller --onefile --name booth ${{ matrix.brand }}
+          --add-data LICENSE:. --add-data NOTICES.txt:.
           src/radiobooth/__main__.py
         shell: bash
       - run: ./dist/${{ matrix.file }} --version
@@ -142,23 +147,24 @@ jobs:
           merge-multiple: true
       # The apps update themselves only to files that match these checksums.
       - run: cd dist && sha256sum RadioBooth-* > SHA256SUMS && cat SHA256SUMS
-      # The apps bundle GPL code, so each release carries the license; its source is the tag's commit.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-        with:
-          path: src
-          sparse-checkout: LICENSE
-          sparse-checkout-cone-mode: false
-      - run: cp src/LICENSE dist/LICENSE.txt && rm -rf src
+      # The license next to the downloads too (the apps also carry it inside), from the commit that was built.
+      - run: >-
+          gh api -H "Accept: application/vnd.github.raw"
+          "repos/$GITHUB_REPOSITORY/contents/LICENSE?ref=$GITHUB_SHA" > dist/LICENSE.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
       # On a run started by hand this also makes the tag, on the commit that was built. (A tag made with
       # this token doesn't start the workflow again.)
       - run: >-
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
-          --title "Radio Booth $TAG"
-          --notes "Download the file for your computer. Setup steps:
-          https://github.com/$GITHUB_REPOSITORY/blob/main/docs/getting-started.md
-
-          Radio Booth is free software under the GNU GPL, version 3 or later (LICENSE.txt). Source code
-          for this release: https://github.com/$GITHUB_REPOSITORY/tree/$TAG"
+          --title "Radio Booth $TAG" --notes "$NOTES"
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
+          NOTES: |
+            Download the file for your computer. Setup steps:
+            https://github.com/${{ github.repository }}/blob/main/docs/getting-started.md
+
+            This download, Booth Engineer, is free software under the GNU GPL, version 3 or later
+            (LICENSE.txt). Source code for this release:
+            https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }}

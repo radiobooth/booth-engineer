@@ -35,7 +35,7 @@ COMMANDS["app"] = (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="booth", description="Booth Engineer for Radio Booth.")
-    parser.add_argument("--version", action="version", version=f"booth {__version__}")
+    parser.add_argument("--version", action="version", version=f"booth {__version__} (GNU GPL v3 or later)")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
     for name, help_text in COMMANDS.items():
         p = sub.add_parser(name, help=help_text, description=help_text)

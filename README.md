@@ -70,8 +70,12 @@ uv run ruff check && uv run ruff format --check
 
 ## License
 
+Copyright © 2026 the Radio Booth authors.
+
 Booth Engineer is licensed under the GNU General Public License, version 3 or later ([LICENSE](LICENSE)).
-Releases up to v0.2.6 were Apache-2.0 and stay so for anyone who has them.
+Code published here before 2026-11-11 (up to and including version 0.2.7) was released under Apache-2.0, and
+stays available under it for anyone who has it. The packaged apps also contain Python and the PyInstaller
+bootloader, whose licenses are in `NOTICES.txt` inside each app.
 
 The protocol schemas and API docs in [`protocol/`](protocol/) are Apache-2.0 ([protocol/LICENSE](protocol/LICENSE)),
 so anyone can build a compatible client or server under any license.
