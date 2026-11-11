@@ -154,9 +154,10 @@ def test_notices_name_the_holder_the_version_source_and_python(monkeypatch):
         import version_info
     finally:
         sys.path.pop(0)
+    monkeypatch.setattr(notices, "python_license", lambda: "PSF LICENSE AGREEMENT\n")
     text = notices.render("0.3.0")
-    assert text.startswith("Radio Booth (Booth Engineer) 0.3.0\nCopyright \u00a9 2026 Thomas Bohmbach, Jr.")
-    assert "booth-engineer/tree/v0.3.0" in text and "== Python " in text
+    assert text.startswith("Radio Booth 0.3.0\nCopyright \u00a9 2026 Thomas Bohmbach, Jr.")
+    assert "booth-engineer/tree/v0.3.0" in text and "== Python " in text and "PSF LICENSE" in text
     assert "Thomas Bohmbach, Jr. GNU GPL v3 or later." in version_info.render("0.3.0")
     monkeypatch.setattr(notices, "python_license", lambda: (_ for _ in ()).throw(SystemExit("no license")))
     with pytest.raises(SystemExit):

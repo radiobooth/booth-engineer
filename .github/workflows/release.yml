@@ -97,11 +97,14 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
-      # The same notices for the Mac app's Resources and the release page, from the Python built in.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      # The license and notices built in, for the Mac app's Resources (arm64) and the release page.
+      - if: matrix.asset != 'booth-x86_64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: notices-${{ matrix.asset }}
-          path: NOTICES.txt
+          path: |
+            LICENSE
+            NOTICES.txt
 
   mac-app:
     needs: build
@@ -158,16 +161,19 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          name: notices-RadioBooth-Windows.exe  # the Windows app's own: it can't be read from inside the exe
-          path: dist
+          name: notices-RadioBooth-Windows.exe
+          path: notices/windows
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: notices-booth-arm64
+          path: notices/macos
+      # Next to the downloads: the license built in, and each app's notices (from the Python it bundles).
+      - run: |
+          cp notices/windows/LICENSE dist/LICENSE.txt
+          cp notices/windows/NOTICES.txt dist/NOTICES-Windows.txt
+          cp notices/macos/NOTICES.txt dist/NOTICES-macOS.txt
       # The apps update themselves only to files that match these checksums.
       - run: cd dist && sha256sum RadioBooth-* > SHA256SUMS && cat SHA256SUMS
-      # The license next to the downloads too (the apps also carry it inside), from the commit that was built.
-      - run: >-
-          gh api -H "Accept: application/vnd.github.raw"
-          "repos/$GITHUB_REPOSITORY/contents/LICENSE?ref=$GITHUB_SHA" > dist/LICENSE.txt
-        env:
-          GH_TOKEN: ${{ github.token }}
       # On a run started by hand this also makes the tag, on the commit that was built. (A tag made with
       # this token doesn't start the workflow again.)
       - run: >-
@@ -179,4 +185,4 @@ jobs:
           NOTES: |
             Download the file for your computer. [Setup steps](https://github.com/${{ github.repository }}/blob/main/docs/getting-started.md)
 
-            This download, Booth Engineer, is free software under the GNU GPL, version 3 or later (LICENSE.txt). It also contains Python and the PyInstaller bootloader, under their own licenses (NOTICES.txt). [Source code for this release](https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }})
+            Booth is free software under the GNU GPL, version 3 or later, with no warranty (LICENSE.txt). The apps also contain Python and the PyInstaller bootloader, under their own licenses (NOTICES-Windows.txt, NOTICES-macOS.txt). [Source code for this release](https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }})

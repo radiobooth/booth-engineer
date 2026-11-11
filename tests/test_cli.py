@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -123,3 +124,17 @@ def test_the_windows_app_moves_into_its_own_folder_and_starts_there(monkeypatch,
     monkeypatch.setattr(sys, "executable", str(home))
     assert cli.windows_home("win32", popen=lambda args, **k: started.append(args)) is None  # already there
     assert cli.windows_home("darwin") is None
+
+
+def test_versions_agree():
+    """Release tags are checked against pyproject.toml; the app and its notices report __version__."""
+    import tomllib
+
+    pyproject = tomllib.loads((Path(__file__).parent.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["project"]["version"] == __version__
+
+
+def test_license_shows_the_gpl(capsys):
+    assert cli.main(["license"]) == 0
+    out = capsys.readouterr().out
+    assert "Thomas Bohmbach, Jr." in out and "NO WARRANTY" in out and "GNU GENERAL PUBLIC LICENSE" in out

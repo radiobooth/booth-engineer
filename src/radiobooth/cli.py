@@ -27,6 +27,7 @@ COMMANDS = {
 COMMANDS["run"] = (
     "Stay connected to Booth DJ: send the catalog when you ask for a show, deliver it when ready."
 )
+COMMANDS["license"] = "Show Booth's license (GNU GPL v3 or later) and the notices for what the app bundles."
 COMMANDS["app"] = (
     "Run Booth with its page in your browser (setup, status, settings), or open the page of the Booth"
     " already running here."
@@ -360,6 +361,34 @@ def windows_home(platform: str = sys.platform, popen=None) -> int | None:
     return 0
 
 
+LICENSE_URL = "https://github.com/radiobooth/booth-engineer/blob/main/LICENSE"
+
+
+def license_files() -> list[Path]:
+    """LICENSE and NOTICES.txt where the packaged app keeps them (inside the program, or the Mac app's
+    Resources), else the source checkout's LICENSE."""
+    folders = [Path(sys._MEIPASS)] if hasattr(sys, "_MEIPASS") else []
+    folders += [Path(sys.executable).resolve().parent.parent / "Resources", Path(__file__).parents[2]]
+    for folder in folders:
+        if (folder / "LICENSE").is_file():
+            return [f for f in (folder / "LICENSE", folder / "NOTICES.txt") if f.is_file()]
+    return []
+
+
+def license_(args) -> int:
+    print(
+        f"Booth {__version__}. Copyright (C) 2026 Thomas Bohmbach, Jr.\n"
+        "Booth is free software under the GNU General Public License, version 3 or later, and comes with\n"
+        "ABSOLUTELY NO WARRANTY. You may redistribute it under those terms.\n"
+    )
+    files = license_files()
+    for f in files:
+        print(f.read_text(encoding="utf-8"))
+    if not files:
+        print(f"The license: {LICENSE_URL}")
+    return 0
+
+
 def dispatch(argv: list[str] | None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -368,7 +397,8 @@ def dispatch(argv: list[str] | None) -> int:
         return 0
     if args.command == "index":
         return index(args)
-    return {"app": app, "deliver": deliver, "pair": pair, "run": run, "setup": setup}[args.command](args)
+    commands = {"app": app, "deliver": deliver, "license": license_, "pair": pair, "run": run, "setup": setup}
+    return commands[args.command](args)
 
 
 if __name__ == "__main__":

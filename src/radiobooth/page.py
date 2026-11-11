@@ -602,7 +602,16 @@ function render(s) {
   $("change").textContent = changing ? "Done" : "Change";
 
   $("log").textContent = e.log.join("\n") || "Nothing yet.";
-  $("footer").textContent = s.restarting ? "Booth is starting again with the new version..." : "Booth " + s.version + " · this page is only on this computer";
+  const footer = $("footer");
+  footer.textContent = s.restarting ? "Booth is starting again with the new version..." : "Booth " + s.version + " · this page is only on this computer · ";
+  if (!s.restarting) {
+    const terms = document.createElement("a");
+    terms.href = "https://github.com/radiobooth/booth-engineer/blob/main/LICENSE";
+    terms.target = "_blank";
+    terms.rel = "noopener";
+    terms.textContent = "free software, no warranty (GNU GPL)";
+    footer.append(terms);
+  }
 }
 
 async function refresh() {

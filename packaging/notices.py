@@ -9,7 +9,8 @@ import sys
 import sysconfig
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+if str(Path(__file__).parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent))
 from version_info import COPYRIGHT, version  # noqa: E402
 
 SOURCE = "https://github.com/radiobooth/booth-engineer"
@@ -20,16 +21,17 @@ def python_license() -> str:
     without it, so its absence stops the build."""
     for p in (Path(sysconfig.get_path("stdlib")) / "LICENSE.txt", Path(sys.base_prefix) / "LICENSE.txt"):
         if p.is_file():
-            return p.read_text(encoding="utf-8", errors="replace")
+            return p.read_text(encoding="utf-8")  # a misencoded license stops the build too
     raise SystemExit(f"No LICENSE.txt for Python {platform.python_version()} at {sys.base_prefix}.")
 
 
 def render(v: str | None = None) -> str:
     v = v or version()
     return (
-        f"Radio Booth (Booth Engineer) {v}\n{COPYRIGHT}\n\n"
-        "Booth Engineer is free software: you can redistribute it and/or modify it under the terms of the\n"
-        "GNU General Public License, version 3 or (at your option) any later version. See LICENSE.\n"
+        f"Radio Booth {v}\n{COPYRIGHT}\n\n"
+        "Booth is free software: you can redistribute it and/or modify it under the terms of the\n"
+        "GNU General Public License, version 3 or (at your option) any later version. It comes with\n"
+        "ABSOLUTELY NO WARRANTY. See LICENSE.\n"
         f"Source code for this version: {SOURCE}/tree/v{v}\n\n"
         "This app also contains the following, under their own licenses.\n\n"
         f"== Python {platform.python_version()} ==\n\n"
