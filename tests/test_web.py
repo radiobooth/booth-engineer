@@ -6,6 +6,7 @@ import time
 import pytest
 from test_setup import SERVER, FakePlex
 
+import radiobooth
 from radiobooth import autostart, config, engine, history, onboard, update, web, websetup
 from radiobooth.link import LinkError
 
@@ -112,6 +113,16 @@ def test_changes_only_come_from_booths_own_page(booth):
     assert not app.quit.is_set()
     assert act(port, key, "quit") == (200, {})
     wait_for(app.quit.is_set)
+
+
+def test_the_page_knows_its_version_to_spot_an_update(booth):
+    # After a self-update the open page asks for /api/state from the new version: a different version than the
+    # one that served page.js tells it to reload (or offer to, if a reload would lose typing).
+    _, port, key, _ = booth
+    status, _, js = call(port, "GET", "/page.js", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert status == 200 and f'const PAGE_VERSION = "{radiobooth.__version__}";' in js.decode()
+    status, _, data = call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert json.loads(data)["version"] == radiobooth.__version__
 
 
 def test_the_page_answers_with_plain_words(booth):
