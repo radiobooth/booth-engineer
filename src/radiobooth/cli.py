@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import socket
+import sqlite3
 import sys
 import time
 from collections import Counter
@@ -115,6 +116,7 @@ def remember(show_dir: Path, log) -> None:
 
 
 def index(args: argparse.Namespace) -> int:
+    from radiobooth import catalog as catalogs
     from radiobooth import history
     from radiobooth.sources.plex import PlexClient, PlexError, build_catalog
 
@@ -126,7 +128,9 @@ def index(args: argparse.Namespace) -> int:
         exclude = setting("BOOTH_BREAKS_LIBRARY", "breaks_library")
         library = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
         catalog, skipped = build_catalog(PlexClient(url, token), library, exclude=exclude)
-        history.annotate(catalog)
+        # Checked as `booth run` checks it, so this file is exactly what would be sent.
+        catalog, left_out, _ = catalogs.check(history.annotate(catalog))
+        skipped += left_out
     except PlexError as e:
         print(f"booth index: {e}", file=sys.stderr)
         return 1
@@ -135,7 +139,7 @@ def index(args: argparse.Namespace) -> int:
     tracks = catalog["tracks"]
     print(
         f"Wrote {len(tracks)} tracks from {catalog['source']['library']!r} to {out}"
-        f" ({skipped} skipped for missing title, artist or length).",
+        f" ({skipped} left out: no title, artist or length, or details the catalog can't hold).",
         file=sys.stderr,
     )
     print(f"Field coverage: {coverage(tracks)}", file=sys.stderr)
@@ -166,7 +170,7 @@ def scan(args: argparse.Namespace) -> int:
             progress=progress,
             examples=max(0, args.examples),
         )
-    except OSError as e:
+    except (OSError, sqlite3.Error) as e:
         print(f"booth scan: {e}", file=sys.stderr)
         return 1
     catalog, left_out, why = catalogs.check(history.annotate(catalog))

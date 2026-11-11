@@ -41,6 +41,8 @@ NO_LENGTH = "no audio length"
 UNREADABLE = "couldn't be read"
 UNSUPPORTED = "a file type Booth can't read yet"
 ONE_FILE_ALBUM = "a whole album in one file, with a CUE sheet (not split into tracks yet)"
+SAME_NAME = "another file has the same name, written with different accent characters"
+READER = 1  # bump when tags.py reads differently, so the index reads every file again
 
 # What each piece of coverage gives the DJ, for the tag report. Keys are tagreader Bag names.
 COVERAGE = {
@@ -159,7 +161,19 @@ def walk(folder: Path, report: Report, skip: list[Path]) -> list[tuple[Path, os.
     def refused(_error: OSError) -> None:
         report.unopened_folders += 1
 
-    for here, dirs, files in os.walk(folder, onerror=refused):
+    visited: set[tuple[int, int]] = set()
+    # Linked folders are followed (a music folder often links to another drive), each folder once.
+    for here, dirs, files in os.walk(folder, onerror=refused, followlinks=True):
+        try:
+            st = os.stat(here)
+        except OSError:
+            report.unopened_folders += 1
+            dirs[:] = []
+            continue
+        if (st.st_dev, st.st_ino) in visited:
+            dirs[:] = []
+            continue
+        visited.add((st.st_dev, st.st_ino))
         dirs[:] = sorted(
             d
             for d in dirs
@@ -202,6 +216,8 @@ class Index:
             "CREATE TABLE IF NOT EXISTS files (rel TEXT PRIMARY KEY, size INTEGER, mtime INTEGER,"
             " id TEXT UNIQUE NOT NULL, tags TEXT, problem TEXT)"
         )
+        # Tags saved by an older way of reading them are read again (ids are kept).
+        self.stale = self.db.execute("PRAGMA user_version").fetchone()[0] != READER
 
     def close(self) -> None:
         self.db.close()
@@ -210,16 +226,25 @@ class Index:
         rows = self.db.execute("SELECT rel, size, mtime, id, tags, problem FROM files")
         return {r[0]: Found(r[0], r[1], r[2], r[3], json.loads(r[4]) if r[4] else None, r[5]) for r in rows}
 
-    def save(self, files: list[Found]) -> None:
+    def save(self, files: list[Found], known: dict[str, Found]) -> None:
+        """Write what changed since `known` (the index as loaded)."""
+        here = {f.rel for f in files}
+        changed = [f for f in files if known.get(f.rel) != f]
         with self.db:  # one transaction: an interrupted scan leaves the old index whole
-            self.db.execute("DELETE FROM files")
+            # Old rows out first, so an id moving from one file to another never meets itself.
+            self.db.executemany(
+                "DELETE FROM files WHERE rel = ?",
+                [(r,) for r in known if r not in here] + [(f.rel,) for f in changed if f.rel in known],
+            )
             self.db.executemany(
                 "INSERT INTO files VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     (f.rel, f.size, f.mtime, f.id, json.dumps(f.tags) if f.tags else None, f.problem)
-                    for f in files
+                    for f in changed
                 ],
             )
+            self.db.execute(f"PRAGMA user_version = {READER}")
+        self.stale = False
 
     def path_of(self, track: str) -> str | None:
         """The file (inside the music folder) a catalog id stands for."""
@@ -266,10 +291,24 @@ def refresh(
     known = index.load()
     current: list[Found] = []
     replaced: dict[tuple, list[Found]] = defaultdict(list)  # files at a known path whose content changed
+    rels: set[str] = set()
     for n, (path, st) in enumerate(files, 1):
+        if progress:
+            progress(n, len(files))
         rel = relative(folder, path)
+        if rel in rels:  # "Björk" written two ways (macOS and others), side by side on one disk
+            report.skipped[SAME_NAME] += 1
+            report.note(SAME_NAME, rel)
+            continue
+        rels.add(rel)
         old = known.get(rel)
-        if old and old.size == st.st_size and old.mtime == st.st_mtime_ns:
+        # A file that couldn't be read is tried again each scan: the problem may have been a dropped share.
+        if (
+            old
+            and old.size == st.st_size
+            and old.mtime == st.st_mtime_ns
+            and not (old.problem or index.stale)
+        ):
             current.append(old)
         else:
             tags, problem = _read(path)
@@ -277,8 +316,6 @@ def refresh(
             current.append(new)
             if old and (sig := _signature(old)) and sig != _signature(new):
                 replaced[sig].append(new)
-        if progress:
-            progress(n, len(files))
     # Moves and renames: a file that vanished and one that appeared with the same size, length and names.
     here = {f.rel for f in current}
     gone: dict[tuple, list[str]] = defaultdict(list)
@@ -303,7 +340,7 @@ def refresh(
             while f.id in used:  # a new file at a moved file's old path
                 f.id, n = track_id(key, f"{f.rel}\0{n}"), n + 1
             used.add(f.id)
-    index.save(current)
+    index.save(current, known)
     return current
 
 
@@ -377,12 +414,13 @@ def tracks_of(files: list[Found], report: Report) -> list[dict]:
                 continue
             t = {**{k: v for k, v in guess.items() if not t.get(k)}, **t}
             t["from_path"] = True
-            report.from_path += 1
-            report.note("from_path", f.rel)
         if not t.get("duration_ms"):
             report.skipped[NO_LENGTH] += 1
             report.note(NO_LENGTH, f.rel)
             continue
+        if t.get("from_path"):
+            report.from_path += 1
+            report.note("from_path", f.rel)
         if f.tags.get("repaired"):
             report.repaired += 1
             report.note("repaired", f.rel)

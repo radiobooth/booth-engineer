@@ -1,6 +1,7 @@
 """The folder source: tags read faithfully from every format, stable ids, and nothing that can't be used."""
 
 import json
+import os
 import shutil
 import unicodedata
 from pathlib import Path
@@ -297,3 +298,56 @@ def test_scan_command_reports_and_writes_the_catalog(tmp_path, monkeypatch, caps
     Draft202012Validator(SCHEMA).validate(catalog)
     assert catalog["source"]["library"] == "Records" and catalog["tracks"][0]["title"] == "Song"
     assert main(["scan", str(tmp_path / "nowhere")]) == 1
+
+
+def test_a_file_that_failed_is_tried_again(tmp_path, monkeypatch):
+    music, home = tmp_path / "music", tmp_path / "home"
+    tagged(music, "a.flac", TITLE="Song", ARTIST="A")
+    real = tags.read
+    monkeypatch.setattr(tags, "read", lambda path: (_ for _ in ()).throw(PermissionError("share dropped")))
+    assert scan(music, home)[0]["tracks"] == []
+    monkeypatch.setattr(tags, "read", real)
+    assert [t["title"] for t in scan(music, home)[0]["tracks"]] == ["Song"]  # same file, read this time
+
+
+def test_a_new_way_of_reading_reads_every_file_again(tmp_path, monkeypatch):
+    music, home = tmp_path / "music", tmp_path / "home"
+    tagged(music, "a.flac", TITLE="Song", ARTIST="A")
+    before = scan(music, home)[0]["tracks"][0]["id"]
+    monkeypatch.setattr(folder, "READER", folder.READER + 1)
+    reads = []
+    real = tags.read
+    monkeypatch.setattr(tags, "read", lambda path: reads.append(path) or real(path))
+    assert scan(music, home)[0]["tracks"][0]["id"] == before and len(reads) == 1
+    assert scan(music, home) and len(reads) == 1  # and then not again
+
+
+def test_two_spellings_of_one_name_dont_stop_the_scan(tmp_path):
+    music, home = tmp_path / "music", tmp_path / "home"
+    nfc, nfd = unicodedata.normalize("NFC", "Jóga.flac"), unicodedata.normalize("NFD", "Jóga.flac")
+    tagged(music, nfc, TITLE="One", ARTIST="Björk")
+    if (music / nfd).exists():
+        pytest.skip("this file system treats the two spellings as one name")
+    tagged(music, nfd, TITLE="Two", ARTIST="Björk")
+    catalog, report = scan(music, home)
+    assert len(catalog["tracks"]) == 1 and report.skipped[folder.SAME_NAME] == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="making symlinks needs extra rights on Windows")
+def test_linked_folders_are_followed_once(tmp_path):
+    music, home, elsewhere = tmp_path / "music", tmp_path / "home", tmp_path / "nas"
+    tagged(elsewhere, "Rips/a.flac", TITLE="Ripped", ARTIST="A")
+    music.mkdir()
+    (music / "Rips").symlink_to(elsewhere / "Rips", target_is_directory=True)
+    (elsewhere / "Rips" / "loop").symlink_to(elsewhere / "Rips", target_is_directory=True)
+    catalog, _ = scan(music, home)
+    assert [t["title"] for t in catalog["tracks"]] == ["Ripped"]
+
+
+def test_audiobooks_and_videos_are_not_music(tmp_path):
+    music, home = tmp_path / "music", tmp_path / "home"
+    f = MP4(put(music, "book.m4b", "blank.m4a"))
+    f["©nam"], f["©ART"] = ["Chapter 1"], ["Narrator"]
+    f.save()
+    catalog, report = scan(music, home)
+    assert catalog["tracks"] == [] and report.files == 0

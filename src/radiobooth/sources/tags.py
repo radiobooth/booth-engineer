@@ -35,20 +35,8 @@ from mutagen.wave import WAVE
 
 # What the folder source reads. Other audio files are counted in the tag report by type.
 FORMATS = (MP3, FLAC, OggVorbis, OggOpus, MP4, ASF, WAVE, AIFF)
-EXTENSIONS = {
-    ".mp3",
-    ".flac",
-    ".ogg",
-    ".oga",
-    ".opus",
-    ".m4a",
-    ".m4b",
-    ".mp4",
-    ".wma",
-    ".wav",
-    ".aif",
-    ".aiff",
-}
+# Not .m4b (audiobooks) or .mp4 (mostly video): an hours-long track doesn't belong in a show.
+EXTENSIONS = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".wma", ".wav", ".aif", ".aiff"}
 OTHER_AUDIO = {
     ".aac", ".ac3", ".alac", ".ape", ".dff", ".dsf", ".m4p", ".mka", ".mp2", ".mpc", ".ra", ".shn", ".spx",
     ".tak", ".tta", ".wv",
