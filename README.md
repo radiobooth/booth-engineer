@@ -73,9 +73,9 @@ uv run ruff check && uv run ruff format --check
 Copyright © 2026 Thomas Bohmbach, Jr.
 
 Booth Engineer is licensed under the GNU General Public License, version 3 or later ([LICENSE](LICENSE)).
-Code published here before 2026-11-11 (up to and including version 0.2.7) was released under Apache-2.0, and
-stays available under it for anyone who has it. The packaged apps also contain Python and the PyInstaller
-bootloader, whose licenses are in `NOTICES.txt` inside each app.
+Code published here before 2026-11-11, including every release up to v0.2.6, was released under Apache-2.0
+and stays available under it for anyone who has it. The packaged apps also contain Python and the PyInstaller
+bootloader, whose licenses are in `NOTICES.txt` (next to the downloads, and inside the Mac app).
 
 The protocol schemas and API docs in [`protocol/`](protocol/) are Apache-2.0 ([protocol/LICENSE](protocol/LICENSE)),
 so anyone can build a compatible client or server under any license.

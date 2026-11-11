@@ -9,35 +9,31 @@ import sys
 import sysconfig
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from version_info import COPYRIGHT, version  # noqa: E402
+
 SOURCE = "https://github.com/radiobooth/booth-engineer"
-PYTHON_LICENSE_URL = "https://docs.python.org/3/license.html"
 
 
-def python_license() -> str | None:
-    """The license text that comes with this Python, wherever its build put it."""
+def python_license() -> str:
+    """The license text that comes with this Python, wherever its build put it. A release can't ship
+    without it, so its absence stops the build."""
     for p in (Path(sysconfig.get_path("stdlib")) / "LICENSE.txt", Path(sys.base_prefix) / "LICENSE.txt"):
         if p.is_file():
             return p.read_text(encoding="utf-8", errors="replace")
-    return None
+    raise SystemExit(f"No LICENSE.txt for Python {platform.python_version()} at {sys.base_prefix}.")
 
 
-def render() -> str:
-    head = (
-        "Copyright (C) 2026 Thomas Bohmbach, Jr.\n\n"
-        "Radio Booth (Booth Engineer) is free software: you can redistribute it and/or modify it under\n"
-        "the terms of the GNU General Public License, version 3 or (at your option) any later version.\n"
-        "See LICENSE.\n"
-        f"Source code: {SOURCE}\n\n"
+def render(v: str | None = None) -> str:
+    v = v or version()
+    return (
+        f"Radio Booth (Booth Engineer) {v}\n{COPYRIGHT}\n\n"
+        "Booth Engineer is free software: you can redistribute it and/or modify it under the terms of the\n"
+        "GNU General Public License, version 3 or (at your option) any later version. See LICENSE.\n"
+        f"Source code for this version: {SOURCE}/tree/v{v}\n\n"
         "This app also contains the following, under their own licenses.\n\n"
         f"== Python {platform.python_version()} ==\n\n"
-    )
-    text = python_license()
-    if text is None:
-        print(f"warning: no Python LICENSE.txt found; linking {PYTHON_LICENSE_URL}", file=sys.stderr)
-        text = f"Python Software Foundation License. Full text: {PYTHON_LICENSE_URL}\n"
-    return (
-        head
-        + text
+        + python_license()
         + "\n== PyInstaller bootloader ==\n\nGPL-2.0-or-later with the PyInstaller bootloader exception.\n"
     )
 

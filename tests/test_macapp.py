@@ -130,7 +130,8 @@ def test_the_app_bundle_is_put_together(tmp_path):
     for name in ("launcher", "arm64", "x86_64"):
         (tmp_path / name).write_bytes(name.encode())
         parts.append(tmp_path / name)
-    app = mac_app.build(tmp_path / "dist", *parts, "0.1.3")
+    (tmp_path / "NOTICES.txt").write_text("notices")
+    app = mac_app.build(tmp_path / "dist", *parts, tmp_path / "NOTICES.txt", "0.1.3")
     info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
     assert info["CFBundleExecutable"] == macapp.LAUNCHER and info["CFBundleIdentifier"] == macapp.BUNDLE_ID
     assert info["CFBundleShortVersionString"] == "0.1.3"
@@ -138,6 +139,28 @@ def test_the_app_bundle_is_put_together(tmp_path):
     assert (macos / "Radio Booth").read_bytes() == b"launcher"
     assert sys.platform == "win32" or (macos / "booth-x86_64").stat().st_mode & 0o111
     assert (app / "Contents" / "Resources" / "booth.icns").read_bytes()[:4] == b"icns"
+    resources = app / "Contents" / "Resources"
+    assert (resources / "LICENSE").read_text().lstrip().startswith("GNU GENERAL PUBLIC LICENSE")
+    assert (resources / "NOTICES.txt").read_text() == "notices"
+    assert (
+        info["NSHumanReadableCopyright"] == "Copyright \u00a9 2026 Thomas Bohmbach, Jr. GNU GPL v3 or later."
+    )
+
+
+def test_notices_name_the_holder_the_version_source_and_python(monkeypatch):
+    sys.path.insert(0, str(Path(__file__).parent.parent / "packaging"))
+    try:
+        import notices
+        import version_info
+    finally:
+        sys.path.pop(0)
+    text = notices.render("0.3.0")
+    assert text.startswith("Radio Booth (Booth Engineer) 0.3.0\nCopyright \u00a9 2026 Thomas Bohmbach, Jr.")
+    assert "booth-engineer/tree/v0.3.0" in text and "== Python " in text
+    assert "Thomas Bohmbach, Jr. GNU GPL v3 or later." in version_info.render("0.3.0")
+    monkeypatch.setattr(notices, "python_license", lambda: (_ for _ in ()).throw(SystemExit("no license")))
+    with pytest.raises(SystemExit):
+        notices.render("0.3.0")
 
 
 def test_a_newer_download_restarts_the_booth_that_starts_at_sign_in(tmp_path, monkeypatch):
