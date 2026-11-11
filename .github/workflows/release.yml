@@ -63,10 +63,16 @@ jobs:
           - os: macos-latest  # Apple silicon
             file: booth
             asset: booth-arm64
+            python: only-managed
           - os: macos-15-intel
             file: booth
             asset: booth-x86_64
+            python: only-managed
     runs-on: ${{ matrix.os }}
+    env:
+      # Both halves of the Mac app must bundle the same Python (they share one NOTICES.txt), and the two
+      # Mac runners come with different ones: use the Python the pinned uv provides there instead.
+      UV_PYTHON_PREFERENCE: ${{ matrix.python || 'managed' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
