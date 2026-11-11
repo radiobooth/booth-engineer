@@ -38,7 +38,16 @@ def render(v: str | None = None, ref: str | None = None) -> str:
         f"== Python {platform.python_version()} ==\n\n"
         + python_license()
         + "\n== PyInstaller bootloader ==\n\nGPL-2.0-or-later with the PyInstaller bootloader exception.\n"
+        + f"\n== mutagen {mutagen_version()} ==\n\nReads music files' tags. GPL-2.0-or-later, used here under"
+        " GPL-3.0-or-later\n(see LICENSE). Source: https://github.com/quodlibet/mutagen\n"
     )
+
+
+def mutagen_version() -> str:
+    """The version bundled: the one installed with the Python the app is built from."""
+    from importlib.metadata import version as installed
+
+    return installed("mutagen")
 
 
 if __name__ == "__main__":

@@ -121,6 +121,9 @@ def test_pair_command_with_a_bad_or_missing_code(dj, cfg, monkeypatch, capsys):
     assert config.load() == {}
 
 
+TRACK = {"id": "1", "title": "Wipers", "artist": "Hüsker Dü", "duration_ms": 1000}
+
+
 def station(log, delivered=None, fail=None):
     def deliver(show_dir: Path) -> str:
         if fail:
@@ -130,7 +133,7 @@ def station(log, delivered=None, fail=None):
         )
         return "Wipers On, Long Way Home"
 
-    catalog = {"protocol": "radiobooth/catalog@0", "tracks": [{"id": "1"}]}
+    catalog = {"protocol": "radiobooth/catalog@0", "tracks": [TRACK, {"id": "2"}]}
     return Station(catalog=lambda: catalog, deliver=deliver, log=log.append)
 
 
@@ -160,7 +163,9 @@ def test_run_sends_catalog_then_delivers_and_reports(dj, tmp_path):
     link = Link(dj.url, "be_secret")
     for _ in range(3):
         run(link, station(log, delivered), once=True)
-    assert dj.catalogs == [{"protocol": "radiobooth/catalog@0", "tracks": [{"id": "1"}]}]
+    # A track the catalog can't hold is left out, and the local log says so.
+    assert dj.catalogs == [{"protocol": "radiobooth/catalog@0", "tracks": [TRACK]}]
+    assert any("left out 1 tracks" in line and "no title" in line for line in log)
     assert delivered == [["breaks/01.mp3", "breaks/02.mp3", "breaks/03.mp3", "show.json"]]
     assert dj.results == [("show_1", {"ok": True, "playlist": "Wipers On, Long Way Home"})]
     # Signed download URLs carry no token; API calls do.

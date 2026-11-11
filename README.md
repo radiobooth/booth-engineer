@@ -48,6 +48,12 @@ booth run                         # stays connected; leave it running
 `booth index` writes your catalog to a file so you can see exactly what would be sent, and
 `booth deliver` puts a show folder into Plex by hand.
 
+`booth scan ~/Music` reads a plain folder of music files (MP3, FLAC, Ogg, Opus, M4A, WMA, WAV, AIFF) and
+reports on their tags: how many tracks Booth can use, which files it leaves out and why, and how much of the
+library has years, genres and other details. Add `--catalog catalog.json` to see exactly what would be sent.
+Booth only reads the files; it never changes, moves or renames them. Shows made from a folder (instead of
+Plex) are coming next.
+
 So new shows don't repeat what you've just heard, Booth Engineer remembers which tracks were in the shows it
 delivered, in `history.json` next to its config file (normally `~/.config/radiobooth/`), and in
 `history-<id>.json` for each other person sharing this Booth (see below). That history stays
@@ -75,7 +81,7 @@ Copyright © 2026 Thomas Bohmbach, Jr.
 Booth Engineer is licensed under the GNU General Public License, version 3 or later ([LICENSE](LICENSE)).
 Code published here up to commit 2349c50 (the last before this license change), including every release up
 to v0.2.6, was released under Apache-2.0 and stays available under it for anyone who has it. The packaged
-apps also contain Python and the PyInstaller bootloader, whose licenses are in `NOTICES-*.txt` next to the
+apps also contain Python, the PyInstaller bootloader and mutagen, whose licenses are in `NOTICES-*.txt` next to the
 downloads and inside the apps (`booth license` shows them).
 
 The protocol schemas and API docs in [`protocol/`](protocol/) are Apache-2.0 ([protocol/LICENSE](protocol/LICENSE)),

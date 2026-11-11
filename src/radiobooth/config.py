@@ -73,6 +73,17 @@ def plex_client_id() -> str:
         return settings["plex_client_id"]
 
 
+def folder_key() -> bytes:
+    """This install's secret for folder track ids, made and saved the first time it's needed. Ids are keyed
+    hashes of file paths, so the service can't check a guessed path against them."""
+    with _changing:
+        settings = load()
+        if not re.fullmatch(r"[0-9a-f]{64}", str(settings.get("folder_key") or "")):
+            settings["folder_key"] = secrets.token_hex(32)
+            save(settings)
+        return bytes.fromhex(settings["folder_key"])
+
+
 def _plex_user(value) -> dict | None:
     if isinstance(value, dict) and type(value.get("id")) is int and isinstance(value.get("title"), str):
         return {"id": value["id"], "title": value["title"]}
