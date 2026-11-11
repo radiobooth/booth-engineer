@@ -36,7 +36,7 @@ def info_plist(v: str) -> dict:
         "LSMinimumSystemVersion": MIN_MACOS,
         # No window of its own (Booth shows its page in the browser), so no Dock icon for it.
         "LSUIElement": True,
-        "NSHumanReadableCopyright": "Radio Booth. Apache License 2.0.",
+        "NSHumanReadableCopyright": "Radio Booth. GNU GPL v3 or later.",
     }
 
 

@@ -70,4 +70,10 @@ uv run ruff check && uv run ruff format --check
 
 ## License
 
-Apache-2.0. This project is open source but not open to contributions; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Booth Engineer is licensed under the GNU General Public License, version 3 or later ([LICENSE](LICENSE)).
+Releases up to v0.2.6 were Apache-2.0 and stay so for anyone who has them.
+
+The protocol schemas and API docs in [`protocol/`](protocol/) are Apache-2.0 ([protocol/LICENSE](protocol/LICENSE)),
+so anyone can build a compatible client or server under any license.
+
+This project is open source but not open to contributions; see [CONTRIBUTING.md](CONTRIBUTING.md).
