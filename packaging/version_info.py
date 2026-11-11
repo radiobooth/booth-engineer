@@ -8,8 +8,6 @@ import re
 import sys
 from pathlib import Path
 
-COPYRIGHT = "Copyright \u00a9 2026 Thomas Bohmbach, Jr."
-
 TEMPLATE = """VSVersionInfo(
   ffi=FixedFileInfo(filevers={nums}, prodvers={nums}),
   kids=[
@@ -28,9 +26,20 @@ TEMPLATE = """VSVersionInfo(
 """
 
 
-def version() -> str:
+def _package(name: str) -> str:
+    """A setting from the package's __init__.py, read as text: the Mac app is put together without
+    installing Booth."""
     init = Path(__file__).parent.parent / "src" / "radiobooth" / "__init__.py"
-    return re.search(r'__version__ = "([^"]+)"', init.read_text(encoding="utf-8")).group(1)
+    value = re.search(rf'^{name} = "([^"]+)"$', init.read_text(encoding="utf-8"), re.M).group(1)
+    return value.encode("ascii").decode("unicode_escape")
+
+
+def version() -> str:
+    return _package("__version__")
+
+
+COPYRIGHT = _package("__copyright__")
+SOURCE_URL = _package("SOURCE_URL")
 
 
 def render(v: str) -> str:

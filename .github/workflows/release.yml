@@ -81,9 +81,12 @@ jobs:
         run: uv run python packaging/version_info.py > version_info.txt
         shell: bash
       # The GPL and the notices for what's bundled (Python itself) go inside the program, so they travel
-      # with every copy, self-updates included.
-      - run: uv run python packaging/notices.py > NOTICES.txt
+      # with every copy, self-updates included. The source link names the release's tag, or for a build
+      # that isn't a release, its commit.
+      - run: uv run python packaging/notices.py "$REF" > NOTICES.txt
         shell: bash
+        env:
+          REF: ${{ needs.version.outputs.tag || github.sha }}
       - run: >-
           uv run --locked --group build pyinstaller --onefile --name booth ${{ matrix.brand }}
           --add-data LICENSE:. --add-data NOTICES.txt:.
@@ -97,9 +100,8 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
-      # The license and notices built in, for the Mac app's Resources (arm64) and the release page.
-      - if: matrix.asset != 'booth-x86_64'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      # The license and notices built in, for the Mac app's Resources and the release page.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: notices-${{ matrix.asset }}
           path: |
@@ -123,6 +125,16 @@ jobs:
         with:
           name: notices-booth-arm64
           path: notices
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: notices-booth-x86_64
+          path: notices-x86_64
+      # The app holds both chips' programs but one NOTICES.txt: they must have bundled the same Python.
+      - run: |
+          if ! cmp -s notices/NOTICES.txt notices-x86_64/NOTICES.txt; then
+            echo "::error::The arm64 and Intel builds bundle different Pythons; their notices differ:"
+            diff notices/NOTICES.txt notices-x86_64/NOTICES.txt | head -20; exit 1
+          fi
       # The app's main program: one file for both chips, which starts the Booth built for this Mac.
       - run: >-
           clang -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 -Os -Wall -Werror

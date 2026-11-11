@@ -101,7 +101,9 @@ def test_without_a_console_messages_go_to_a_log_file(monkeypatch, tmp_path):
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
     monkeypatch.setattr(sys, "stdout", None)
     monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(cli, "NO_CONSOLE", False)  # put back after
     cli.without_console()
+    assert cli.NO_CONSOLE
     print("hello from the Windows app", file=sys.stderr)
     sys.stderr.flush()
     assert "hello from the Windows app" in (tmp_path / "booth.log").read_text()
@@ -138,3 +140,24 @@ def test_license_shows_the_gpl(capsys):
     assert cli.main(["license"]) == 0
     out = capsys.readouterr().out
     assert "Thomas Bohmbach, Jr." in out and "NO WARRANTY" in out and "GNU GENERAL PUBLIC LICENSE" in out
+
+
+def test_license_inside_the_app_says_it_once(tmp_path, monkeypatch, capsys):
+    (tmp_path / "LICENSE").write_text("GNU GENERAL PUBLIC LICENSE\n")
+    (tmp_path / "NOTICES.txt").write_text("Radio Booth 0.3.0\nCopyright\n")
+    monkeypatch.setattr(cli.sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert cli.main(["license"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Radio Booth 0.3.0") and out.count("Copyright") == 1 and "GNU GENERAL" in out
+
+
+def test_license_without_a_console_opens_a_file(tmp_path, monkeypatch, capsys):
+    """The Windows app has no console: the text opens in a viewer instead of vanishing into the log."""
+    from radiobooth import config
+
+    monkeypatch.setattr(config, "path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(cli, "NO_CONSOLE", True)
+    opened = []
+    assert cli.license_(None, opener=opened.append) == 0
+    assert capsys.readouterr().out == ""
+    assert "GNU GENERAL PUBLIC LICENSE" in Path(opened[0]).read_text(encoding="utf-8")

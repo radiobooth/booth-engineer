@@ -3,7 +3,7 @@ kit; system fonts only, so the page loads nothing from the internet."""
 
 import json
 
-from radiobooth import __version__
+from radiobooth import LICENSE_URL, __version__
 
 MARK = (
     '<svg viewBox="0 0 120 100" width="44" height="37" aria-hidden="true"><defs><radialGradient id="g">'
@@ -306,7 +306,8 @@ HTML = f"""<!doctype html>
     <details><summary>What Booth has been doing</summary><pre id="log"></pre></details>
   </section>
 
-  <footer id="footer"></footer>
+  <footer id="footer"><span id="footer-text"></span><a id="terms" href="__LICENSE_URL__" target="_blank"
+    rel="noopener">free software, no warranty (GNU GPL)</a></footer>
 </main>
 </body>
 </html>
@@ -602,16 +603,10 @@ function render(s) {
   $("change").textContent = changing ? "Done" : "Change";
 
   $("log").textContent = e.log.join("\n") || "Nothing yet.";
-  const footer = $("footer");
-  footer.textContent = s.restarting ? "Booth is starting again with the new version..." : "Booth " + s.version + " · this page is only on this computer · ";
-  if (!s.restarting) {
-    const terms = document.createElement("a");
-    terms.href = "https://github.com/radiobooth/booth-engineer/blob/main/LICENSE";
-    terms.target = "_blank";
-    terms.rel = "noopener";
-    terms.textContent = "free software, no warranty (GNU GPL)";
-    footer.append(terms);
-  }
+  // Only the text changes: the link stays put, so it keeps focus and clicks across refreshes.
+  $("footer").classList.remove("hidden");
+  $("footer-text").textContent = s.restarting ? "Booth is starting again with the new version..." : "Booth " + s.version + " · this page is only on this computer · ";
+  $("terms").classList.toggle("hidden", !!s.restarting);
 }
 
 async function refresh() {
@@ -662,7 +657,7 @@ function showOff() {
     ? "It's starting again with the new version. This page comes back by itself in a moment."
     : "Shows you ask for won't reach Plex until it's on again. To turn it on, open Radio Booth" + where +
       ". This page comes back by itself.";
-  $("footer").textContent = "";
+  $("footer").classList.add("hidden");
 }
 
 function fillRoster(roster, saved) {
@@ -996,4 +991,4 @@ document.addEventListener("DOMContentLoaded", () => {
   refresh();
   setInterval(refresh, 1500);
 });
-""".replace('"__BOOTH_VERSION__"', json.dumps(__version__))
+""".replace('"__BOOTH_VERSION__"', json.dumps(__version__)).replace("__LICENSE_URL__", LICENSE_URL)
