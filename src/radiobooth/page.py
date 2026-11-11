@@ -1,6 +1,10 @@
 """Booth's page (served by `web`): setup, how Booth is doing, and its settings. On Air colours from the brand
 kit; system fonts only, so the page loads nothing from the internet."""
 
+import json
+
+from radiobooth import __version__
+
 MARK = (
     '<svg viewBox="0 0 120 100" width="44" height="37" aria-hidden="true"><defs><radialGradient id="g">'
     '<stop offset="0" stop-color="#FF5B3A" stop-opacity=".55"/><stop offset="1" stop-color="#FF5B3A"'
@@ -86,6 +90,8 @@ pre { font: 12px/1.5 var(--label); white-space: pre-wrap; word-break: break-word
 a { color: var(--brass); }
 .note { margin: 14px 0 0; padding: 10px 12px; border-radius: 9px; background: rgba(63, 90, 82, .35);
   border: 1px solid var(--felt); font-size: 14px; }
+#updated { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#updated p { margin: 0; }
 #off { display: none; text-align: center; padding: 36px 20px; }
 #off h2 { font-size: 28px; margin-bottom: 10px; }
 body.off #off { display: block; }
@@ -156,6 +162,11 @@ HTML = f"""<!doctype html>
 <body>
 <main>
   <header>{MARK}<h1>Radio Booth</h1><span class="light" id="light">Off air</span></header>
+
+  <section id="updated" class="hidden" role="status">
+    <p id="updated-text"></p>
+    <button type="button" id="updated-go">Refresh</button>
+  </section>
 
   <section id="off">
     <p class="label">Booth at home</p>
@@ -315,6 +326,8 @@ const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
+const PAGE_VERSION = "__BOOTH_VERSION__";  // the version that served this page
+const edited = new Set();  // fields typed in and not yet sent: a reload would lose them
 let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false;
 const panels = new Map();  // show id -> its open feedback panel, kept across list refreshes
 const opening = new Set();  // show ids whose feedback panel is on its way
@@ -597,7 +610,9 @@ async function refresh() {
     const r = await fetch("/api/state", {cache: "no-store"});
     if (r.status === 403) { location.reload(); return; }
     if (turningOff) return;  // Booth is about to stop: don't bring the buttons back meanwhile
-    render(await r.json());
+    const s = await r.json();
+    if (s.version !== PAGE_VERSION && newVersion(s.version)) return;
+    render(s);
     gone = 0;
     document.body.classList.remove("off");
   } catch (x) {
@@ -605,6 +620,22 @@ async function refresh() {
     turningOff = false;
     if (gone > 2) showOff();
   }
+}
+
+function unsaved() {
+  // Would a reload lose something? Typing, a half-filled field, or a feedback or setup step left open.
+  const at = document.activeElement;
+  if (at && at.matches("textarea, select, input:not([type=checkbox])") && at.id !== "who") return true;
+  for (const f of edited) if (f.isConnected && f.value !== "") return true;
+  return panels.size > 0 || opening.size > 0 || adding || changing || asking;
+}
+
+function newVersion(version) {
+  // Booth updated itself: this page is the old one. Reload when that loses nothing, else offer it.
+  if (!unsaved()) { location.reload(); return true; }
+  $("updated-text").textContent = "Booth updated to " + version + ". Refresh the page to see what's new.";
+  show($("updated"), true);
+  return false;
 }
 
 function showOff() {
@@ -866,6 +897,11 @@ function whoChanged() {
 }
 
 function wire() {
+  document.addEventListener("input", (ev) => {
+    const f = ev.target;
+    if (f.matches("textarea, select, input:not([type=checkbox])") && f.id !== "who") edited.add(f);
+  });
+  $("updated-go").onclick = () => location.reload();
   $("who").onchange = whoChanged;
   $("add-person").onclick = () => { adding = !adding; error("settings-error", ""); if (last) render(last); };
   $("person-form").onsubmit = async (ev) => {
@@ -894,6 +930,7 @@ function wire() {
         voice: $("voice").value, dj_name: $("dj-name").value, station: $("station").value,
       });
       $("prompt").value = "";
+      for (const f of $("show-form").elements) edited.delete(f);  // sent: nothing left to lose
       $("show-ok").textContent = "Requested. It shows up in Plex in a few minutes.";
       show($("show-ok"), true);
     } catch (x) { error("show-error", x.message); }
@@ -913,8 +950,8 @@ function wire() {
     }
     refresh();
   };
-  $("folder-go").onclick = () => post("folder", {path: $("folder-path").value}).then(refresh)
-    .catch((x) => error("plex-error", x.message));
+  $("folder-go").onclick = () => post("folder", {path: $("folder-path").value})
+    .then(() => { edited.delete($("folder-path")); refresh(); }).catch((x) => error("plex-error", x.message));
   $("pair-form").onsubmit = async (ev) => {
     ev.preventDefault();
     error("pair-error", "");
@@ -950,4 +987,4 @@ document.addEventListener("DOMContentLoaded", () => {
   refresh();
   setInterval(refresh, 1500);
 });
-"""
+""".replace('"__BOOTH_VERSION__"', json.dumps(__version__))
