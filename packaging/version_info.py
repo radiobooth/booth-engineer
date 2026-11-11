@@ -15,7 +15,7 @@ TEMPLATE = """VSVersionInfo(
       StringStruct('FileDescription', 'Radio Booth'),
       StringStruct('FileVersion', '{version}'),
       StringStruct('InternalName', 'booth'),
-      StringStruct('LegalCopyright', 'Copyright \u00a9 2026 the Radio Booth authors. GNU GPL v3 or later.'),
+      StringStruct('LegalCopyright', 'Copyright \u00a9 2026 Thomas Bohmbach, Jr. GNU GPL v3 or later.'),
       StringStruct('OriginalFilename', 'RadioBooth-Windows.exe'),
       StringStruct('ProductName', 'Radio Booth'),
       StringStruct('ProductVersion', '{version}')])]),

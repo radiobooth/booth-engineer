@@ -23,6 +23,7 @@ def python_license() -> str | None:
 
 def render() -> str:
     head = (
+        "Copyright (C) 2026 Thomas Bohmbach, Jr.\n\n"
         "Radio Booth (Booth Engineer) is free software: you can redistribute it and/or modify it under\n"
         "the terms of the GNU General Public License, version 3 or (at your option) any later version.\n"
         "See LICENSE.\n"

@@ -70,7 +70,7 @@ uv run ruff check && uv run ruff format --check
 
 ## License
 
-Copyright © 2026 the Radio Booth authors.
+Copyright © 2026 Thomas Bohmbach, Jr.
 
 Booth Engineer is licensed under the GNU General Public License, version 3 or later ([LICENSE](LICENSE)).
 Code published here before 2026-11-11 (up to and including version 0.2.7) was released under Apache-2.0, and

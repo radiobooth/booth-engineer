@@ -37,7 +37,7 @@ def info_plist(v: str) -> dict:
         "LSMinimumSystemVersion": MIN_MACOS,
         # No window of its own (Booth shows its page in the browser), so no Dock icon for it.
         "LSUIElement": True,
-        "NSHumanReadableCopyright": "Copyright © 2026 the Radio Booth authors. GNU GPL v3 or later.",
+        "NSHumanReadableCopyright": "Copyright © 2026 Thomas Bohmbach, Jr. GNU GPL v3 or later.",
     }
 
 
