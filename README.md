@@ -70,4 +70,15 @@ uv run ruff check && uv run ruff format --check
 
 ## License
 
-Apache-2.0. This project is open source but not open to contributions; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Copyright © 2026 Thomas Bohmbach, Jr.
+
+Booth Engineer is licensed under the GNU General Public License, version 3 or later ([LICENSE](LICENSE)).
+Code published here up to commit 2349c50 (the last before this license change), including every release up
+to v0.2.6, was released under Apache-2.0 and stays available under it for anyone who has it. The packaged
+apps also contain Python and the PyInstaller bootloader, whose licenses are in `NOTICES-*.txt` next to the
+downloads and inside the apps (`booth license` shows them).
+
+The protocol schemas and API docs in [`protocol/`](protocol/) are Apache-2.0 ([protocol/LICENSE](protocol/LICENSE)),
+so anyone can build a compatible client or server under any license.
+
+This project is open source but not open to contributions; see [CONTRIBUTING.md](CONTRIBUTING.md).

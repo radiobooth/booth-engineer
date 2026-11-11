@@ -4,7 +4,11 @@ Files the release workflow uses to build the double-click apps.
 
 - `booth.ico`: the Windows app icon, from the Radio Booth brand kit (On Air). 32 px and up are the app icon
   with rounded corners; 16 to 24 px are just the lit on-air light, as the kit says for small sizes.
-- `version_info.py`: writes the Windows file details (name "Radio Booth", version from `radiobooth`).
+- `version_info.py`: writes the Windows file details (name "Radio Booth", version from `radiobooth`), and
+  holds the copyright line the apps use.
+- `notices.py`: writes `NOTICES.txt` (the copyright, the GPL, where the source is, and the licenses of the
+  Python and PyInstaller bootloader bundled in the apps). It goes inside each program with `LICENSE`, in the
+  Mac app's Resources, and next to the downloads.
 - `booth.icns`: the Mac app icon, from the same kit: the 1024 icon drawn on Apple's icon grid (an 824 px
   rounded square with a soft shadow), and the lit light alone at 16 px.
 - `macos/launcher.c`: the Mac app's main program. Built for both chips in one file; it starts the Booth

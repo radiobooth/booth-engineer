@@ -12,7 +12,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from radiobooth import __version__
+from radiobooth import LICENSE_URL, __copyright__, __version__
 
 DEFAULT_SERVER = "https://my.radiobooth.fm"
 # What `booth run` exits with when only setup can fix it, so the double-clicked app can offer setup.
@@ -27,6 +27,7 @@ COMMANDS = {
 COMMANDS["run"] = (
     "Stay connected to Booth DJ: send the catalog when you ask for a show, deliver it when ready."
 )
+COMMANDS["license"] = "Show Booth's license (GNU GPL v3 or later) and the notices for what the app bundles."
 COMMANDS["app"] = (
     "Run Booth with its page in your browser (setup, status, settings), or open the page of the Booth"
     " already running here."
@@ -35,7 +36,7 @@ COMMANDS["app"] = (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="booth", description="Booth Engineer for Radio Booth.")
-    parser.add_argument("--version", action="version", version=f"booth {__version__}")
+    parser.add_argument("--version", action="version", version=f"booth {__version__} (GNU GPL v3 or later)")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
     for name, help_text in COMMANDS.items():
         p = sub.add_parser(name, help=help_text, description=help_text)
@@ -296,6 +297,11 @@ def without_console(platform: str = sys.platform) -> None:
         stream = open(os.devnull, "w")  # noqa: SIM115
     sys.stdout = sys.stdout or stream
     sys.stderr = sys.stderr or stream
+    global NO_CONSOLE
+    NO_CONSOLE = True
+
+
+NO_CONSOLE = False  # set when Booth's messages go to booth.log
 
 
 MAC_CERTIFICATES = "/etc/ssl/cert.pem"  # the certificate authorities macOS trusts, kept up to date by Apple
@@ -360,6 +366,42 @@ def windows_home(platform: str = sys.platform, popen=None) -> int | None:
     return 0
 
 
+def license_files() -> list[Path]:
+    """NOTICES.txt and LICENSE where the packaged app keeps them (inside the program), else the source
+    checkout's LICENSE."""
+    folder = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).parents[2]
+    return [f for f in (folder / "NOTICES.txt", folder / "LICENSE") if f.is_file()]
+
+
+def license_text() -> str:
+    files = license_files()
+    # NOTICES.txt opens with Booth's own notice; without it (a source checkout), say it here.
+    head = ""
+    if not files or files[0].name != "NOTICES.txt":
+        head = (
+            f"Booth {__version__}. {__copyright__}\n"
+            "Booth is free software under the GNU General Public License, version 3 or later, and comes\n"
+            "with ABSOLUTELY NO WARRANTY. You may redistribute it under those terms.\n\n"
+        )
+    body = "\n".join(f.read_text(encoding="utf-8") for f in files)
+    return head + (body or f"The license: {LICENSE_URL}\n")
+
+
+def license_(args, opener=None) -> int:
+    text = license_text()
+    if not NO_CONSOLE:
+        print(text)
+        return 0
+    # The Windows app has no console to print to: open the text in the computer's text viewer instead.
+    from radiobooth import config
+
+    path = config.path().parent / "Booth license.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    (opener or getattr(os, "startfile", None) or (lambda p: None))(str(path))
+    return 0
+
+
 def dispatch(argv: list[str] | None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -368,7 +410,8 @@ def dispatch(argv: list[str] | None) -> int:
         return 0
     if args.command == "index":
         return index(args)
-    return {"app": app, "deliver": deliver, "pair": pair, "run": run, "setup": setup}[args.command](args)
+    commands = {"app": app, "deliver": deliver, "license": license_, "pair": pair, "run": run, "setup": setup}
+    return commands[args.command](args)
 
 
 if __name__ == "__main__":

@@ -63,10 +63,16 @@ jobs:
           - os: macos-latest  # Apple silicon
             file: booth
             asset: booth-arm64
+            python: only-managed
           - os: macos-15-intel
             file: booth
             asset: booth-x86_64
+            python: only-managed
     runs-on: ${{ matrix.os }}
+    env:
+      # Both halves of the Mac app must bundle the same Python (they share one NOTICES.txt), and the two
+      # Mac runners come with different ones: use the Python the pinned uv provides there instead.
+      UV_PYTHON_PREFERENCE: ${{ matrix.python || 'managed' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
@@ -80,8 +86,16 @@ jobs:
       - if: runner.os == 'Windows'
         run: uv run python packaging/version_info.py > version_info.txt
         shell: bash
+      # The GPL and the notices for what's bundled (Python itself) go inside the program, so they travel
+      # with every copy, self-updates included. The source link names the release's tag, or for a build
+      # that isn't a release, its commit.
+      - run: uv run python packaging/notices.py "$REF" > NOTICES.txt
+        shell: bash
+        env:
+          REF: ${{ needs.version.outputs.tag || github.sha }}
       - run: >-
           uv run --locked --group build pyinstaller --onefile --name booth ${{ matrix.brand }}
+          --add-data LICENSE:. --add-data NOTICES.txt:.
           src/radiobooth/__main__.py
         shell: bash
       - run: ./dist/${{ matrix.file }} --version
@@ -92,6 +106,13 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
+      # The license and notices built in, for the Mac app's Resources and the release page.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: notices-${{ matrix.asset }}
+          path: |
+            LICENSE
+            NOTICES.txt
 
   mac-app:
     needs: build
@@ -106,11 +127,27 @@ jobs:
           pattern: booth-*
           path: bin
           merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: notices-booth-arm64
+          path: notices
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: notices-booth-x86_64
+          path: notices-x86_64
+      # The app holds both chips' programs but one NOTICES.txt: they must have bundled the same Python.
+      - run: |
+          if ! cmp -s notices/NOTICES.txt notices-x86_64/NOTICES.txt; then
+            echo "::error::The arm64 and Intel builds bundle different Pythons; their notices differ:"
+            diff notices/NOTICES.txt notices-x86_64/NOTICES.txt | head -20; exit 1
+          fi
       # The app's main program: one file for both chips, which starts the Booth built for this Mac.
       - run: >-
           clang -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 -Os -Wall -Werror
           -o bin/launcher packaging/macos/launcher.c
-      - run: uv run --no-project python packaging/mac_app.py dist bin/launcher bin/booth-arm64 bin/booth-x86_64
+      - run: >-
+          uv run --no-project python packaging/mac_app.py dist bin/launcher bin/booth-arm64 bin/booth-x86_64
+          notices/NOTICES.txt
       # Not signed by a developer yet (no Apple Developer ID), so signed ad hoc: Apple silicon needs a
       # signature to run anything, and an intact one lets macOS offer "Open Anyway" instead of "damaged".
       - run: |
@@ -140,15 +177,30 @@ jobs:
           pattern: RadioBooth-*  # the downloads, not the per-chip programs inside the Mac app
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: notices-RadioBooth-Windows.exe
+          path: notices/windows
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: notices-booth-arm64
+          path: notices/macos
+      # Next to the downloads: the license built in, and each app's notices (from the Python it bundles).
+      - run: |
+          cp notices/windows/LICENSE dist/LICENSE.txt
+          cp notices/windows/NOTICES.txt dist/NOTICES-Windows.txt
+          cp notices/macos/NOTICES.txt dist/NOTICES-macOS.txt
       # The apps update themselves only to files that match these checksums.
       - run: cd dist && sha256sum RadioBooth-* > SHA256SUMS && cat SHA256SUMS
       # On a run started by hand this also makes the tag, on the commit that was built. (A tag made with
       # this token doesn't start the workflow again.)
       - run: >-
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
-          --title "Radio Booth $TAG"
-          --notes "Download the file for your computer. Setup steps:
-          https://github.com/$GITHUB_REPOSITORY/blob/main/docs/getting-started.md"
+          --title "Radio Booth $TAG" --notes "$NOTES"
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
+          NOTES: |
+            Download the file for your computer. [Setup steps](https://github.com/${{ github.repository }}/blob/main/docs/getting-started.md)
+
+            Booth is free software under the GNU GPL, version 3 or later, with no warranty (LICENSE.txt). The apps also contain Python and the PyInstaller bootloader, under their own licenses (NOTICES-Windows.txt, NOTICES-macOS.txt). [Source code for this release](https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }})

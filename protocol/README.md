@@ -12,6 +12,9 @@ repo so anyone can read exactly what leaves your machine. Version 0: expect chan
 
 The catalog is sent only when you ask for a show, and Booth DJ never stores it.
 
+Everything in this folder is Apache-2.0 ([LICENSE](LICENSE)), unlike the rest of Booth Engineer (GPL-3.0-or-later),
+so other clients and servers can implement the protocol under any license.
+
 Your show history (which tracks were in which delivered show, so new shows don't repeat them) is kept by
 Booth Engineer on your machine, in `history.json` next to its config file (and `history-<id>.json` for each
 other person sharing your Booth Engineer, so their shows keep their own history). It travels only inside the

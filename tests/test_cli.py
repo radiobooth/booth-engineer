@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -100,7 +101,9 @@ def test_without_a_console_messages_go_to_a_log_file(monkeypatch, tmp_path):
     monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
     monkeypatch.setattr(sys, "stdout", None)
     monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(cli, "NO_CONSOLE", False)  # put back after
     cli.without_console()
+    assert cli.NO_CONSOLE
     print("hello from the Windows app", file=sys.stderr)
     sys.stderr.flush()
     assert "hello from the Windows app" in (tmp_path / "booth.log").read_text()
@@ -123,3 +126,38 @@ def test_the_windows_app_moves_into_its_own_folder_and_starts_there(monkeypatch,
     monkeypatch.setattr(sys, "executable", str(home))
     assert cli.windows_home("win32", popen=lambda args, **k: started.append(args)) is None  # already there
     assert cli.windows_home("darwin") is None
+
+
+def test_versions_agree():
+    """Release tags are checked against pyproject.toml; the app and its notices report __version__."""
+    import tomllib
+
+    pyproject = tomllib.loads((Path(__file__).parent.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["project"]["version"] == __version__
+
+
+def test_license_shows_the_gpl(capsys):
+    assert cli.main(["license"]) == 0
+    out = capsys.readouterr().out
+    assert "Thomas Bohmbach, Jr." in out and "NO WARRANTY" in out and "GNU GENERAL PUBLIC LICENSE" in out
+
+
+def test_license_inside_the_app_says_it_once(tmp_path, monkeypatch, capsys):
+    (tmp_path / "LICENSE").write_text("GNU GENERAL PUBLIC LICENSE\n")
+    (tmp_path / "NOTICES.txt").write_text("Radio Booth 0.3.0\nCopyright\n")
+    monkeypatch.setattr(cli.sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert cli.main(["license"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Radio Booth 0.3.0") and out.count("Copyright") == 1 and "GNU GENERAL" in out
+
+
+def test_license_without_a_console_opens_a_file(tmp_path, monkeypatch, capsys):
+    """The Windows app has no console: the text opens in a viewer instead of vanishing into the log."""
+    from radiobooth import config
+
+    monkeypatch.setattr(config, "path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(cli, "NO_CONSOLE", True)
+    opened = []
+    assert cli.license_(None, opener=opened.append) == 0
+    assert capsys.readouterr().out == ""
+    assert "GNU GENERAL PUBLIC LICENSE" in Path(opened[0]).read_text(encoding="utf-8")
