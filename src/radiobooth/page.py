@@ -153,6 +153,7 @@ footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 2
 #files-form p { margin: 0; font-size: 14px; }
 progress { width: 100%; height: 10px; margin: 10px 0 4px; accent-color: var(--tally); }
 #report { white-space: pre-wrap; overflow-wrap: anywhere; }
+.show-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .remove { justify-self: start; margin-top: 6px; padding: 6px 12px; font-size: 14px; }
 """
 
@@ -222,6 +223,7 @@ HTML = f"""<!doctype html>
     <div class="error hidden" id="shows-error"></div>
     <div class="error hidden" id="feedback-error"></div>
     <ul class="shows hidden" id="shows"></ul>
+    <p class="muted hidden" id="copy-status"></p>
   </section>
 
   <section id="setup">
@@ -502,6 +504,7 @@ function render(s) {
   if (!wantShows) { showsWanted = false; clearTimeout(showsTimer); }
 
   renderScan(s, files);
+  renderCopy(s.copy);
 
   // Setup: shown until done, when something needs fixing, or when asked for
   const needsPlex = !s.music.ready || (!files && e.state === "needs_plex");
@@ -778,17 +781,48 @@ function renderShows(list) {
     m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
     li.append(t, st, m);
     if (s.feedback) li.append(feedbackButton(s));
-    if (here && s.status === "delivered" && s.on_disk) li.append(removeButton(s));
+    if (here && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, copyButton(s), removeButton(s)));
     if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
 }
 
+function copyButton(s) {
+  const b = el("button", {type: "button", className: "quiet remove", textContent: "Copy to a folder",
+    title: "Copies the songs and breaks into a folder of their own, numbered in order, to put on a phone," +
+      " a USB stick or a car's drive"});
+  b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await post("copy_show", {show_id: s.show_id});
+      error("shows-error", "");
+      refresh();
+    } catch (x) { error("shows-error", x.message); }
+    b.disabled = false;
+  };
+  return b;
+}
+
+// A show being copied to a folder, or the last one copied.
+function renderCopy(c) {
+  const p = $("copy-status");
+  show(p, !!c);
+  if (!c) return;
+  if (!c.finished) {
+    p.textContent = c.total ? "Copying the show: " + c.done + " of " + c.total + " files..." : "Copying the show...";
+  } else if (c.error) {
+    p.textContent = "The copy didn't finish: " + c.error;
+  } else {
+    p.textContent = "Copied to " + c.folder + ". The files are numbered, so they play in order on a phone, a" +
+      " USB stick or a car's drive." + (c.missing ? " " + c.missing + " files weren't there to copy." : "");
+  }
+}
+
 function removeButton(s) {
   const b = el("button", {type: "button", className: "quiet remove", textContent: "Remove"});
   b.onclick = async () => {
-    if (!confirm("Remove “" + (s.playlist || s.title) + "” from your Booth shows folder? Its playlist and DJ breaks" +
-      " are deleted. Your music stays where it is.")) return;
+    if (!confirm("Remove “" + (s.playlist || s.title) + "” from your Booth shows folder? Its playlist, DJ breaks" +
+      " and any copy Booth made of it are deleted. Your music stays where it is.")) return;
     b.disabled = true;
     try {
       await post("remove_show", {show_id: s.show_id});

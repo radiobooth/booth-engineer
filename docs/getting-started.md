@@ -84,6 +84,9 @@ On your phone, or on Booth's page on the computer, describe the show, pick a len
 the show**. The page tells you how it's going. When it says **In Plex**, open Plex and look under
 **Playlists**. With your music in a folder, it says **In your Booth shows folder**: open the new playlist
 there in your music player. **Remove** under a show on Booth's page deletes its playlist and DJ breaks.
+To take a show with you, click **Copy to a folder** under it: Booth copies its songs and breaks into a folder
+of their own, numbered in order, and opens that folder. Drag it onto your phone, a USB stick or your car's
+drive, and it plays in order even in a player that ignores playlists.
 
 If your account has a limit, both pages show what's left above the form.
 

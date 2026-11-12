@@ -144,6 +144,44 @@ def test_shows_written_with_full_paths_are_still_removed(tmp_path):
     assert not breaks.exists()
 
 
+def test_a_show_copied_to_a_folder_is_numbered_files_in_playing_order(tmp_path):
+    show, music, out = make_show(tmp_path), music_folder(tmp_path), tmp_path / "out"
+    out.mkdir()
+    (music / MUSIC["103"]).unlink()
+    playlist.deliver(show, out, music, lookup_in(MUSIC | {"103": "X/Y/03.flac"}), prefix="Jennifer: ")
+    (music / MUSIC["102"]).unlink()  # gone after the show was made
+    seen = []
+    made = playlist.copy_out(out, "show_abcdef123456", lambda done, total: seen.append((done, total)))
+    assert made.folder == out.resolve() / "Copies" / "Jennifer - Wipers On, Long Way Home"
+    assert (made.files, made.missing) == (4, 1)
+    assert seen[0] == (0, 4) and seen[-1] == (4, 4)
+    names = sorted(p.name for p in made.folder.iterdir())
+    assert names == [
+        "01 Booth - Break 1.mp3",
+        "02 Artist 101 - Song 101.flac",
+        "03 Booth - Break 2.mp3",
+        "04 Booth - Break 3.mp3",
+        "Jennifer - Wipers On, Long Way Home.m3u8",
+    ]
+    assert (made.folder / "02 Artist 101 - Song 101.flac").read_bytes() == b"audio"
+    text = (made.folder / "Jennifer - Wipers On, Long Way Home.m3u8").read_text(encoding="utf-8")
+    assert "#EXTINF:61,Artist 101 - Song 101\n02 Artist 101 - Song 101.flac\n" in text
+    assert [s.show_id for s in playlist.shows(out)] == ["show_abcdef123456"]  # copies aren't shows
+
+    again = playlist.copy_out(out, "show_abcdef123456")
+    assert again.folder == made.folder and not list((out / "Copies").glob(".*"))
+    package = json.loads((show / "show.json").read_text())
+    (show / "show.json").write_text(json.dumps(package | {"show_id": "show_other999999"}))
+    playlist.deliver(show, out, music, lookup_in(MUSIC), prefix="Jennifer: ")
+    other = playlist.copy_out(out, "show_other999999")
+    assert other.folder.name == "Jennifer - Wipers On, Long Way Home (2)"
+
+    assert playlist.remove(out, "show_abcdef123456")
+    assert not made.folder.exists() and other.folder.exists()
+    with pytest.raises(playlist.PlaylistError, match="isn't in your Booth shows folder"):
+        playlist.copy_out(out, "show_abcdef123456")
+
+
 def test_a_playlist_pointing_elsewhere_never_deletes_that_folder(tmp_path):
     out, elsewhere = tmp_path / "out", tmp_path / "elsewhere"
     (out / "breaks").mkdir(parents=True)

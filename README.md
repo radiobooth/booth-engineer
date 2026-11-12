@@ -55,7 +55,9 @@ on Booth's page, choose **It's in a folder** and name your music folder and a fo
 arrives there as an `.m3u8` playlist, with its DJ breaks in `breaks/` beside it, so any player that opens
 playlists plays it (foobar2000, MusicBee, VLC, Winamp, Music on a Mac). The playlist points at your music
 where it is: Booth only reads your files, and never changes, moves, renames or uploads them. **Remove** on
-Booth's page deletes a show's playlist and breaks.
+Booth's page deletes a show's playlist and breaks. **Copy to a folder** copies a show whole into
+`Copies/<title>/` in the shows folder: its songs and breaks as numbered files in playing order, plus a
+playlist, to put on a phone, a USB stick or a car's drive.
 
 Booth reads the folder's tags when you set it up (with a progress bar: the first read of a big collection
 takes a while) and again when Booth starts and for each show, reading only files that are new or changed. It
