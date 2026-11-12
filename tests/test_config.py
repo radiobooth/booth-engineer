@@ -46,3 +46,26 @@ def test_people_with_an_odd_plex_user_share_with_nobody(tmp_path, monkeypatch):
         ],
     }
     assert [p["plex_user"] for p in config.people(settings)] == [None, {"id": 5, "title": "j"}]
+
+
+def test_a_busy_config_file_is_read_again_on_windows(tmp_path, monkeypatch):
+    """Windows refuses to read a file while another thread replaces it; Booth tries again for a moment."""
+    import sys
+    from pathlib import Path
+
+    from radiobooth import config
+
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    config.save({"name": "linus"})
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(config.time, "sleep", lambda s: None)
+    real, busy = Path.read_text, [2]
+
+    def read_text(self, *a, **kw):
+        if busy[0]:
+            busy[0] -= 1
+            raise PermissionError(13, "Permission denied")
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert config.load()["name"] == "linus"

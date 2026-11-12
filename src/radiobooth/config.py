@@ -11,8 +11,10 @@ import json
 import os
 import re
 import secrets
+import sys
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -29,9 +31,23 @@ def path() -> Path:
     return Path(base) / "radiobooth" / "config.json"
 
 
+def _patiently(step):
+    """`step()`, tried again for a moment on Windows when the file is busy: there a file can't be read while
+    it's being replaced, nor replaced while it's open for reading (the page reads settings every second or
+    two while a background step saves them)."""
+    for wait in (0.01, 0.03, 0.1, 0.3, 1.0):
+        try:
+            return step()
+        except PermissionError:
+            if sys.platform != "win32":
+                raise
+            time.sleep(wait)
+    return step()
+
+
 def load() -> dict:
     p = path()
-    settings = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    settings = json.loads(_patiently(lambda: p.read_text(encoding="utf-8"))) if p.is_file() else {}
     if moved := MOVED.get(str(settings.get("server") or "").rstrip("/")):
         settings["server"] = moved
     return settings
@@ -46,7 +62,7 @@ def save(settings: dict) -> Path:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=1)
             f.write("\n")
-        os.replace(tmp, p)
+        _patiently(lambda: os.replace(tmp, p))
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
