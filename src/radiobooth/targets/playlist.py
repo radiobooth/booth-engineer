@@ -17,7 +17,7 @@ import tempfile
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from radiobooth.targets.plex import folder_name, load_package
 
@@ -81,6 +81,19 @@ def _place(out_root: Path, title: str, show_id: str) -> Path:
     raise PlaylistError(f"Too many playlists named {base!r} in {out_root}.")
 
 
+def _music_file(music_root: Path, rel: str) -> Path | None:
+    """The file a track's path inside the music folder names, if it's still there. Linked folders inside the
+    music folder are fine (the scan follows them), so this checks the path itself, not where links lead."""
+    parts = PurePosixPath(rel).parts
+    if not parts or PurePosixPath(rel).is_absolute() or ".." in parts or ":" in parts[0]:
+        return None
+    for form in ("NFC", "NFD"):  # the index keeps names composed; a Linux disk may hold them decomposed
+        path = music_root.joinpath(*(unicodedata.normalize(form, p) for p in parts))
+        if path.is_file():
+            return path
+    return None
+
+
 def write_atomically(path: Path, text: str) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".booth-", suffix=".tmp")
     try:
@@ -124,8 +137,8 @@ def deliver(
             lines += [f"#EXTINF:{secs},{host} - Break {breaks}", str(folder / src.name)]
             continue
         found = lookup(item["track_id"])
-        path = (music_root / found[0]) if found else None
-        if path is None or not path.resolve().is_relative_to(music_root) or not path.is_file():
+        path = _music_file(music_root, found[0]) if found else None
+        if path is None:
             missing += 1
             continue
         tracks += 1

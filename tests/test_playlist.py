@@ -214,3 +214,23 @@ def test_check_in_says_where_shows_go(home):
     link.post = lambda path, data: (sent.append(data), (200, {"shows": []}))[1]
     link.checkin()
     assert sent[0]["delivers_to"] == "playlist"
+
+
+def test_music_in_linked_folders_and_decomposed_names_is_found(tmp_path):
+    import os
+    import unicodedata
+
+    show, music, out = make_show(tmp_path), tmp_path / "music", tmp_path / "out"
+    out.mkdir()
+    other_drive = tmp_path / "drive2" / "Album"
+    other_drive.mkdir(parents=True)
+    (other_drive / "01.flac").write_bytes(b"a")
+    music.mkdir()
+    os.symlink(tmp_path / "drive2", music / "linked")
+    decomposed = unicodedata.normalize("NFD", "Björk")
+    (music / decomposed).mkdir()
+    (music / decomposed / "02.flac").write_bytes(b"b")
+    table = {"101": "linked/Album/01.flac", "102": "Björk/02.flac", "103": "C:/x.flac"}
+    done = playlist.deliver(show, out, music, lookup_in(table))
+    assert (done.tracks, done.missing) == (2, 1)
+    assert str(music.resolve() / "linked" / "Album" / "01.flac") in done.playlist.read_text(encoding="utf-8")
