@@ -40,7 +40,10 @@ their Plex user on Booth's page, Booth Engineer then shares each of their new pl
 
 ## Check-in
 
-`POST /v0/checkin` `{"version": "0.0.1"}` (Booth Engineer's version), about once a minute.
+`POST /v0/checkin` `{"version": "0.0.1", "delivers_to": "plex"}` about once a minute: Booth Engineer's
+version, and where it puts finished shows, `"plex"` (a Plex playlist) or `"playlist"` (a playlist file in the
+Booth shows folder, for music in a plain folder), so Booth DJ's pages can say where a show arrives.
+`delivers_to` is optional; versions before 0.3.0 don't send it.
 
 ```json
 {

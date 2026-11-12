@@ -20,8 +20,10 @@ from pathlib import Path
 from radiobooth import config, history, plexshare
 from radiobooth.link import Link, LinkError, Station
 from radiobooth.link import run_all as run_desks
+from radiobooth.sources import folder as folder_source
 from radiobooth.sources import plex as plex_source
 from radiobooth.sources.plex import PlexAuthError, PlexClient
+from radiobooth.targets import playlist as playlist_target
 from radiobooth.targets import plex as plex_target
 
 
@@ -47,6 +49,52 @@ def delivery_settings(settings: dict) -> tuple[dict, list[str]]:
     return found, [names[k] for k, v in found.items() if not v]
 
 
+def folder_mode(settings: dict) -> bool:
+    """Music from a plain folder, shows as playlist files (not Plex)."""
+    return setting(settings, "BOOTH_SOURCE", "music_source") == "folder"
+
+
+def folder_settings(settings: dict) -> tuple[dict, list[str]]:
+    """What making shows from a music folder needs, and the names of what's missing."""
+    found = {
+        "music": setting(settings, "BOOTH_MUSIC_FOLDER", "music_folder"),
+        "shows": setting(settings, "BOOTH_SHOWS_FOLDER", "shows_folder"),
+    }
+    names = {"music": "BOOTH_MUSIC_FOLDER", "shows": "BOOTH_SHOWS_FOLDER"}
+    return found, [names[k] for k, v in found.items() if not v]
+
+
+def needs(settings: dict) -> tuple[dict, list[str], list[str]]:
+    """For whichever kind of setup this is: its settings, what's missing, and the folders it needs."""
+    if folder_mode(settings):
+        found, missing = folder_settings(settings)
+        return found, missing, [found["music"], found["shows"]]
+    found, missing = delivery_settings(settings)
+    return found, missing, [found["dest"]]
+
+
+def read_folder(settings: dict, on_scan: Callable | None = None) -> dict:
+    """The music folder's catalog (the index brought up to date). `on_scan(done, total)` hears how reading
+    it goes, then `on_scan(report)` gets the tag report, or `on_scan(None)` if reading failed."""
+    found, _ = folder_settings(settings)
+    try:
+        built, report = folder_source.build_catalog(
+            found["music"],
+            settings.get("library_name") or "Music",
+            config.folder_key(),
+            config.path().parent,
+            skip=[Path(found["shows"]).expanduser()],
+            progress=on_scan,
+        )
+    except BaseException:
+        if on_scan:
+            on_scan(None)
+        raise
+    if on_scan:
+        on_scan(report)
+    return built
+
+
 def remember(show_dir: Path, log: Callable[[str], None], person: str | None = None) -> None:
     """Note a delivered show's tracks so later shows skip them. Never fails the delivery."""
     try:
@@ -64,12 +112,15 @@ def station(
     busy: Callable[[bool], None] | None = None,
     on_delivered: Callable[[str], None] | None = None,
     person: dict | None = None,
+    on_scan: Callable | None = None,
 ) -> Station:
     """The link loop's view of this machine, from saved settings (and the environment, which wins).
     `person`: another person sharing this Booth (see config.people), with their own show history and their
     name before their playlists' titles; their shows go into the same Plex, with this computer's sign-in."""
     who = person["id"] if person else None
     prefix = f"{person['name']}: " if person else ""
+    if folder_mode(settings):
+        return folder_station(settings, log, busy, on_delivered, who, prefix, on_scan)
     share_with = person.get("plex_user") if person else None
     found, _ = delivery_settings(settings)
     plex = PlexClient(found["url"], found["token"])
@@ -141,6 +192,49 @@ def station(
     return Station(catalog=catalog, deliver=deliver_show, log=log)
 
 
+def folder_station(
+    settings: dict,
+    log: Callable[[str], None],
+    busy: Callable[[bool], None] | None,
+    on_delivered: Callable[[str], None] | None,
+    who: str | None,
+    prefix: str,
+    on_scan: Callable | None = None,
+) -> Station:
+    """`station` for music in a plain folder, delivered as playlist files (`on_scan`: see `read_folder`)."""
+    found, _ = folder_settings(settings)
+    shows = Path(found["shows"]).expanduser()
+    home = config.path().parent
+    mark = busy or (lambda on: None)
+
+    def catalog() -> dict:
+        mark(True)
+        try:
+            return history.annotate(read_folder(settings, on_scan), who)
+        finally:
+            mark(False)
+
+    def deliver_show(show_dir: Path) -> str:
+        mark(True)
+        try:
+            music = folder_source.music_root(found["music"])
+            index = folder_source.open_index(music, config.folder_key(), home)
+            try:
+                done = playlist_target.deliver(show_dir, shows, music, index.lookup, prefix=prefix)
+            finally:
+                index.close()
+            if done.missing:
+                log(f"Left {done.missing} tracks out of {done.title!r}: they're gone from the music folder.")
+            remember(show_dir, log, who)
+            if on_delivered:
+                on_delivered(done.title)
+            return done.title
+        finally:
+            mark(False)
+
+    return Station(catalog=catalog, deliver=deliver_show, log=log)
+
+
 def desks(
     settings: dict,
     log: Callable[[str], None],
@@ -153,13 +247,21 @@ def desks(
     forgotten by their Booth account)."""
     people = [p for p in config.people(settings) if p["id"] not in skip]
     server = settings["server"]
-    out = [(link_for(server, settings["device_token"]), station(settings, log, **station_args))]
+    delivers_to = "playlist" if folder_mode(settings) else "plex"
+
+    def link(token: str) -> Link:
+        out = link_for(server, token)
+        if isinstance(out, Link):  # so Booth DJ says where shows go: Plex, or the Booth shows folder
+            out.delivers_to = delivers_to
+        return out
+
+    out = [(link(settings["device_token"]), station(settings, log, **station_args))]
     for p in people:
 
         def said(msg: str, name: str = p["name"]) -> None:
             log(f"{name}: {msg}")
 
-        out.append((link_for(server, p["device_token"]), station(settings, said, person=p, **station_args)))
+        out.append((link(p["device_token"]), station(settings, said, person=p, **station_args)))
     return out, people
 
 
@@ -210,6 +312,8 @@ class Engine:
         self.last_checkin: float | None = None
         self.last_show: dict | None = None
         self.unpaired: set[str] = set()  # people sharing this Booth whose accounts no longer know it
+        self.scan: dict | None = None  # reading the music folder: {"done", "total", "started"}
+        self.report: dict | None = None  # the music folder's last tag report, for Booth's page
 
     # What the page reads
 
@@ -231,6 +335,8 @@ class Engine:
             "last_checkin": self.last_checkin,
             "last_show": self.last_show,
             "unpaired": sorted(self.unpaired),
+            "scan": self.scan,
+            "report": self.report,
             "log": list(self.lines)[-40:],
         }
 
@@ -267,6 +373,48 @@ class Engine:
         if self.state in (STARTING, OFFLINE):
             self.state = ON_AIR
 
+    def _scanned(self, *what) -> None:
+        """Progress reading the music folder: (files done, files in all), then the tag report."""
+        if len(what) == 2:
+            done, total = what
+            now, scan = time.time(), self.scan
+            if not scan or not scan["total"]:  # the folder's been looked through; reading starts now
+                scan = {"started": now, "first": done}
+            # Files already in the index count as done straight away, so the rate is of those read since.
+            read, spent = done - scan["first"], now - scan["started"]
+            rate = read / spent if read and spent >= 2 else None
+            left = (total - done) / rate if rate else None
+            self.scan = scan | {"done": done, "total": total, "rate": rate, "left_s": left}
+            return
+        report = what[0]
+        self.scan = None
+        if report is None:  # the scan failed; the log says why
+            return
+        self.report = {"at": time.time(), "lines": report.lines(), "files": report.files, "used": report.used}
+
+    def scan_music(self) -> bool:
+        """Read the music folder now, in the background (after setup, and when Booth starts, so a show
+        never waits for a first long read). False when there's no folder to read or a read is under way."""
+        settings = self._load()
+        if not folder_mode(settings) or folder_settings(settings)[1]:
+            return False
+        with self._lock:
+            if self.scan is not None:
+                return False
+            self.scan = {"done": 0, "total": 0, "started": time.time(), "first": 0}
+
+        def go() -> None:
+            self._mark(True)
+            try:
+                read_folder(settings, self._scanned)
+            except Exception as e:  # noqa: BLE001 - say what; the next show tries again
+                self.log(f"Couldn't read your music folder: {e}")
+            finally:
+                self._mark(False)
+
+        threading.Thread(target=go, name="booth-scan", daemon=True).start()
+        return True
+
     def _plex_refused(self) -> None:
         self.state = NEEDS_PLEX
 
@@ -288,12 +436,13 @@ class Engine:
 
         while not stop.is_set():
             settings = self._load()
-            found, missing = delivery_settings(settings)
+            _, missing, folders = needs(settings)
             if not settings.get("device_token") or not settings.get("server") or missing:
                 self.state = NOT_SET_UP
                 return
-            if not Path(found["dest"]).is_dir():
-                self.log(f"The breaks folder {found['dest']} isn't there (is the drive or share connected?).")
+            absent = next((f for f in folders if not Path(f).expanduser().is_dir()), None)
+            if absent:
+                self.log(f"The folder {absent} isn't there (is the drive or share connected?).")
                 self.state = NEEDS_FOLDER
                 if stop.wait(self._retry_s):
                     break
@@ -309,6 +458,7 @@ class Engine:
                     on_plex_refused=self._plex_refused,
                     busy=self._mark,
                     on_delivered=self._delivered,
+                    on_scan=self._scanned,
                 )
                 for _, st in found_desks:
                     original_log = st.log

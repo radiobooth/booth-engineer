@@ -67,6 +67,7 @@ class Link:
         self.server = server.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self.delivers_to: str | None = None  # "plex" or "playlist", said at check-in
 
     def _call(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None):
         # Only paths on the paired server: a URL from a reply must never carry the token elsewhere.
@@ -128,7 +129,10 @@ class Link:
 
     def checkin(self) -> dict:
         """{"next_checkin_s": 5..3600, "shows": [entries with a show_id]}; anything else is a LinkError."""
-        reply = self.post("/v0/checkin", {"version": __version__})[1]
+        said = {"version": __version__}
+        if self.delivers_to:
+            said["delivers_to"] = self.delivers_to
+        reply = self.post("/v0/checkin", said)[1]
         shows, wait = reply.get("shows", []), reply.get("next_checkin_s", 60)
         if not isinstance(shows, list) or not all(isinstance(s, dict) and s.get("show_id") for s in shows):
             raise LinkError("Booth DJ sent a check-in reply this version doesn't understand.")

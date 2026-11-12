@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable
@@ -258,10 +259,13 @@ class Index:
             self.db.execute(f"PRAGMA user_version = {READER}")
         self.stale = False
 
-    def path_of(self, track: str) -> str | None:
-        """The file (inside the music folder) a catalog id stands for."""
-        row = self.db.execute("SELECT rel FROM files WHERE id = ?", (track,)).fetchone()
-        return row[0] if row else None
+    def lookup(self, track: str) -> tuple[str, dict] | None:
+        """(the file inside the music folder, its tags) for a catalog id."""
+        row = self.db.execute("SELECT rel, tags FROM files WHERE id = ?", (track,)).fetchone()
+        if not row:
+            return None
+        tags = json.loads(row[1]) if row[1] else {}
+        return row[0], tags.get("fields", {})
 
 
 def _read(path: Path) -> tuple[dict | None, str | None]:
@@ -517,6 +521,22 @@ def tracks_of(files: list[Found], report: Report) -> list[dict]:
     return [t for _, t in kept]
 
 
+_scanning = threading.Lock()  # one scan at a time: a second one waits, then finds little left to read
+
+
+def music_root(folder: str | Path) -> Path:
+    """The music folder as the index knows it."""
+    folder = Path(folder).expanduser().resolve()
+    if not folder.is_dir():
+        raise FileNotFoundError(f"No folder at {folder}")
+    return folder
+
+
+def open_index(folder: Path, key: bytes, home: Path) -> Index:
+    """The index of a music folder (from `music_root`)."""
+    return Index(index_path(folder, key, home))
+
+
 def build_catalog(
     folder: str | Path,
     name: str,
@@ -528,15 +548,14 @@ def build_catalog(
 ) -> tuple[dict, Report]:
     """The catalog for a music folder, and the tag report. `name` is what the service hears the library
     called (never the path, which could hold the listener's user name); `home` is where the index lives."""
-    folder = Path(folder).expanduser().resolve()
-    if not folder.is_dir():
-        raise FileNotFoundError(f"No folder at {folder}")
+    folder = music_root(folder)
     report = Report(examples=examples)
-    index = Index(index_path(folder, key, home))
-    try:
-        files = refresh(folder, index, key, report, skip, progress)
-    finally:
-        index.close()
+    with _scanning:
+        index = open_index(folder, key, home)
+        try:
+            files = refresh(folder, index, key, report, skip, progress)
+        finally:
+            index.close()
     catalog = {
         "protocol": "radiobooth/catalog@0",
         "generated_at": history.stamp(),

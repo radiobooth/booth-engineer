@@ -263,8 +263,15 @@ def run(args: argparse.Namespace) -> int:
     if not settings.get("device_token"):
         print("booth run: not paired yet. Run `booth pair` first.", file=sys.stderr)
         return NEEDS_PAIRING
-    plex_settings = delivery_settings("run", None, None)
-    if plex_settings is None:
+    if engine.folder_mode(settings):
+        _, missing, folders = engine.needs(settings)
+        if missing:
+            print(f"booth run: missing {', '.join(missing)}. Set Booth up first.", file=sys.stderr)
+            return NEEDS_SETUP
+        if absent := next((f for f in folders if not Path(f).expanduser().is_dir()), None):
+            print(f"booth run: {absent} isn't a folder here (is the drive connected?).", file=sys.stderr)
+            return NEEDS_SETUP
+    elif delivery_settings("run", None, None) is None:
         return NEEDS_SETUP
 
     def log(msg: str) -> None:

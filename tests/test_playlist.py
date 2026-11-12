@@ -1,0 +1,216 @@
+"""Shows from a music folder: a playlist per show, its breaks beside it, the music left where it is."""
+
+import json
+import time
+
+import pytest
+from test_deliver import make_show
+from test_folder import tagged
+
+from radiobooth import config, engine, history
+from radiobooth.targets import playlist
+from radiobooth.targets.plex import PlexError
+from radiobooth.websetup import WebSetup, music_ready
+
+MUSIC = {"101": "Talking Heads/Remain in Light/01.flac", "102": "Björk/Post/02.flac", "103": "X/Y/03.flac"}
+
+
+def music_folder(tmp_path):
+    root = tmp_path / "music"
+    for rel in MUSIC.values():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(b"audio")
+    return root
+
+
+def lookup_in(table):
+    def lookup(track_id):
+        rel = table.get(track_id)
+        return (
+            (rel, {"artist": "Artist " + track_id, "title": "Song\n" + track_id, "duration_ms": 61499})
+            if rel
+            else None
+        )
+
+    return lookup
+
+
+def test_a_show_is_a_playlist_of_the_music_where_it_is_and_the_breaks(tmp_path):
+    show, music, out = make_show(tmp_path), music_folder(tmp_path), tmp_path / "Booth shows"
+    out.mkdir()
+    done = playlist.deliver(show, out, music, lookup_in(MUSIC), prefix="Jennifer: ")
+    assert (done.title, done.tracks, done.breaks, done.missing) == (
+        "Jennifer: Wipers On, Long Way Home",
+        3,
+        3,
+        0,
+    )
+    assert done.playlist == out.resolve() / "Jennifer - Wipers On, Long Way Home.m3u8"
+    lines = done.playlist.read_text(encoding="utf-8").splitlines()
+    breaks = out.resolve() / "breaks" / "2026-11-03-wipers-on-long-way-home-123456"
+    assert lines[:5] == [
+        "#EXTM3U",
+        "#PLAYLIST:Jennifer: Wipers On, Long Way Home",
+        "#BOOTH-SHOW:show_abcdef123456",
+        "#EXTINF:20,Booth - Break 1",
+        str(breaks / "01.mp3"),
+    ]
+    assert lines[5:7] == ["#EXTINF:61,Artist 101 - Song 101", str(music.resolve() / MUSIC["101"])]
+    assert str(music.resolve() / MUSIC["102"]) in lines  # names as they are, accents and all
+    assert sorted(p.name for p in breaks.iterdir()) == ["01.mp3", "02.mp3", "03.mp3"]
+    assert (breaks / "01.mp3").read_bytes() == b"mp3-1"
+
+
+def test_delivering_again_rewrites_the_same_playlist_and_another_show_gets_its_own(tmp_path):
+    show, music, out = make_show(tmp_path), music_folder(tmp_path), tmp_path / "out"
+    out.mkdir()
+    first = playlist.deliver(show, out, music, lookup_in(MUSIC))
+    again = playlist.deliver(show, out, music, lookup_in(MUSIC))
+    assert again.playlist == first.playlist
+    package = json.loads((show / "show.json").read_text())
+    (show / "show.json").write_text(json.dumps(package | {"show_id": "show_other999999"}))
+    other = playlist.deliver(show, out, music, lookup_in(MUSIC))
+    assert other.playlist.name == "Wipers On, Long Way Home (2).m3u8"
+    (out / "Mine.m3u8").write_text("#EXTM3U\nsomething of the listener's own\n")
+    assert [s.show_id for s in playlist.shows(out)] == ["show_other999999", "show_abcdef123456"]
+
+
+def test_tracks_gone_from_the_folder_are_left_out_and_counted(tmp_path):
+    show, music, out = make_show(tmp_path), music_folder(tmp_path), tmp_path / "out"
+    out.mkdir()
+    (music / MUSIC["102"]).unlink()
+    table = MUSIC | {"103": "../../outside.flac"}  # never a file outside the music folder
+    (tmp_path / "outside.flac").write_bytes(b"x")
+    done = playlist.deliver(show, out, music, lookup_in(table))
+    assert (done.tracks, done.missing) == (1, 2)
+    with pytest.raises(playlist.PlaylistError, match="None of this show's tracks"):
+        playlist.deliver(show, out, music, lambda _: None)
+
+
+def test_a_damaged_package_is_refused_before_anything_is_written(tmp_path):
+    show, music, out = make_show(tmp_path), music_folder(tmp_path), tmp_path / "out"
+    out.mkdir()
+    (show / "breaks" / "01.mp3").write_bytes(b"swapped")
+    with pytest.raises(PlexError, match="checksum"):
+        playlist.deliver(show, out, music, lookup_in(MUSIC))
+    assert list(out.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("title", "name"),
+    [
+        ('AC/DC: "Live" <at> the Ritz?', "AC-DC - Live at the Ritz"),
+        ("CON", "Booth show CON"),
+        ("...", "Booth show"),
+        ("Late night\tdrive. ", "Late night drive"),
+        ("Sigur Rós ✶ " + "x" * 200, ("Sigur Rós ✶ " + "x" * 200)[:100]),
+    ],
+)
+def test_playlist_names_every_system_accepts(title, name):
+    assert playlist.file_name(title) == name
+
+
+def test_removing_a_show_deletes_its_playlist_and_breaks_never_music(tmp_path):
+    show, music, out = make_show(tmp_path), music_folder(tmp_path), tmp_path / "out"
+    out.mkdir()
+    done = playlist.deliver(show, out, music, lookup_in(MUSIC))
+    assert playlist.remove(out, "show_abcdef123456")
+    assert not done.playlist.exists() and not done.folder.exists()
+    assert all((music / rel).exists() for rel in MUSIC.values())
+    assert not playlist.remove(out, "show_abcdef123456")
+
+
+def test_a_playlist_pointing_elsewhere_never_deletes_that_folder(tmp_path):
+    out, elsewhere = tmp_path / "out", tmp_path / "elsewhere"
+    (out / "breaks").mkdir(parents=True)
+    elsewhere.mkdir()
+    (elsewhere / "01.mp3").write_bytes(b"x")
+    (out / "Odd.m3u8").write_text(f"#EXTM3U\n#BOOTH-SHOW:show_x\n{elsewhere / '01.mp3'}\n")
+    assert playlist.remove(out, "show_x")
+    assert (elsewhere / "01.mp3").exists()
+
+
+# The whole way through: setup, reading the folder, a show delivered, history kept.
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "cfg" / "config.json"))
+    for name in ("BOOTH_SOURCE", "BOOTH_MUSIC_FOLDER", "BOOTH_SHOWS_FOLDER"):
+        monkeypatch.delenv(name, raising=False)
+    return tmp_path
+
+
+def test_setup_with_a_folder_then_a_show_from_it(home):
+    music = home / "My Music"
+    tagged(music, "Talking Heads/01.flac", TITLE="Once in a Lifetime", ARTIST="Talking Heads")
+    tagged(music, "Björk/01.flac", TITLE="Hyperballad", ARTIST="Björk")
+    saved = []
+    setup = WebSetup(lambda: "https://booth.example", "linus", on_saved=lambda: saved.append(1))
+    with pytest.raises(Exception, match="can't find that music folder"):
+        setup.use_music_folder(str(home / "nope"), "")
+    with pytest.raises(Exception, match="folder of their own"):
+        setup.use_music_folder(str(music), str(home))
+    setup.use_music_folder(f'"{music}"', str(home / "Booth shows"))
+    settings = config.load()
+    assert saved and music_ready(settings) and engine.folder_mode(settings)
+    assert (home / "Booth shows").is_dir()
+
+    seen = []
+    st = engine.station(settings, print, on_scan=lambda *a: seen.append(a))
+    catalog = st.catalog()
+    assert catalog["source"] == {"kind": "folder", "library": "Music"}
+    assert seen[-2:-1] == [(2, 2)] and seen[-1][0].used == 2
+    by_title = {t["title"]: t["id"] for t in catalog["tracks"]}
+
+    show = make_show(home)
+    package = json.loads((show / "show.json").read_text())
+    ids = iter([by_title["Hyperballad"], by_title["Once in a Lifetime"], "gone"])
+    for item in package["items"]:
+        if item["type"] == "track":
+            item["track_id"] = next(ids)
+    (show / "show.json").write_text(json.dumps(package))
+    assert st.deliver(show) == "Wipers On, Long Way Home"
+    text = (home / "Booth shows" / "Wipers On, Long Way Home.m3u8").read_text(encoding="utf-8")
+    assert ",Björk - Hyperballad\n" in text
+    assert str((music / "Björk" / "01.flac").resolve()) in text
+    assert set(history.load()) == {by_title["Hyperballad"], by_title["Once in a Lifetime"], "gone"}
+
+
+def test_the_engine_reads_the_folder_in_the_background_with_progress(home):
+    music = home / "m"
+    for n in range(3):
+        tagged(music, f"{n}.flac", TITLE=f"T{n}", ARTIST="A")
+    shows = home / "shows"
+    shows.mkdir()
+    config.update({"music_source": "folder", "music_folder": str(music), "shows_folder": str(shows)})
+    e = engine.Engine(echo=False)
+    assert e.scan_music()
+    deadline = time.monotonic() + 10
+    while e.status()["report"] is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    status = e.status()
+    assert status["scan"] is None and status["report"]["used"] == 3 and not e.busy
+    assert any("Used: 3" in line for line in status["report"]["lines"])
+
+
+def test_scan_progress_counts_the_rate_of_files_read_not_those_already_known():
+    e = engine.Engine(echo=False)
+    e._scanned(900, 1000)  # 900 known from last time
+    e.scan["started"] -= 10
+    e._scanned(950, 1000)
+    assert e.scan["rate"] == pytest.approx(5, rel=0.05)
+    assert e.scan["left_s"] == pytest.approx(10, rel=0.05)
+
+
+def test_check_in_says_where_shows_go(home):
+    from radiobooth.link import Link
+
+    config.update({"server": "https://booth.example", "device_token": "t", "music_source": "folder"})
+    config.update({"music_folder": str(home), "shows_folder": str(home / "s")})
+    found, _ = engine.desks(config.load(), print, Link)
+    link = found[0][0]
+    sent = []
+    link.post = lambda path, data: (sent.append(data), (200, {"shows": []}))[1]
+    link.checkin()
+    assert sent[0]["delivers_to"] == "playlist"

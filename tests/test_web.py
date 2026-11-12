@@ -798,3 +798,46 @@ def test_shows_are_rated_and_breaks_flagged_on_the_page(booth, monkeypatch):
     assert status == 422 and data["error"].startswith(
         "Jennifer's Booth account no longer knows this computer"
     )
+
+
+def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypatch, tmp_path):
+    from test_deliver import make_show
+    from test_folder import tagged
+
+    from radiobooth.targets import playlist
+
+    app, port, key, _ = booth
+    music, shows = tmp_path / "Music", tmp_path / "Booth shows"
+    tagged(music, "a/1.flac", TITLE="One", ARTIST="A")
+    status, data = act(port, key, "music_folder", {"music": str(tmp_path / "nope"), "shows": ""})
+    assert status == 422 and "can't find that music folder" in data["error"]
+    assert act(port, key, "music_folder", {"music": str(music), "shows": str(shows)})[0] == 200
+    state = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])
+    assert state["music"] | {"suggest": None} == {
+        "kind": "folder",
+        "ready": True,
+        "folder": str(music.resolve()),
+        "shows_folder": str(shows.resolve()),
+        "suggest": None,
+    }
+    wait_for(lambda: app.engine.report is not None)  # read straight after setup, before pairing
+    assert app.engine.report["used"] == 1
+
+    show = make_show(tmp_path)
+    playlist.deliver(show, shows, music, lambda _: ("a/1.flac", {}))
+    config.update({"device_token": "be_device", "server": "https://booth.example"})
+    roster = {"djs": [{"id": "penrose", "name": "Penrose", "role": "night owl"}], "voices": ["A"]}
+
+    def get(self, path):
+        if path == "/v0/me":
+            return {"name": "Thomas", "roster": roster}
+        return {"shows": [{"show_id": i, "status": "delivered"} for i in ("show_abcdef123456", "show_gone")]}
+
+    monkeypatch.setattr(web.Link, "get", get)
+    listed = json.loads(call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})[2])
+    assert [s["on_disk"] for s in listed["shows"]] == [True, False]
+    assert act(port, key, "remove_show", {"show_id": "show_abcdef123456"})[0] == 200
+    assert playlist.shows(shows) == [] and (music / "a" / "1.flac").exists()
+    status, data = act(port, key, "remove_show", {"show_id": "show_abcdef123456"})
+    assert status == 422 and "isn't in your Booth shows folder" in data["error"]
+    assert act(port, key, "remove_show", {"show_id": "../../x"})[0] == 422
