@@ -2,7 +2,6 @@
 
 import json
 import time
-from pathlib import Path
 
 import pytest
 from test_deliver import make_show
@@ -54,10 +53,12 @@ def test_a_show_is_a_playlist_of_the_music_where_it_is_and_the_breaks(tmp_path):
         "#PLAYLIST:Jennifer: Wipers On, Long Way Home",
         "#BOOTH-SHOW:show_abcdef123456",
         "#EXTINF:20,Booth - Break 1",
-        str(breaks / "01.mp3"),
+        "breaks/2026-11-03-wipers-on-long-way-home-123456/01.mp3",
     ]
-    assert lines[5:7] == ["#EXTINF:61,Artist 101 - Song 101", str(music.resolve() / MUSIC["101"])]
-    assert str(music.resolve() / MUSIC["102"]) in lines  # names as they are, accents and all
+    # Relative to the playlist, so it plays wherever the folders are reached (another computer, a NAS).
+    assert lines[5:7] == ["#EXTINF:61,Artist 101 - Song 101", "../music/" + MUSIC["101"]]
+    assert "../music/" + MUSIC["102"] in lines  # names as they are, accents and all
+    assert all((out / x).is_file() for x in lines if not x.startswith("#"))
     assert sorted(p.name for p in breaks.iterdir()) == ["01.mp3", "02.mp3", "03.mp3"]
     assert (breaks / "01.mp3").read_bytes() == b"mp3-1"
 
@@ -121,6 +122,28 @@ def test_removing_a_show_deletes_its_playlist_and_breaks_never_music(tmp_path):
     assert not playlist.remove(out, "show_abcdef123456")
 
 
+def test_paths_stay_full_when_the_music_is_on_another_windows_drive(monkeypatch, tmp_path):
+    def other_drive(path, start):
+        raise ValueError("path is on mount 'M:', start on mount 'C:'")
+
+    monkeypatch.setattr(playlist.os.path, "relpath", other_drive)
+    assert playlist._ref(tmp_path / "x.flac", tmp_path / "out") == str(tmp_path / "x.flac")
+
+
+def test_a_relative_path_never_reads_as_a_comment(tmp_path):
+    assert playlist._ref(tmp_path / "#1 Hits" / "a.mp3", tmp_path) == "./#1 Hits/a.mp3"
+
+
+def test_shows_written_with_full_paths_are_still_removed(tmp_path):
+    out = tmp_path / "out"
+    breaks = out.resolve() / "breaks" / "old-show"
+    breaks.mkdir(parents=True)
+    (breaks / "01.mp3").write_bytes(b"x")
+    (out / "Old.m3u8").write_text(f"#EXTM3U\n#BOOTH-SHOW:show_old\n{breaks / '01.mp3'}\n")
+    assert playlist.remove(out, "show_old")
+    assert not breaks.exists()
+
+
 def test_a_playlist_pointing_elsewhere_never_deletes_that_folder(tmp_path):
     out, elsewhere = tmp_path / "out", tmp_path / "elsewhere"
     (out / "breaks").mkdir(parents=True)
@@ -174,7 +197,7 @@ def test_setup_with_a_folder_then_a_show_from_it(home):
     assert st.deliver(show) == "Wipers On, Long Way Home"
     text = (home / "Booth shows" / "Wipers On, Long Way Home.m3u8").read_text(encoding="utf-8")
     assert ",Björk - Hyperballad\n" in text
-    assert str((music / "Björk" / "01.flac").resolve()) in text
+    assert "\n../My Music/Björk/01.flac\n" in text
     assert set(history.load()) == {by_title["Hyperballad"], by_title["Once in a Lifetime"], "gone"}
 
 
@@ -234,7 +257,7 @@ def test_music_in_linked_folders_and_decomposed_names_is_found(tmp_path):
     table = {"101": "linked/Album/01.flac", "102": "Björk/02.flac", "103": "C:/x.flac"}
     done = playlist.deliver(show, out, music, lookup_in(table))
     assert (done.tracks, done.missing) == (2, 1)
-    assert str(music.resolve() / "linked" / "Album" / "01.flac") in done.playlist.read_text(encoding="utf-8")
+    assert "../music/linked/Album/01.flac" in done.playlist.read_text(encoding="utf-8").splitlines()
 
 
 def test_a_folder_copied_from_a_mac_holding_composed_names_is_found(tmp_path):
@@ -249,7 +272,7 @@ def test_a_folder_copied_from_a_mac_holding_composed_names_is_found(tmp_path):
     assert (done.tracks, done.missing) == (1, 2)
     # A Mac's disk folds the two spellings together and takes either; elsewhere, the one on disk is written.
     (written,) = [x for x in done.playlist.read_text(encoding="utf-8").splitlines() if x.endswith(".flac")]
-    assert Path(written).read_bytes() == b"j"
+    assert (out / written).read_bytes() == b"j"
 
 
 def test_a_show_asked_for_while_the_folder_is_still_being_read_waits_without_holding_check_ins(home):

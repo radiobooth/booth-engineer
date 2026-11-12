@@ -3,6 +3,8 @@
 Each show becomes one .m3u8 playlist in the Booth shows folder, beside a breaks/ folder holding its breaks.
 The playlist lists the user's own files where they are (nothing is copied or moved) and the breaks between
 them, so any player that opens playlists plays the show: foobar2000, MusicBee, VLC, Winamp, Music on a Mac.
+Paths are written relative to the playlist, with forward slashes, whenever the music is on the same drive or
+share as the shows folder, so the same playlist plays on any computer that reaches that share.
 
 A playlist names its show on a comment line, so delivering the same show again rewrites its own playlist,
 and Booth's page can list and remove shows without keeping a list of its own.
@@ -78,6 +80,17 @@ def _line(text: str) -> str:
     return re.sub(r"[\r\n]+", " ", text).strip()
 
 
+def _ref(path: Path, root: Path) -> str:
+    """How the playlist in `root` names a file: relative to it, with forward slashes, so it plays wherever the
+    drive or share is reached; the full path when there's no way there from `root` (another Windows drive)."""
+    try:
+        rel = os.path.relpath(path, root)
+    except ValueError:
+        return str(path)
+    rel = rel.replace(os.sep, "/")
+    return f"./{rel}" if rel.startswith("#") else rel  # a line starting "#" would read as a comment
+
+
 def _place(out_root: Path, title: str, show_id: str) -> Path:
     """The show's playlist file: its own from an earlier delivery, else a free name."""
     base = file_name(title)
@@ -142,7 +155,7 @@ def deliver(
             src = show_dir / item["file"]
             copies.append((src, folder / src.name))
             secs = max(1, round(item["duration_ms"] / 1000))
-            lines += [f"#EXTINF:{secs},{host} - Break {breaks}", str(folder / src.name)]
+            lines += [f"#EXTINF:{secs},{host} - Break {breaks}", _ref(folder / src.name, root)]
             continue
         found = lookup(item["track_id"])
         path = _music_file(music_root, found[0]) if found else None
@@ -154,7 +167,7 @@ def deliver(
         ms = tags.get("duration_ms")
         secs = max(1, round(ms / 1000)) if isinstance(ms, int) and ms > 0 else -1
         name = " - ".join(_line(str(tags[k])) for k in ("artist", "title") if tags.get(k))
-        lines += [f"#EXTINF:{secs},{name or path.stem}", str(path)]
+        lines += [f"#EXTINF:{secs},{name or path.stem}", _ref(path, root)]
     if not tracks:
         raise PlaylistError("None of this show's tracks are in the music folder any more.")
 
@@ -203,8 +216,7 @@ def remove(out_root: Path, show_id: str) -> bool:
         for line in s.playlist.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.startswith("#"):
                 continue
-            p = Path(line)
-            breaks = p.parent
+            breaks = (root / line).parent  # relative to the playlist; older playlists name full paths
             if breaks.parent == root / BREAKS and breaks.resolve().is_relative_to(root / BREAKS):
                 shutil.rmtree(breaks, ignore_errors=True)
                 break
