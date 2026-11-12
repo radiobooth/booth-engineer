@@ -13,12 +13,12 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import tempfile
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from radiobooth import config
 from radiobooth.targets.plex import folder_name, load_package
 
 MARK = "#BOOTH-SHOW:"  # show id, on its own line in each playlist Booth writes
@@ -54,16 +54,23 @@ def file_name(title: str) -> str:
     return name
 
 
-def show_of(playlist: Path) -> str | None:
-    """The show id a playlist file names, or None for one Booth didn't write."""
+def _header(playlist: Path) -> dict[str, str]:
+    """The `#PLAYLIST:` title and Booth's show mark from the top of a playlist file, as far as it has them."""
+    found = {}
     try:
         with playlist.open(encoding="utf-8", errors="replace") as f:
             for _, line in zip(range(5), f, strict=False):
-                if line.startswith(MARK):
-                    return line[len(MARK) :].strip() or None
+                for key, start in (("show_id", MARK), ("title", "#PLAYLIST:")):
+                    if line.startswith(start) and (value := line[len(start) :].strip()):
+                        found[key] = value
     except OSError:
-        return None
-    return None
+        pass
+    return found
+
+
+def show_of(playlist: Path) -> str | None:
+    """The show id a playlist file names, or None for one Booth didn't write."""
+    return _header(playlist).get("show_id")
 
 
 def _line(text: str) -> str:
@@ -87,22 +94,23 @@ def _music_file(music_root: Path, rel: str) -> Path | None:
     parts = PurePosixPath(rel).parts
     if not parts or PurePosixPath(rel).is_absolute() or ".." in parts or ":" in parts[0]:
         return None
-    for form in ("NFC", "NFD"):  # the index keeps names composed; a Linux disk may hold them decomposed
-        path = music_root.joinpath(*(unicodedata.normalize(form, p) for p in parts))
-        if path.is_file():
-            return path
-    return None
-
-
-def write_atomically(path: Path, text: str) -> None:
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".booth-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    path = music_root.joinpath(*parts)
+    if path.is_file():
+        return path
+    # The index keeps names composed (NFC); a disk that doesn't fold names (Linux, most NAS) may hold some
+    # of them decomposed, folder by folder, as they were copied from a Mac. Look each part up as it is there.
+    here = music_root
+    for part in parts:
+        if not (here / part).exists():
+            try:
+                names = [n for n in os.listdir(here) if unicodedata.normalize("NFC", n) == part]
+            except OSError:
+                return None
+            if not names:
+                return None
+            part = min(names)  # two spellings side by side: the scan used the first, so the same here
+        here = here / part
+    return here if here.is_file() else None
 
 
 def deliver(
@@ -154,7 +162,7 @@ def deliver(
     for src, dest in copies:
         shutil.copyfile(src, dest)
     playlist = _place(root, title, show_id)
-    write_atomically(playlist, "\n".join(lines) + "\n")
+    config.write_atomically(playlist, "\n".join(lines) + "\n")
     return Delivery(title, playlist, tracks, breaks, missing, folder)
 
 
@@ -174,26 +182,15 @@ def shows(out_root: Path) -> list[Show]:
     except OSError:
         return []
     for p in entries:
-        show_id = show_of(p)
-        if not show_id:
+        header = _header(p)
+        if "show_id" not in header:
             continue
         try:
             made = p.stat().st_mtime
         except OSError:
             continue
-        found.append(Show(show_id, _title(p) or p.stem, p, made))
+        found.append(Show(header["show_id"], header.get("title") or p.stem, p, made))
     return sorted(found, key=lambda s: s.made_at, reverse=True)
-
-
-def _title(playlist: Path) -> str | None:
-    try:
-        with playlist.open(encoding="utf-8", errors="replace") as f:
-            for _, line in zip(range(5), f, strict=False):
-                if line.startswith("#PLAYLIST:"):
-                    return line[len("#PLAYLIST:") :].strip() or None
-    except OSError:
-        return None
-    return None
 
 
 def remove(out_root: Path, show_id: str) -> bool:

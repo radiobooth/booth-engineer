@@ -345,7 +345,7 @@ HTML = f"""<!doctype html>
     <details><summary>What Booth has been doing</summary><pre id="log"></pre></details>
   </section>
 
-  <footer id="footer"><span id="footer-text"></span><a id="terms" href="__LICENSE_URL__" target="_blank"
+  <footer id="footer"><span id="footer-text"></span><a id="terms" href="{LICENSE_URL}" target="_blank"
     rel="noopener">free software, no warranty (GNU GPL)</a></footer>
 </main>
 </body>

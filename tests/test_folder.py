@@ -405,3 +405,25 @@ def test_folders_without_inode_numbers_are_all_scanned(tmp_path, monkeypatch):
 
     monkeypatch.setattr(folder, "_stat_dir", lambda here: NoInode(real(here)))
     assert [t["title"] for t in scan(music, home)[0]["tracks"]] == ["Deep"]
+
+
+@pytest.mark.parametrize(
+    ("name", "title", "number"),
+    [
+        ("Paul Simon/Still Crazy/50 Ways to Leave Your Lover.flac", None, None),  # the title's own number
+        ("Paul Simon/Still Crazy/05 50 Ways to Leave Your Lover.flac", "50 Ways to Leave Your Lover", 5),
+        ("Nena/99 Luftballons/01 - Nena - 99 Luftballons.flac", "99 Luftballons", 1),
+        ("Pixies/Doolittle/7. Wave of Mutilation.flac", "Wave of Mutilation", 7),
+    ],
+)
+def test_names_from_paths_keep_numbers_that_belong_to_the_title(name, title, number):
+    found = folder.from_path(name)
+    assert found.get("title") == title and found.get("track_number") == number
+
+
+def test_booths_own_shows_folder_inside_the_music_is_never_read(tmp_path):
+    music, home = tmp_path / "music", tmp_path / "home"
+    tagged(music, "A/1.flac", TITLE="One", ARTIST="A")
+    tagged(music, "Booth shows/breaks/x/01.flac", TITLE="Break", ARTIST="Booth")
+    catalog, report = scan(music, home, skip=[music / "Booth shows"])
+    assert [t["title"] for t in catalog["tracks"]] == ["One"] and report.files == 1

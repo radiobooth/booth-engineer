@@ -138,7 +138,7 @@ class App:
         self._roster = None  # paired again, maybe with another Radio Booth: ask it for its DJs
         self._paired += 1
         settings = config.load()
-        self.engine.scan_music()  # a folder of music: start reading it now, while pairing is still to do
+        self.engine.scan_music(again=True)  # a folder of music: read it now, while pairing is still to do
         if music_ready(settings) and settings.get("device_token"):
             if not settings.get("set_up_once"):
                 config.update({"set_up_once": True})

@@ -148,7 +148,7 @@ def index(args: argparse.Namespace) -> int:
 
 def scan(args: argparse.Namespace) -> int:
     from radiobooth import catalog as catalogs
-    from radiobooth import config, history
+    from radiobooth import config, engine, history
     from radiobooth.sources import folder as folder_source
 
     where = args.folder or setting("BOOTH_MUSIC_FOLDER", "music_folder")
@@ -162,11 +162,15 @@ def scan(args: argparse.Namespace) -> int:
             print(f"\rReading tags: {done} of {total}", end="\n" if done == total else "", file=sys.stderr)
 
     try:
+        shows = engine.folder_settings(config.load())[0][
+            "shows"
+        ]  # never Booth's own shows, as in `booth run`
         catalog, report = folder_source.build_catalog(
             where,
             args.name,
             config.folder_key(),
             config.path().parent,
+            skip=[Path(shows).expanduser()] if shows else [],
             progress=progress,
             examples=max(0, args.examples),
         )

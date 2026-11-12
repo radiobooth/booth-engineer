@@ -234,3 +234,47 @@ def test_music_in_linked_folders_and_decomposed_names_is_found(tmp_path):
     done = playlist.deliver(show, out, music, lookup_in(table))
     assert (done.tracks, done.missing) == (2, 1)
     assert str(music.resolve() / "linked" / "Album" / "01.flac") in done.playlist.read_text(encoding="utf-8")
+
+
+def test_a_folder_copied_from_a_mac_holding_composed_names_is_found(tmp_path):
+    import unicodedata
+
+    show, music, out = make_show(tmp_path), tmp_path / "music", tmp_path / "out"
+    out.mkdir()
+    folder = music / unicodedata.normalize("NFD", "Björk")  # the folder decomposed, the file inside composed
+    folder.mkdir(parents=True)
+    (folder / "Jóga.flac").write_bytes(b"j")
+    done = playlist.deliver(show, out, music, lookup_in({"101": "Björk/Jóga.flac"}))
+    assert (done.tracks, done.missing) == (1, 2)
+    assert str(music.resolve() / folder.name / "Jóga.flac") in done.playlist.read_text(encoding="utf-8")
+
+
+def test_a_show_asked_for_while_the_folder_is_still_being_read_waits_without_holding_check_ins(home):
+    config.update({"music_source": "folder", "music_folder": str(home), "shows_folder": str(home / "s")})
+    st = engine.station(config.load(), print, reading=lambda: {"done": 5, "total": 10})
+    with pytest.raises(engine.FolderBusy, match="still reading"):
+        st.catalog()
+
+
+def test_choosing_another_folder_during_a_read_reads_that_one_next(home, monkeypatch):
+    first, second = home / "first", home / "second"
+    tagged(first, "1.flac", TITLE="One", ARTIST="A")
+    tagged(second, "1.flac", TITLE="Two", ARTIST="B")
+    tagged(second, "2.flac", TITLE="Three", ARTIST="B")
+    config.update({"music_source": "folder", "music_folder": str(first), "shows_folder": str(home / "s")})
+    gate, real = __import__("threading").Event(), engine.read_folder
+
+    def slow(settings, on_scan=None):
+        gate.wait(5)
+        return real(settings, on_scan)
+
+    monkeypatch.setattr(engine, "read_folder", slow)
+    e = engine.Engine(echo=False)
+    assert e.scan_music()
+    config.update({"music_folder": str(second)})
+    assert not e.scan_music(again=True)  # busy: it's read after the first
+    gate.set()
+    deadline = time.monotonic() + 10
+    while (e.report or {}).get("used") != 2 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert e.report["used"] == 2 and e.report["folder"] == str(second)

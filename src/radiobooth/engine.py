@@ -113,6 +113,7 @@ def station(
     on_delivered: Callable[[str], None] | None = None,
     person: dict | None = None,
     on_scan: Callable | None = None,
+    reading: Callable[[], dict | None] | None = None,
 ) -> Station:
     """The link loop's view of this machine, from saved settings (and the environment, which wins).
     `person`: another person sharing this Booth (see config.people), with their own show history and their
@@ -120,7 +121,7 @@ def station(
     who = person["id"] if person else None
     prefix = f"{person['name']}: " if person else ""
     if folder_mode(settings):
-        return folder_station(settings, log, busy, on_delivered, who, prefix, on_scan)
+        return folder_station(settings, log, busy, on_delivered, who, prefix, on_scan, reading)
     share_with = person.get("plex_user") if person else None
     found, _ = delivery_settings(settings)
     plex = PlexClient(found["url"], found["token"])
@@ -192,6 +193,10 @@ def station(
     return Station(catalog=catalog, deliver=deliver_show, log=log)
 
 
+class FolderBusy(Exception):
+    """The music folder is being read in the background: ask again later."""
+
+
 def folder_station(
     settings: dict,
     log: Callable[[str], None],
@@ -200,14 +205,20 @@ def folder_station(
     who: str | None,
     prefix: str,
     on_scan: Callable | None = None,
+    reading: Callable[[], dict | None] | None = None,
 ) -> Station:
-    """`station` for music in a plain folder, delivered as playlist files (`on_scan`: see `read_folder`)."""
+    """`station` for music in a plain folder, delivered as playlist files (`on_scan`: see `read_folder`).
+    `reading()`: how a read already under way in the background is going, or None."""
     found, _ = folder_settings(settings)
     shows = Path(found["shows"]).expanduser()
     home = config.path().parent
     mark = busy or (lambda on: None)
 
     def catalog() -> dict:
+        # A first read of a big folder can take an hour. Waiting for it here would hold up every check-in
+        # (and other shows' deliveries); this show is tried again at the next one instead.
+        if reading and reading():  # the page shows how far it's got; the message stays the same, logged once
+            raise FolderBusy("Booth is still reading your music folder; the show starts after that.")
         mark(True)
         try:
             return history.annotate(read_folder(settings, on_scan), who)
@@ -313,6 +324,8 @@ class Engine:
         self.last_show: dict | None = None
         self.unpaired: set[str] = set()  # people sharing this Booth whose accounts no longer know it
         self.scan: dict | None = None  # reading the music folder: {"done", "total", "started"}
+        self._reading: str | None = None  # the folder scan_music is reading in the background
+        self._read_again = False  # the folder changed during that read: read the new one after it
         self.report: dict | None = None  # the music folder's last tag report, for Booth's page
 
     # What the page reads
@@ -390,18 +403,30 @@ class Engine:
         self.scan = None
         if report is None:  # the scan failed; the log says why
             return
-        self.report = {"at": time.time(), "lines": report.lines(), "files": report.files, "used": report.used}
+        self.report = {
+            "at": time.time(),
+            "folder": folder_settings(self._load())[0]["music"],
+            "lines": report.lines(),
+            "files": report.files,
+            "used": report.used,
+        }
 
-    def scan_music(self) -> bool:
-        """Read the music folder now, in the background (after setup, and when Booth starts, so a show
-        never waits for a first long read). False when there's no folder to read or a read is under way."""
+    def scan_music(self, again: bool = False) -> bool:
+        """Read the music folder now, in the background (after setup, and when Booth starts, so the first
+        long read happens before anyone asks for a show). False when there's no folder to read, or a read
+        is under way; with `again`, that read is followed by another (the folder may have changed)."""
         settings = self._load()
         if not folder_mode(settings) or folder_settings(settings)[1]:
             return False
+        folder = folder_settings(settings)[0]["music"]
         with self._lock:
-            if self.scan is not None:
+            if self._reading or self.scan is not None:
+                self._read_again = self._read_again or (again and folder != self._reading)
                 return False
+            self._reading, self._read_again = folder, False
             self.scan = {"done": 0, "total": 0, "started": time.time(), "first": 0}
+            if self.report and self.report.get("folder") != folder:  # another folder's: not this one's
+                self.report = None
 
         def go() -> None:
             self._mark(True)
@@ -411,6 +436,10 @@ class Engine:
                 self.log(f"Couldn't read your music folder: {e}")
             finally:
                 self._mark(False)
+                with self._lock:
+                    self._reading, again = None, self._read_again
+                if again:
+                    self.scan_music()
 
         threading.Thread(target=go, name="booth-scan", daemon=True).start()
         return True
@@ -459,6 +488,7 @@ class Engine:
                     busy=self._mark,
                     on_delivered=self._delivered,
                     on_scan=self._scanned,
+                    reading=lambda: self.scan if self._reading else None,
                 )
                 for _, st in found_desks:
                     original_log = st.log
