@@ -8,13 +8,35 @@ from radiobooth.sources import plex
 
 SCHEMA = json.loads((Path(__file__).resolve().parent.parent / "protocol" / "catalog.schema.json").read_text())
 
+ARTISTS = [
+    {
+        "ratingKey": "800",
+        "title": "Butthole Surfers",
+        "Guid": [{"id": "mbid://2f2d3d1c-5b3a-4a8e-9c1d-7e6f5a4b3c2d"}],
+    },
+    {
+        "ratingKey": "801",
+        "title": "Various Artists",
+        "Guid": [{"id": "mbid://89ad4ac3-39f7-470e-963a-56509c546377"}],
+    },
+]
 ALBUMS = [
-    {"ratingKey": "900", "title": "Electriclarryland", "year": 1996, "Genre": [{"tag": "Alternative"}]},
+    {
+        "ratingKey": "900",
+        "title": "Electriclarryland",
+        "parentTitle": "Butthole Surfers",
+        "year": 1995,
+        "originallyAvailableAt": "1996-01-01",  # Plex's time-zone slip: the album is from 1996
+        "studio": "Capitol Records",
+        "Genre": [{"tag": "Alternative"}],
+    },
+    {"ratingKey": "901", "title": "Some Comp", "parentTitle": "Various Artists", "studio": "[no label]"},
 ]
 TRACKS = [
     {
         "ratingKey": 48211,
         "parentRatingKey": "900",
+        "grandparentRatingKey": "800",
         "title": "Pepper",
         "grandparentTitle": "Butthole Surfers",
         "parentTitle": "Electriclarryland",
@@ -30,6 +52,8 @@ TRACKS = [
     },
     {
         "ratingKey": 51007,
+        "parentRatingKey": "901",
+        "grandparentRatingKey": "801",
         "title": "Some Duet",
         "grandparentTitle": "Various Artists",
         "originalTitle": "L7",
@@ -49,7 +73,7 @@ class FakePlex:
     def get(self, path, params=None):
         if path == "/library/sections":
             return {"MediaContainer": {"Directory": [*self.sections, {"key": "1", "type": "movie"}]}}
-        items = TRACKS if params["type"] == plex.TRACK else ALBUMS
+        items = {plex.TRACK: TRACKS, plex.ALBUM: ALBUMS, plex.ARTIST: ARTISTS}[params["type"]]
         start = params["X-Plex-Container-Start"]
         page = items[start : start + self.page_size]
         return {"MediaContainer": {"Metadata": page, "totalSize": len(items)}}
@@ -85,6 +109,31 @@ def test_catalog_pages_skips_and_validates():
     assert [t["id"] for t in catalog["tracks"]] == ["48211", "51007"]
     assert skipped == 1
     Draft202012Validator(SCHEMA).validate(catalog)
+
+
+def test_album_and_artist_details_from_plex():
+    catalog, _ = plex.build_catalog(FakePlex(page_size=500))
+    pepper, duet = catalog["tracks"]
+    assert pepper["year"] == 1996  # the release date's year, not Plex's slipped one
+    assert pepper["label"] == "Capitol Records"
+    assert pepper["musicbrainz_artist_id"] == "2f2d3d1c-5b3a-4a8e-9c1d-7e6f5a4b3c2d"
+    assert "compilation" not in pepper and "musicbrainz_id" not in pepper
+    assert duet["compilation"] is True and "label" not in duet  # "[no label]" is no label
+    assert "musicbrainz_artist_id" not in duet  # L7's track: the album artist's id isn't theirs
+
+
+def test_only_real_musicbrainz_ids_are_sent():
+    plex_own = {"Guid": [{"id": "mbid://0d3cbd4f-1234-3abc-8def-000000000000"}]}  # UUID version 3
+    assert plex._musicbrainz(plex_own) is None
+    assert plex._musicbrainz({"Guid": [{"id": "plex://artist/5d07bbfc403c6402904a5ec4"}]}) is None
+
+
+@pytest.mark.parametrize(
+    ("year", "date", "want"),
+    [(1998, "1999-01-01", 1999), (1971, "1971-03-01", 1971), (1990, "1971-01-01", 1990), (2001, None, 2001)],
+)
+def test_album_year_mends_only_the_new_year_slip(year, date, want):
+    assert plex._album_year({"year": year, "originallyAvailableAt": date}) == want
 
 
 def test_no_file_paths_leave():
