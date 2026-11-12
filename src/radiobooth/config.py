@@ -11,8 +11,10 @@ import json
 import os
 import re
 import secrets
+import sys
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -29,27 +31,45 @@ def path() -> Path:
     return Path(base) / "radiobooth" / "config.json"
 
 
+def _patiently(step):
+    """`step()`, tried again for a moment on Windows when the file is busy: there a file can't be read while
+    it's being replaced, nor replaced while it's open for reading (the page reads settings every second or
+    two while a background step saves them)."""
+    for wait in (0.01, 0.03, 0.1, 0.3, 1.0):
+        try:
+            return step()
+        except PermissionError:
+            if sys.platform != "win32":
+                raise
+            time.sleep(wait)
+    return step()
+
+
 def load() -> dict:
     p = path()
-    settings = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    settings = json.loads(_patiently(lambda: p.read_text(encoding="utf-8"))) if p.is_file() else {}
     if moved := MOVED.get(str(settings.get("server") or "").rstrip("/")):
         settings["server"] = moved
     return settings
 
 
-def save(settings: dict) -> Path:
-    p = path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    # A fresh, uniquely named file (created 0600 by mkstemp), then an atomic rename over the old one.
-    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".config-", suffix=".tmp")
+def write_atomically(target: Path, text: str) -> None:
+    """Replace a file whole: a fresh, uniquely named file (created 0600 by mkstemp) beside it, then an atomic
+    rename over the old one, so a reader never sees half a file."""
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".booth-", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=1)
-            f.write("\n")
-        os.replace(tmp, p)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        _patiently(lambda: os.replace(tmp, target))
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def save(settings: dict) -> Path:
+    p = path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_atomically(p, json.dumps(settings, indent=1) + "\n")
     return p
 
 

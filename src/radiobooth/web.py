@@ -35,7 +35,8 @@ from radiobooth import __version__, autostart, config, engine, history, page, pl
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError
-from radiobooth.websetup import WebSetup, plex_ready
+from radiobooth.targets import playlist as playlist_target
+from radiobooth.websetup import WebSetup, default_music_folder, default_shows_folder, music_ready, plex_ready
 
 HOST = "127.0.0.1"
 PORT = 48231  # the same address each time when it's free, so a page left open finds Booth again
@@ -137,7 +138,8 @@ class App:
         self._roster = None  # paired again, maybe with another Radio Booth: ask it for its DJs
         self._paired += 1
         settings = config.load()
-        if plex_ready(settings) and settings.get("device_token"):
+        self.engine.scan_music(again=True)  # a folder of music: read it now, while pairing is still to do
+        if music_ready(settings) and settings.get("device_token"):
             if not settings.get("set_up_once"):
                 config.update({"set_up_once": True})
                 if self.platform in ("win32", "darwin") and not autostart.installed(self.platform):
@@ -147,7 +149,7 @@ class App:
             self.engine.start()
 
     def restart(self) -> None:
-        """After an update: start the new version and stop this one, once any show in hand is in Plex."""
+        """After an update: start the new version and stop this one, once any show in hand is delivered."""
         self.restarting = True
         self.engine.stop(wait=None)
         update.relaunch(self.platform)
@@ -159,6 +161,7 @@ class App:
         return {
             "version": __version__,
             "platform": self.platform,
+            "music": self.music(settings),
             "plex": {
                 "ready": plex_ready(settings),
                 "music": settings.get("music_library"),
@@ -190,6 +193,32 @@ class App:
             },
             "restarting": self.restarting,
         }
+
+    def music(self, settings: dict) -> dict:
+        """Where the music is and where shows go, for the page."""
+        folders = engine.folder_mode(settings)
+        found, _ = engine.folder_settings(settings)
+        music = default_music_folder()
+        return {
+            "kind": "folder" if folders else "plex",
+            "ready": music_ready(settings),
+            "folder": found["music"] if folders else None,
+            "shows_folder": found["shows"] if folders else None,
+            "suggest": {"music": str(music) if music else "", "shows": str(default_shows_folder())},
+        }
+
+    def remove_show(self, show_id: str) -> None:
+        """Delete a show's playlist and breaks from the Booth shows folder (never any music)."""
+        settings = config.load()
+        if not engine.folder_mode(settings) or not SHOW_ID.fullmatch(show_id):
+            raise SetupError("Booth can't remove that show here.")
+        shows = engine.folder_settings(settings)[0]["shows"]
+        try:
+            gone = playlist_target.remove(Path(shows).expanduser(), show_id)
+        except OSError as e:
+            raise SetupError(f"Couldn't remove that show ({e.strerror or e}).") from None
+        if not gone:
+            raise SetupError("That show isn't in your Booth shows folder any more.")
 
     def _link(self, settings: dict | None = None, who: str | None = None) -> Link:
         """The link for this computer's own account, or (`who`) for another person sharing it."""
@@ -270,10 +299,15 @@ class App:
         except LinkError as e:
             raise self._said(e, who=who) from None
         shows = listed.get("shows")
+        shows = [s for s in shows[:6] if isinstance(s, dict)] if isinstance(shows, list) else []
+        if engine.folder_mode(settings):  # which shows are still in the Booth shows folder, to remove
+            folder = engine.folder_settings(settings)[0]["shows"]
+            here = {s.show_id for s in playlist_target.shows(Path(folder).expanduser())} if folder else set()
+            shows = [s | {"on_disk": s.get("show_id") in here} for s in shows]
         return {
             "roster": roster,
             "allowance": listed.get("allowance"),
-            "shows": shows[:6] if isinstance(shows, list) else [],
+            "shows": shows,
             "choices": settings.get("show_choices") or {},
         }
 
@@ -453,6 +487,13 @@ class App:
             self.setup.choose(int(body.get("index", -1)))
         elif action == "folder":
             self.setup.use_folder(str(body.get("path", "")))
+        elif action == "music_folder":
+            self.setup.use_music_folder(str(body.get("music", "")), str(body.get("shows", "")))
+        elif action == "rescan":
+            if not self.engine.scan_music():
+                raise SetupError("Booth is reading your music already.")
+        elif action == "remove_show":
+            self.remove_show(str(body.get("show_id", "")))
         elif action == "new_show":
             return self.new_show(body)
         elif action == "feedback":
@@ -678,7 +719,8 @@ def main(
     httpd, link = serve(app, bind(), key)
     write_page_file(link)
     settings = config.load()
-    if plex_ready(settings) and settings.get("device_token"):
+    app.engine.scan_music()  # anything added or changed while Booth was off is read now, not at the next show
+    if music_ready(settings) and settings.get("device_token"):
         app.engine.start()
     if app.updater.can_install:  # the apps only: the `booth` command never asks GitHub by itself
         app.updater.start()

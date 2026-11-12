@@ -147,6 +147,13 @@ body.off .light { color: var(--chalk); border-color: var(--chalk); }
 .phone .qr img { display: block; width: 152px; height: 152px; margin-bottom: 6px; image-rendering: pixelated; }
 .phone:hover .qr, .phone:focus-within .qr, .phone.open .qr { opacity: 1; visibility: visible; }
 footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
+#files-form { display: grid; gap: 6px; margin-top: 10px; }
+#files-form label { font: 12px/1.3 var(--label); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); margin-top: 8px; }
+#files-form p { margin: 0; font-size: 14px; }
+progress { width: 100%; height: 10px; margin: 10px 0 4px; accent-color: var(--tally); }
+#report { white-space: pre-wrap; overflow-wrap: anywhere; }
+.remove { justify-self: start; margin-top: 6px; padding: 6px 12px; font-size: 14px; }
 """
 
 HTML = f"""<!doctype html>
@@ -220,15 +227,30 @@ HTML = f"""<!doctype html>
   <section id="setup">
     <p class="label">Setup</p>
     <h2 id="setup-title">Let's get Booth ready</h2>
-    <p class="muted" id="setup-intro">Booth reads the titles and details of your music in Plex to plan shows,
-      and puts each finished show into Plex as a playlist. Your music files never leave this computer.</p>
+    <p class="muted" id="setup-intro">Booth reads the titles and details of your music, in Plex or in your
+      music files' tags, to plan shows, and makes each finished show a playlist. Your music files never leave
+      this computer.</p>
 
     <div class="step" id="step-plex">
       <div class="num">1</div>
       <div>
-        <h2>Plex</h2>
-        <p id="plex-text">Sign in to Plex and allow Radio Booth. Booth never sees your Plex password.</p>
-        <div class="actions" id="plex-actions"><button id="plex-go">Sign in to Plex</button></div>
+        <h2>Your music</h2>
+        <p id="plex-text">Is your music in Plex, or in a folder of music files?</p>
+        <div class="actions" id="plex-actions"><button id="plex-go">It's in Plex</button>
+          <button id="files-go">It's in a folder</button></div>
+        <form class="hidden" id="files-form">
+          <label for="music-path">Your music folder</label>
+          <input type="text" class="path" id="music-path" spellcheck="false" autocomplete="off">
+          <p class="muted">Copy its path from the address bar of File Explorer, or in Finder hold Option and
+            choose Copy as Pathname. Booth reads the tags of the music files in it and its subfolders. It never
+            changes, moves or uploads them.</p>
+          <label for="shows-path">Folder for your shows</label>
+          <input type="text" class="path" id="shows-path" spellcheck="false" autocomplete="off">
+          <p class="muted">Each show is a playlist file here, with its DJ breaks beside it. Open it in your
+            music player. Booth makes the folder if it isn't there.</p>
+          <div class="actions"><button type="submit" id="files-use">Use these folders</button>
+            <button type="button" class="quiet" id="files-cancel">Cancel</button></div>
+        </form>
         <p class="muted hidden" id="plex-wait">Waiting for you to finish signing in on the Plex page...
           <a id="plex-link" target="_blank" rel="noopener noreferrer">Open it again</a></p>
         <ul class="choices hidden" id="plex-choices"></ul>
@@ -257,6 +279,22 @@ HTML = f"""<!doctype html>
     </div>
   </section>
 
+  <section id="scan" class="hidden">
+    <p class="label">Your music</p>
+    <h2 id="scan-title">Reading your music</h2>
+    <div class="hidden" id="scan-progress">
+      <progress id="scan-bar" max="1" value="0"></progress>
+      <p class="muted" id="scan-text"></p>
+      <p class="note">The first time takes a while for a big collection. After that, Booth reads only what's
+        new or changed. You can close this page: Booth keeps going.</p>
+    </div>
+    <p id="report-text"></p>
+    <details class="hidden" id="report-box"><summary>What Booth found in your tags</summary>
+      <pre id="report"></pre></details>
+    <div class="actions"><button class="quiet" id="rescan">Read my music again</button></div>
+    <div class="error hidden" id="scan-error"></div>
+  </section>
+
   <section id="settings">
     <p class="label">Settings</p>
     <div class="row" id="row-autostart">
@@ -282,7 +320,8 @@ HTML = f"""<!doctype html>
     <div class="hidden" id="person-add">
       <p class="muted">Share this Booth with someone who has their own Radio Booth account. On their phone,
         signed in as them, they open their Booth page and tap <b>Get a pairing code</b>. Their shows come from
-        this computer's music and go into the same Plex, with their name at the start of each playlist.</p>
+        this computer's music and go to the same place as yours, with their name at the start of each
+        playlist.</p>
       <form class="actions" id="person-form">
         <input type="text" id="person-code" autocomplete="off" spellcheck="false" aria-label="Their pairing code"
           placeholder="Their code">
@@ -291,7 +330,7 @@ HTML = f"""<!doctype html>
     </div>
     <div class="row">
       <div><b>Change Booth's setup</b>
-        <p class="muted">A different Plex server or music library, or a new pairing.</p></div>
+        <p class="muted">Where your music is, or a new pairing.</p></div>
       <button class="quiet" id="change">Change</button>
     </div>
     <div class="row">
@@ -306,7 +345,7 @@ HTML = f"""<!doctype html>
     <details><summary>What Booth has been doing</summary><pre id="log"></pre></details>
   </section>
 
-  <footer id="footer"><span id="footer-text"></span><a id="terms" href="__LICENSE_URL__" target="_blank"
+  <footer id="footer"><span id="footer-text"></span><a id="terms" href="{LICENSE_URL}" target="_blank"
     rel="noopener">free software, no warranty (GNU GPL)</a></footer>
 </main>
 </body>
@@ -329,13 +368,17 @@ let last = null, changing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
 const PAGE_VERSION = "__BOOTH_VERSION__";  // the version that served this page
 const edited = new Set();  // fields typed in and not yet sent: a reload would lose them
-let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false;
+let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false, filesOpen = false;
 const panels = new Map();  // show id -> its open feedback panel, kept across list refreshes
 const opening = new Set();  // show ids whose feedback panel is on its way
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
-  delivered: "In Plex", failed: "Didn't work", expired: "Expired before it reached Plex",
+  delivered: "In Plex", failed: "Didn't work", expired: "Expired before Booth could deliver it",
 };
+const FOLDER_STATUS = {ready: "Saving the playlist", delivered: "In your Booth shows folder"};
+// Music in a folder: shows are playlist files in the Booth shows folder, not in Plex.
+const inFolder = () => !!(last && last.music && last.music.kind === "folder");
+const arrives = () => inFolder() ? "in your Booth shows folder" : "in Plex";
 
 async function post(action, body = {}) {
   const r = await fetch("/api/" + action, {
@@ -413,19 +456,19 @@ document.addEventListener("touchstart", (ev) => {  // a tap anywhere else puts t
 });
 
 const STATUS = {
-  on_air: ["Booth is on the air", "Ask for a show below or {phone}. It shows up in Plex as a playlist a few minutes later."],
+  on_air: ["Booth is on the air", "Ask for a show below or {phone}. It shows up {where} as a playlist a few minutes later."],
   starting: ["Booth is starting", "Connecting to your Booth account..."],
   offline: ["Booth can't reach Radio Booth", "Is this computer online? Booth keeps trying by itself."],
   needs_plex: ["Plex needs you to sign in again", "Plex stopped accepting Booth's sign-in. Sign in again below."],
   needs_pairing: ["Connect Booth to your account again", "Your Booth account no longer knows this computer. Get a new pairing code on your phone and type it below."],
-  needs_folder: ["Booth can't find the breaks folder", "Is the drive or shared folder connected? Booth keeps checking."],
+  needs_folder: ["Booth can't find {folder}", "Is the drive or shared folder connected? Booth keeps checking."],
   stopped: ["Booth is paused", ""],
   not_set_up: ["Booth isn't set up yet", ""],
 };
 
 function render(s) {
   last = s;
-  const e = s.engine, ready = s.plex.ready && s.account.paired;
+  const e = s.engine, ready = s.music.ready && s.account.paired, files = s.music.kind === "folder";
   const onAir = e.state === "on_air";
   document.body.classList.toggle("on-air", onAir);
   $("light").textContent = onAir ? (e.busy ? "On air · busy" : "On air") : "Off air";
@@ -434,8 +477,8 @@ function render(s) {
   // Status
   show($("status"), ready);
   const [title, text] = STATUS[e.state] || ["Booth", ""];
-  $("status-title").textContent = title;
-  setText($("status-text"), text, s);
+  $("status-title").textContent = title.replace("{folder}", files ? "your music or shows folder" : "the breaks folder");
+  setText($("status-text"), text.replace("{where}", arrives()), s);
   const meta = [];
   if (e.last_checkin) meta.push("Checked in " + ago(e.last_checkin));
   if (e.last_show) meta.push("Last show: " + e.last_show.playlist + ", " + ago(e.last_show.at));
@@ -458,25 +501,33 @@ function render(s) {
   if (wantShows && !showsWanted) { showsWanted = true; loadShows(); }
   if (!wantShows) { showsWanted = false; clearTimeout(showsTimer); }
 
+  renderScan(s, files);
+
   // Setup: shown until done, when something needs fixing, or when asked for
-  const needsPlex = !s.plex.ready || e.state === "needs_plex";
+  const needsPlex = !s.music.ready || (!files && e.state === "needs_plex");
   const needsPair = !s.account.paired || e.state === "needs_pairing";
   const st = s.setup, plexBusy = st.step !== "idle" && st.step !== "done";
   show($("setup"), !ready || needsPlex || needsPair || changing || plexBusy);
   $("setup-title").textContent = ready ? "Booth's setup" : "Let's get Booth ready";
   show($("setup-intro"), !ready);
 
-  const plexDone = s.plex.ready && !needsPlex && !plexBusy;
+  const plexDone = s.music.ready && !needsPlex && !plexBusy;
   $("step-plex").classList.toggle("done", plexDone);
-  $("plex-text").textContent = plexDone
-    ? "Using your music library " + JSON.stringify(s.plex.music) + "."
+  $("plex-text").textContent = filesOpen ? "Where's your music?"
+    : plexDone && files ? "Using the music in " + s.music.folder + ". Shows go to " + s.music.shows_folder + "."
+    : plexDone ? "Using your Plex music library " + JSON.stringify(s.plex.music) + "."
     : st.step === "working" ? "Looking at your Plex server..."
     : st.step === "server" ? "Which Plex server has your music?"
     : st.step === "library" ? "Which Plex library is your music in?"
-    : "Sign in to Plex and allow Radio Booth. Booth never sees your Plex password.";
-  $("plex-go").textContent = s.plex.ready ? "Sign in to Plex again" : "Sign in to Plex";
-  show($("plex-actions"), st.step === "idle" || st.step === "done");
+    : st.step === "plex_wait" ? "Sign in to Plex and allow Radio Booth. Booth never sees your Plex password."
+    : !files && s.plex.ready ? "Plex stopped accepting Booth's sign-in. Sign in again, or use a folder instead."
+    : "Is your music in Plex, or in a folder of music files?";
+  $("plex-go").textContent = s.music.ready && !files ? "Sign in to Plex again" : s.music.ready ? "Use Plex instead" : "It's in Plex";
+  $("files-go").textContent = s.music.ready && files ? "Change folders" : s.music.ready ? "Use a folder instead" : "It's in a folder";
+  show($("plex-actions"), (st.step === "idle" || st.step === "done") && !filesOpen);
   show($("plex-go"), !plexDone || changing);
+  show($("files-go"), !plexDone || changing);
+  show($("files-form"), filesOpen);
   show($("plex-wait"), st.step === "plex_wait");
   if (st.sign_in_url) $("plex-link").href = st.sign_in_url;
   const choices = $("plex-choices");
@@ -508,7 +559,7 @@ function render(s) {
   $("people-text").textContent = people.length
     ? "Booth makes shows for " + [own, ...people.map((p) => p.name)].join(", ") + "."
     : "Booth makes shows for " + (s.account.account_name || "your account") + ". Someone else with their own Radio Booth account can use it too.";
-  if (people.length && !plexUsersAsked) {  // whom their playlists can be shared with, asked for once
+  if (people.length && !plexUsersAsked && !files) {  // whom their playlists can be shared with, asked for once
     plexUsersAsked = true;
     fetch("/api/plex_users", {cache: "no-store"}).then((r) => r.json().then((d) => {
       if (!r.ok) throw new Error(d.error || "Booth didn't answer.");
@@ -520,7 +571,7 @@ function render(s) {
       setTimeout(() => { plexUsersAsked = false; }, 30000);  // ask again on a later refresh
     });
   }
-  const peopleKey = JSON.stringify([own, people, plexUsers]);
+  const peopleKey = JSON.stringify([own, people, plexUsers, files]);
   if (peopleKey !== peopleShown) {
     peopleShown = peopleKey;
     const ul = $("people");
@@ -532,8 +583,8 @@ function render(s) {
       const st = document.createElement("span");
       st.className = "st" + (p.unpaired ? " failed" : "");
       st.textContent = p.unpaired ? "Their Booth account no longer knows this computer. Add them again with a new code."
-        : "Their playlists start with “" + p.name + ":”" +
-          (p.plex_user ? ". New ones are shared with " + p.plex_user.title + " in Plex." : ". They stay in your Plex.");
+        : "Their playlists start with “" + p.name + ":”" + (files ? "." :
+          p.plex_user ? ". New ones are shared with " + p.plex_user.title + " in Plex." : ". They stay in your Plex.");
       const share = document.createElement("label");
       share.className = "people-share";
       share.textContent = "Share their playlists in Plex with";
@@ -564,7 +615,7 @@ function render(s) {
         await post("remove_person", {id: p.id}).catch((x) => error("settings-error", x.message));
         refresh();
       }, true));
-      li.append(t, st, share, actions);
+      li.append(t, st, ...(files ? [] : [share]), actions);
       return li;
     }));
     show(ul, people.length > 0);
@@ -631,7 +682,7 @@ function unsaved() {
   const at = document.activeElement;
   if (at && at.matches("textarea, select, input:not([type=checkbox])") && at.id !== "who") return true;
   for (const f of edited) if (f.isConnected && f.value !== "") return true;
-  return panels.size > 0 || opening.size > 0 || adding || changing || asking;
+  return panels.size > 0 || opening.size > 0 || adding || changing || asking || filesOpen;
 }
 
 function newVersion(version) {
@@ -655,7 +706,7 @@ function showOff() {
   $("off-title").textContent = restarting ? "Booth is updating" : "Booth is off";
   $("off-text").textContent = restarting
     ? "It's starting again with the new version. This page comes back by itself in a moment."
-    : "Shows you ask for won't reach Plex until it's on again. To turn it on, open Radio Booth" + where +
+    : "Shows you ask for wait until it's on again. To turn it on, open Radio Booth" + where +
       ". This page comes back by itself.";
   $("footer").classList.add("hidden");
 }
@@ -713,8 +764,11 @@ function renderShows(list) {
     t.textContent = s.title || s.prompt;
     const st = document.createElement("span");
     st.className = "st " + s.status;
-    let text = SHOW_STATUS[s.status] || s.status;
-    if (s.waiting_for_earlier) text = "Up next, after your earlier show reaches Plex";
+    const here = inFolder() && !s.for_computer;
+    let text = (here && FOLDER_STATUS[s.status]) || SHOW_STATUS[s.status] || s.status;
+    if (s.waiting_for_earlier) text = "Up next, after your earlier show";
+    if (here && s.status === "delivered" && s.on_disk === false) text = "Removed from your Booth shows folder";
+    else
     if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
     if (s.status === "failed" && s.error) text += ". " + s.error;
     if (s.for_computer) text += " (made on " + s.for_computer + ")";  // another computer's show
@@ -724,9 +778,60 @@ function renderShows(list) {
     m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
     li.append(t, st, m);
     if (s.feedback) li.append(feedbackButton(s));
+    if (here && s.status === "delivered" && s.on_disk) li.append(removeButton(s));
     if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
+}
+
+function removeButton(s) {
+  const b = el("button", {type: "button", className: "quiet remove", textContent: "Remove"});
+  b.onclick = async () => {
+    if (!confirm("Remove “" + (s.playlist || s.title) + "” from your Booth shows folder? Its playlist and DJ breaks" +
+      " are deleted. Your music stays where it is.")) return;
+    b.disabled = true;
+    try {
+      await post("remove_show", {show_id: s.show_id});
+      error("shows-error", "");
+    } catch (x) { error("shows-error", x.message); }
+    loadShows();
+  };
+  return b;
+}
+
+// The music folder: how reading it goes, and what Booth found in the tags.
+function renderScan(s, files) {
+  const scan = s.engine.scan, report = s.engine.report;
+  show($("scan"), files && s.music.ready && !!(scan || report));
+  if (!files) return;
+  show($("scan-progress"), !!scan);
+  $("rescan").disabled = !!scan;
+  if (scan) {
+    $("scan-title").textContent = "Reading your music";
+    const bar = $("scan-bar");
+    if (scan.total) { bar.max = scan.total; bar.value = scan.done; } else bar.removeAttribute("value");
+    const n = (x) => x.toLocaleString();
+    const parts = [scan.total ? n(scan.done) + " of " + n(scan.total) + " files" : "Looking through your folders..."];
+    if (scan.rate) parts.push(Math.round(scan.rate) + " files a second");
+    if (scan.left_s != null && scan.done < scan.total) parts.push("about " + duration(scan.left_s) + " left");
+    $("scan-text").textContent = parts.join(" · ");
+  } else $("scan-title").textContent = "Your music";
+  if (report) {
+    const n = (x) => x.toLocaleString();
+    $("report-text").textContent = n(report.used) + " tracks ready for shows, from " + n(report.files) +
+      " music files (read " + ago(report.at) + ").";
+    const text = report.lines.join("\n");
+    if ($("report").textContent !== text) $("report").textContent = text;
+  }
+  show($("report-text"), !!report);
+  show($("report-box"), !!report);
+}
+
+function duration(seconds) {
+  if (seconds < 90) return "a minute";
+  if (seconds < 3600) return Math.round(seconds / 60) + " minutes";
+  const h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+  return h + " h" + (m ? " " + m + " min" : "");
 }
 
 // Feedback, as on the phone page: stars for a show that reached Plex, and flags on breaks that didn't work.
@@ -800,7 +905,7 @@ function feedbackPanel(sh, who) {
   const whole = el("div", {}, el("h3", {textContent: "The show"}), stars, note,
     el("div", {className: "actions"}, save), msg);
   const breaks = el("div", {}, el("h3", {textContent: "Breaks"}), el("p", {className: "muted",
-    textContent: "Something off when the DJ talked? Flag that break. They're numbered the same in Plex."}));
+    textContent: "Something off when the DJ talked? Flag that break. They're numbered the same in the playlist."}));
   for (const b of sh.breaks) breaks.append(breakRow(sh, b, who));
   if (!sh.breaks.length) breaks.append(el("p", {className: "muted", textContent: "No breaks to show."}));
   return el("div", {className: "fb"}, whole, breaks);
@@ -935,7 +1040,7 @@ function wire() {
       });
       $("prompt").value = "";
       for (const f of $("show-form").elements) edited.delete(f);  // sent: nothing left to lose
-      $("show-ok").textContent = "Requested. It shows up in Plex in a few minutes.";
+      $("show-ok").textContent = "Requested. It shows up " + arrives() + " in a few minutes.";
       show($("show-ok"), true);
     } catch (x) { error("show-error", x.message); }
     asking = false;
@@ -954,6 +1059,35 @@ function wire() {
     }
     refresh();
   };
+  $("files-go").onclick = () => {
+    filesOpen = true;
+    error("plex-error", "");
+    const m = last ? last.music : {};
+    if (!$("music-path").value) $("music-path").value = m.folder || m.suggest.music || "";
+    if (!$("shows-path").value) $("shows-path").value = m.shows_folder || m.suggest.shows || "";
+    if (last) render(last);
+    $("music-path").focus();
+  };
+  $("files-cancel").onclick = () => {
+    filesOpen = false;
+    for (const id of ["music-path", "shows-path"]) { $(id).value = ""; edited.delete($(id)); }
+    error("plex-error", "");
+    if (last) render(last);
+  };
+  $("files-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    error("plex-error", "");
+    $("files-use").disabled = true;
+    try {
+      await post("music_folder", {music: $("music-path").value, shows: $("shows-path").value});
+      filesOpen = false;
+      for (const id of ["music-path", "shows-path"]) edited.delete($(id));
+    } catch (x) { error("plex-error", x.message); }
+    $("files-use").disabled = false;
+    refresh();
+  };
+  $("rescan").onclick = () => post("rescan").then(() => error("scan-error", ""))
+    .catch((x) => error("scan-error", x.message)).then(refresh);
   $("folder-go").onclick = () => post("folder", {path: $("folder-path").value})
     .then(() => { edited.delete($("folder-path")); refresh(); }).catch((x) => error("plex-error", x.message));
   $("pair-form").onsubmit = async (ev) => {
@@ -974,9 +1108,13 @@ function wire() {
   $("autostart").onchange = (ev) => post("autostart", {on: ev.target.checked}).then(refresh)
     .catch((x) => { error("settings-error", x.message); refresh(); });
   $("auto-update").onchange = (ev) => post("auto_update", {on: ev.target.checked}).then(refresh);
-  $("change").onclick = () => { changing = !changing; if (!changing) post("cancel"); if (last) render(last); };
+  $("change").onclick = () => {
+    changing = !changing;
+    if (!changing) { post("cancel"); filesOpen = false; }
+    if (last) render(last);
+  };
   $("quit").onclick = async () => {
-    if (!confirm("Turn Booth off? Shows you ask for won't reach Plex until Booth is on again.")) return;
+    if (!confirm("Turn Booth off? Shows you ask for wait until Booth is on again.")) return;
     await post("quit").catch(() => {});
     gone = 3;
     turningOff = true;

@@ -1,8 +1,9 @@
 """Setup on Booth's page: the same steps as `booth setup` (see setup_flow), as buttons and lists.
 
-Each step runs in the background and the page asks for `state()` every second or two. Plex first: sign in
-on Plex's own page, pick the server and music library if there's a choice, and the breaks library is found or
-made. Then the pairing code from the phone. What's done is saved straight away, like `booth setup`.
+Each step runs in the background and the page asks for `state()` every second or two. Music first: either
+sign in on Plex's own page, pick the server and music library if there's a choice, and the breaks library is
+found or made; or name a folder of music files and the folder for Booth's shows. Then the pairing code from
+the phone. What's done is saved straight away, like `booth setup`.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from radiobooth import config, onboard
+from radiobooth import config, engine, onboard
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError, music_sections
@@ -26,6 +27,24 @@ PLEX_KEYS = ("plex_url", "plex_token", "music_library", "breaks_library", "break
 
 def plex_ready(settings: dict) -> bool:
     return all(settings.get(k) for k in PLEX_KEYS)
+
+
+def music_ready(settings: dict) -> bool:
+    """Booth knows where the music is and where shows go: in Plex, or in folders."""
+    if engine.folder_mode(settings):
+        return not engine.folder_settings(settings)[1]
+    return plex_ready(settings)
+
+
+def default_shows_folder(home: Path | None = None) -> Path:
+    """Where shows go unless the person says otherwise: beside their music, not in it, so a music player
+    watching the music folder doesn't list the DJ's breaks as songs."""
+    return (home or Path.home()) / "Booth shows"
+
+
+def default_music_folder(home: Path | None = None) -> Path | None:
+    music = (home or Path.home()) / "Music"
+    return music if music.is_dir() else None
 
 
 class WebSetup:
@@ -223,9 +242,41 @@ class WebSetup:
                     "music_library": self._chosen.get("title"),
                     "breaks_library": self._ob.BREAKS_LIBRARY,
                     "breaks_dir": breaks_dir,
+                    "music_source": "plex",
                 }
             )
             self.step, self.error, self.choices = "done", "", []
+        self._on_saved()
+
+    # Music in a folder
+
+    def use_music_folder(self, music: str, shows: str) -> None:
+        """Music from a folder of files, shows into another folder (made if needed)."""
+        music_path = Path(music.strip().strip('"')).expanduser()
+        shows = shows.strip().strip('"')
+        shows_path = Path(shows).expanduser() if shows else default_shows_folder()
+        if not music.strip():
+            raise SetupError("Type the folder your music is in.")
+        if not music_path.is_absolute() or not music_path.is_dir():
+            raise SetupError(
+                "Booth can't find that music folder. Copy its full path (e.g. from the address bar of"
+                " File Explorer or Finder) and try again."
+            )
+        if not shows_path.is_absolute():
+            raise SetupError("Type the full path of the folder for your shows.")
+        music_path, shows_path = music_path.resolve(), shows_path.resolve()
+        if music_path == shows_path or music_path.is_relative_to(shows_path):
+            raise SetupError("Your shows need a folder of their own, not your music folder.")
+        try:
+            shows_path.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise SetupError(f"Booth can't make the folder {shows_path} ({e.strerror or e}).") from None
+        with self._lock:
+            self.reset()
+            config.update(
+                {"music_source": "folder", "music_folder": str(music_path), "shows_folder": str(shows_path)}
+            )
+            self.step = "done"
         self._on_saved()
 
     # Booth account

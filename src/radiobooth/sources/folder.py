@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable
@@ -166,7 +167,13 @@ def _stat_dir(here: str) -> os.stat_result:
 def walk(folder: Path, report: Report, skip: list[Path]) -> list[tuple[Path, os.stat_result]]:
     """Every music file under the folder, with its size and time, in a steady order."""
     found = []
-    skip_resolved = {s.resolve() for s in skip}
+    skipped = set()  # the folders to leave out, known the way visited ones are (no path work per folder)
+    for s in skip:
+        try:
+            st = _stat_dir(str(s))
+        except OSError:
+            continue
+        skipped.add((st.st_dev, st.st_ino) if st.st_ino else os.path.realpath(s))
 
     def refused(_error: OSError) -> None:
         report.unopened_folders += 1
@@ -182,17 +189,11 @@ def walk(folder: Path, report: Report, skip: list[Path]) -> list[tuple[Path, os.
             continue
         # Some file systems (FAT, network drives on Windows) report no inode numbers: use the real path.
         seen = (st.st_dev, st.st_ino) if st.st_ino else os.path.realpath(here)
-        if seen in visited:
+        if seen in visited or seen in skipped:
             dirs[:] = []
             continue
         visited.add(seen)
-        dirs[:] = sorted(
-            d
-            for d in dirs
-            if not d.startswith(".")
-            and d.lower() not in SKIP_DIRS
-            and not (skip_resolved and (Path(here) / d).resolve() in skip_resolved)
-        )
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d.lower() not in SKIP_DIRS)
         files = [f for f in sorted(files) if not f.startswith(".")]  # also macOS "._" files
         # A whole album kept as one file with a CUE sheet: Booth can't split it yet, and one 45-minute
         # "track" doesn't belong in a show. Spotted by the sheet's name, or a lone audio file beside it.
@@ -249,7 +250,8 @@ class Index:
                 [(r,) for r in known if r not in here] + [(f.rel,) for f in changed if f.rel in known],
             )
             self.db.executemany(
-                "INSERT INTO files VALUES (?, ?, ?, ?, ?, ?)",
+                # OR REPLACE: `booth scan` and the app may read the same folder at once; the last one wins.
+                "INSERT OR REPLACE INTO files VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     (f.rel, f.size, f.mtime, f.id, json.dumps(f.tags) if f.tags else None, f.problem)
                     for f in changed
@@ -258,10 +260,13 @@ class Index:
             self.db.execute(f"PRAGMA user_version = {READER}")
         self.stale = False
 
-    def path_of(self, track: str) -> str | None:
-        """The file (inside the music folder) a catalog id stands for."""
-        row = self.db.execute("SELECT rel FROM files WHERE id = ?", (track,)).fetchone()
-        return row[0] if row else None
+    def lookup(self, track: str) -> tuple[str, dict] | None:
+        """(the file inside the music folder, its tags) for a catalog id."""
+        row = self.db.execute("SELECT rel, tags FROM files WHERE id = ?", (track,)).fetchone()
+        if not row:
+            return None
+        tags = json.loads(row[1]) if row[1] else {}
+        return row[0], tags.get("fields", {})
 
 
 def _read(path: Path) -> tuple[dict | None, str | None]:
@@ -384,14 +389,23 @@ def from_path(rel: str) -> dict:
     if len(parts) < 3:
         return {}
     artist, album, name = (p.strip() for p in parts[-3:])
-    m = re.fullmatch(r"(\d{1,3})\s*[-._ ]\s*(.+)", os.path.splitext(name)[0])
-    if not m or not artist or not album or tagreader.placeholder(title := m.group(2).strip()):
+    # "01 Title", "1 - Title", "01. Title", but a bare "50 Ways to Leave Your Lover" keeps its number: a
+    # track number without a 0 in front or a mark after it can't be told from the title's own first word.
+    m = re.fullmatch(r"(0\d{1,2})\s*[-._ ]\s*(.+)|(\d{1,3})\s*[-._]\s*(.+)", os.path.splitext(name)[0])
+    if not m:
+        return {}
+    number, title = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+    title = title.strip()
+    for credit in (f"{artist} - ", f"{artist}-"):  # "01 - Nena - 99 Luftballons"
+        if title.casefold().startswith(credit.casefold()) and len(title) > len(credit):
+            title = title[len(credit) :].strip()
+    if not artist or not album or tagreader.placeholder(title):
         return {}
     if tagreader.placeholder(artist) or tagreader.placeholder(album):
         return {}
     found = {"artist": artist, "album": album, "title": title}
-    if int(m.group(1)) >= 1:
-        found["track_number"] = int(m.group(1))
+    if int(number) >= 1:
+        found["track_number"] = int(number)
     return found
 
 
@@ -517,6 +531,22 @@ def tracks_of(files: list[Found], report: Report) -> list[dict]:
     return [t for _, t in kept]
 
 
+_scanning = threading.Lock()  # one scan at a time: a second one waits, then finds little left to read
+
+
+def music_root(folder: str | Path) -> Path:
+    """The music folder as the index knows it."""
+    folder = Path(folder).expanduser().resolve()
+    if not folder.is_dir():
+        raise FileNotFoundError(f"No folder at {folder}")
+    return folder
+
+
+def open_index(folder: Path, key: bytes, home: Path) -> Index:
+    """The index of a music folder (from `music_root`)."""
+    return Index(index_path(folder, key, home))
+
+
 def build_catalog(
     folder: str | Path,
     name: str,
@@ -528,15 +558,14 @@ def build_catalog(
 ) -> tuple[dict, Report]:
     """The catalog for a music folder, and the tag report. `name` is what the service hears the library
     called (never the path, which could hold the listener's user name); `home` is where the index lives."""
-    folder = Path(folder).expanduser().resolve()
-    if not folder.is_dir():
-        raise FileNotFoundError(f"No folder at {folder}")
+    folder = music_root(folder)
     report = Report(examples=examples)
-    index = Index(index_path(folder, key, home))
-    try:
-        files = refresh(folder, index, key, report, skip, progress)
-    finally:
-        index.close()
+    with _scanning:
+        index = open_index(folder, key, home)
+        try:
+            files = refresh(folder, index, key, report, skip, progress)
+        finally:
+            index.close()
     catalog = {
         "protocol": "radiobooth/catalog@0",
         "generated_at": history.stamp(),

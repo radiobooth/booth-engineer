@@ -12,9 +12,9 @@ This takes about 10 minutes, once.
 
 ## What you need
 
-- **Plex Media Server with your music in it**, on a Windows PC or a Mac. Booth works best when it runs on
-  that same computer. Plex on a NAS, a Linux machine or another computer? See
-  [Other ways to set up Booth](other-setups.md).
+- **Your music**, on a Windows PC or a Mac: either in **Plex Media Server**, or simply as a folder of music
+  files (MP3, FLAC, M4A and the like). With Plex, Booth works best when it runs on the Plex computer. Plex on a
+  NAS, a Linux machine or another computer? See [Other ways to set up Booth](other-setups.md).
 - **Your phone**, with the sign-in link you were sent.
 - That computer switched on and awake when you ask for a show. It doesn't need to stay on otherwise.
 
@@ -23,7 +23,7 @@ This takes about 10 minutes, once.
 Open the sign-in link you were sent, on your phone. You'll see your Booth page. Keep it handy: add it to
 your home screen or bookmark it. The link is yours alone; please don't share it.
 
-## 2. Download Booth on the Plex computer
+## 2. Download Booth on the computer with your music
 
 Go to the [latest release](https://github.com/radiobooth/booth-engineer/releases/latest) and download:
 
@@ -50,12 +50,20 @@ one). That's Booth. There's no other window: Booth runs in the background.
 
 ## 4. Follow the two steps on Booth's page
 
-**Plex.** Click **Sign in to Plex**. Plex's own sign-in page opens in a new tab: sign in and allow Radio
-Booth. (Booth never sees your Plex password.) Then come back to Booth's tab. If you have more than one Plex
-server or music library, click the one with your music.
+**Your music in Plex.** Click **It's in Plex**. Plex's own sign-in page opens in a new tab: sign in and allow
+Radio Booth. (Booth never sees your Plex password.) Then come back to Booth's tab. If you have more than one
+Plex server or music library, click the one with your music.
 
 Booth then adds a small library to Plex called **Radio Booth**. The DJ's voice clips go there, so they never
 mix into your own music.
+
+**Your music in a folder.** Click **It's in a folder**. Type (or paste) the folder your music is in, and the
+folder for your shows; Booth suggests both. To copy a folder's path, click the address bar in File Explorer,
+or in Finder select the folder, hold **Option** and choose **Copy as Pathname**. Click **Use these folders**,
+and Booth starts reading your music's tags, with a progress bar. A big collection takes a while the first time
+(tens of minutes for tens of thousands of songs); after that Booth only reads what's new. You can do the next
+step meanwhile. Each show arrives in your shows folder as a playlist: open it in your music player
+(foobar2000, MusicBee, VLC, Music on a Mac, and most others). Booth never changes or moves your music files.
 
 **Your Booth account.** On your phone's Booth page, tap **Get a pairing code**. Type the code into Booth's
 page on the computer and click **Connect**. The code works once and lasts 10 minutes.
@@ -74,7 +82,8 @@ That's it.
 
 On your phone, or on Booth's page on the computer, describe the show, pick a length and a DJ, and tap **Make
 the show**. The page tells you how it's going. When it says **In Plex**, open Plex and look under
-**Playlists**.
+**Playlists**. With your music in a folder, it says **In your Booth shows folder**: open the new playlist
+there in your music player. **Remove** under a show on Booth's page deletes its playlist and DJ breaks.
 
 If your account has a limit, both pages show what's left above the form.
 
@@ -132,7 +141,7 @@ Booth is doing and, if something needs you, what to do.
 - **"Didn't work".** The reason is shown under the show. Try again; if it keeps happening, tell us what it
   says, and what Booth's page shows under **What Booth has been doing**.
 - **You changed your Plex setup, or moved your music.** On Booth's page, click **Change** next to
-  **Change Booth's setup**, then **Sign in to Plex again**.
+  **Change Booth's setup**, then **Sign in to Plex again** (or **Change folders**).
 - **Booth's page says "Booth isn't running".** Open **Radio Booth** again.
 
 ## Updating Booth

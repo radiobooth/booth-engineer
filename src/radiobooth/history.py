@@ -9,8 +9,6 @@ has their own (history-<id>.json), so one person's shows don't keep tracks out o
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,15 +45,7 @@ def record(track_ids: Iterable[str], when: datetime | None = None, person: str |
     tracks.update({t: at for t in track_ids if isinstance(t, str) and t})
     p = path(person)
     p.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".history-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"version": 1, "tracks": tracks}, f, indent=0, sort_keys=True)
-            f.write("\n")
-        os.replace(tmp, p)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    config.write_atomically(p, json.dumps({"version": 1, "tracks": tracks}, indent=0, sort_keys=True) + "\n")
     return p
 
 
