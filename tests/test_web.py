@@ -836,7 +836,30 @@ def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypa
     monkeypatch.setattr(web.Link, "get", get)
     listed = json.loads(call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})[2])
     assert [s["on_disk"] for s in listed["shows"]] == [True, False]
+
+    opened = []
+    app.open_folder = opened.append
+    assert act(port, key, "copy_show", {"show_id": "show_abcdef123456"})[0] == 200
+    wait_for(lambda: app.copy and app.copy["finished"])
+    copy = shows.resolve() / "Copies" / "Wipers On, Long Way Home"
+    assert app.copy == {
+        "show_id": "show_abcdef123456",
+        "done": 6,
+        "total": 6,
+        "finished": True,
+        "folder": str(copy),
+        "missing": 0,
+    }
+    assert opened == [copy]
+    state = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])
+    assert state["copy"]["folder"] == str(copy)
+    assert act(port, key, "copy_show", {"show_id": "../../x"})[0] == 422
+    assert act(port, key, "copy_show", {"show_id": "show_gone000000"})[0] == 200  # it says why when done
+    wait_for(lambda: app.copy["finished"])
+    assert "isn't in your Booth shows folder" in app.copy["error"]
+
     assert act(port, key, "remove_show", {"show_id": "show_abcdef123456"})[0] == 200
+    assert not copy.exists()
     assert playlist.shows(shows) == [] and (music / "a" / "1.flac").exists()
     status, data = act(port, key, "remove_show", {"show_id": "show_abcdef123456"})
     assert status == 422 and "isn't in your Booth shows folder" in data["error"]

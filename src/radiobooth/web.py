@@ -20,6 +20,7 @@ import os
 import re
 import secrets
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -112,6 +113,15 @@ def phone_qr(server: str) -> str | None:
         return None
 
 
+def open_folder(path: Path, platform: str = sys.platform, popen=subprocess.Popen) -> None:
+    """Show a folder in the computer's file manager, where there is one (not in a container, say)."""
+    with contextlib.suppress(OSError):
+        if platform == "win32":
+            os.startfile(path)  # type: ignore[attr-defined]
+        else:
+            popen(["open" if platform == "darwin" else "xdg-open", str(path)], close_fds=True)
+
+
 class App:
     """Everything the page shows and does."""
 
@@ -128,6 +138,9 @@ class App:
         self.restarting = False
         self._roster: tuple[float, dict] | None = None
         self._paired = 0  # counts pairings, so a roster from before the latest one isn't kept
+        self.copy: dict | None = None  # the latest show copied to a folder: how it's going, or how it went
+        self._copy_lock = threading.Lock()
+        self.open_folder = lambda path: open_folder(path, self.platform)
 
     def server(self) -> str:
         from radiobooth.cli import DEFAULT_SERVER
@@ -192,6 +205,7 @@ class App:
                 "on": autostart.installed(self.platform),
             },
             "restarting": self.restarting,
+            "copy": self.copy,
         }
 
     def music(self, settings: dict) -> dict:
@@ -219,6 +233,35 @@ class App:
             raise SetupError(f"Couldn't remove that show ({e.strerror or e}).") from None
         if not gone:
             raise SetupError("That show isn't in your Booth shows folder any more.")
+
+    def copy_show(self, show_id: str) -> None:
+        """Copy a show whole into a folder of its own in the background (songs and breaks as numbered files),
+        then open that folder, ready to drag onto a phone, a USB stick or a car's drive."""
+        settings = config.load()
+        if not engine.folder_mode(settings) or not SHOW_ID.fullmatch(show_id):
+            raise SetupError("Booth can't copy that show here.")
+        shows = Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
+        with self._copy_lock:
+            if self.copy and not self.copy.get("finished"):
+                raise SetupError("Booth is copying a show already. Wait for that one to finish.")
+            self.copy = {"show_id": show_id, "done": 0, "total": 0, "finished": False}
+        threading.Thread(target=self._copy, args=(shows, show_id), name="booth-copy", daemon=True).start()
+
+    def _copy(self, shows: Path, show_id: str) -> None:
+        def progress(done: int, total: int) -> None:
+            self.copy = self.copy | {"done": done, "total": total}
+
+        try:
+            made = playlist_target.copy_out(shows, show_id, progress)
+        except playlist_target.PlaylistError as e:
+            self.copy = self.copy | {"finished": True, "error": str(e)}
+            return
+        except OSError as e:
+            said = f"Couldn't copy that show ({e.strerror or e})."
+            self.copy = self.copy | {"finished": True, "error": said}
+            return
+        self.copy = self.copy | {"finished": True, "folder": str(made.folder), "missing": made.missing}
+        self.open_folder(made.folder)
 
     def _link(self, settings: dict | None = None, who: str | None = None) -> Link:
         """The link for this computer's own account, or (`who`) for another person sharing it."""
@@ -494,6 +537,8 @@ class App:
                 raise SetupError("Booth is reading your music already.")
         elif action == "remove_show":
             self.remove_show(str(body.get("show_id", "")))
+        elif action == "copy_show":
+            self.copy_show(str(body.get("show_id", "")))
         elif action == "new_show":
             return self.new_show(body)
         elif action == "feedback":

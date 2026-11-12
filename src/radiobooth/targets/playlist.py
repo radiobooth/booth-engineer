@@ -8,6 +8,10 @@ share as the shows folder, so the same playlist plays on any computer that reach
 
 A playlist names its show on a comment line, so delivering the same show again rewrites its own playlist,
 and Booth's page can list and remove shows without keeping a list of its own.
+
+A show can also be copied whole into a folder of its own (`copy_out`): its songs and breaks as numbered files
+plus a playlist, to put on a phone, a USB stick or a car's drive, where it plays in order even without the
+playlist.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from radiobooth.targets.plex import folder_name, load_package
 
 MARK = "#BOOTH-SHOW:"  # show id, on its own line in each playlist Booth writes
 BREAKS = "breaks"
+COPIES = "Copies"  # in the shows folder: shows copied whole, to take along
 # Names Windows keeps for devices, with or without an extension.
 _RESERVED = {"con", "prn", "aux", "nul", *(f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10))}
 
@@ -206,8 +211,79 @@ def shows(out_root: Path) -> list[Show]:
     return sorted(found, key=lambda s: s.made_at, reverse=True)
 
 
+def _entries(playlist: Path) -> list[tuple[str, Path]]:
+    """What a playlist plays, in order: (its #EXTINF info, "seconds,name"; the file, read relative to the
+    playlist)."""
+    found, info = [], "-1,"
+    for line in playlist.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("#EXTINF:"):
+            info = line.removeprefix("#EXTINF:").strip()
+        elif line.strip() and not line.startswith("#"):
+            found.append((info, playlist.parent / line.strip()))
+            info = "-1,"
+    return found
+
+
+@dataclass
+class Copy:
+    folder: Path
+    files: int
+    missing: int  # files the playlist names that weren't there to copy
+
+
+def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] | None = None) -> Copy:
+    """Copy a show whole into `Copies/<title>/` in the shows folder: each song and break as a numbered file,
+    in playing order, and a playlist of them. Copied again, it replaces its own earlier copy."""
+    root = out_root.resolve()
+    show = next((s for s in shows(root) if s.show_id == show_id), None)
+    if show is None:
+        raise PlaylistError("That show isn't in your Booth shows folder any more.")
+    listed = _entries(show.playlist)
+    entries = [(info, path) for info, path in listed if path.is_file()]
+    if not entries:
+        raise PlaylistError("None of this show's files are there to copy.")
+    copies = root / COPIES
+    base = file_name(show.title)
+    for n in range(1, 1000):
+        folder = copies / (base if n == 1 else f"{base} ({n})")
+        if not folder.exists() or any(show_of(p) == show_id for p in folder.glob("*.m3u8")):
+            break
+    else:
+        raise PlaylistError(f"Too many copies named {base!r} in {copies}.")
+    partial = copies / f".{folder.name}.partial"
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir(parents=True)
+    width = max(2, len(str(len(entries))))
+    lines = ["#EXTM3U", f"#PLAYLIST:{_line(show.title)}", f"{MARK}{_line(show_id)}"]
+    for n, (info, src) in enumerate(entries, 1):
+        if progress:
+            progress(n - 1, len(entries))
+        label = info.partition(",")[2].strip() or src.stem
+        name = f"{n:0{width}d} {file_name(label)}{src.suffix.lower()}"
+        shutil.copyfile(src, partial / name)
+        lines += [f"#EXTINF:{info}", name]
+    (partial / f"{base}.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    shutil.rmtree(folder, ignore_errors=True)  # this show's earlier copy
+    partial.rename(folder)
+    if progress:
+        progress(len(entries), len(entries))
+    return Copy(folder, len(entries), len(listed) - len(entries))
+
+
+def _drop_copies(copies: Path, show_id: str) -> None:
+    """Delete the show's copies in `Copies/` (found by the mark in their playlists)."""
+    try:
+        folders = [d for d in copies.iterdir() if d.is_dir() and not d.name.startswith(".")]
+    except OSError:
+        return
+    for d in folders:
+        if any(show_of(p) == show_id for p in d.glob("*.m3u8")):
+            shutil.rmtree(d, ignore_errors=True)
+
+
 def remove(out_root: Path, show_id: str) -> bool:
-    """Delete a show's playlist and its breaks (never the user's music). False when there's no such show."""
+    """Delete a show's playlist, its breaks and any copy of it (never the user's music). False when there's
+    no such show."""
     root = out_root.resolve()
     gone = False
     for s in shows(root):
@@ -222,4 +298,6 @@ def remove(out_root: Path, show_id: str) -> bool:
                 break
         s.playlist.unlink(missing_ok=True)
         gone = True
+    if gone:
+        _drop_copies(root / COPIES, show_id)
     return gone
