@@ -62,6 +62,17 @@ class Tags:
     seen: set[str] = field(default_factory=set)  # which tags were there, for the coverage report
 
 
+# What rippers and players write when they don't know a name: no name at all.
+PLACEHOLDER = re.compile(
+    r"<?(unknown|unknown (track|title|artist|album)|track ?\d+|audio ?track( ?\d+)?|no title|no artist)>?",
+    re.I,
+)
+
+
+def placeholder(name: str) -> bool:
+    return bool(PLACEHOLDER.fullmatch(name.strip()))
+
+
 def text(value: str) -> str:
     return unicodedata.normalize("NFC", value).strip()
 
@@ -297,6 +308,9 @@ def _count(items: list[str]) -> int | None:
 def to_fields(bag: Bag) -> dict:
     """The catalog fields a file's tags give (no id, no length), leaving out what isn't there."""
     bag = {k: values(v) for k, v in bag.items()}
+    for k in ("title", "artist", "albumartist", "album", "artists"):
+        if k in bag:
+            bag[k] = [v for v in bag[k] if not placeholder(v)]
     get = lambda k: bag.get(k) or []  # noqa: E731
     credited = get("artist")
     # Several values in the artist field itself (ID3v2.4, repeated Vorbis ARTIST): shown together, and

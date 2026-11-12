@@ -228,24 +228,44 @@ def test_changed_files_are_read_again_and_index_is_reused(tmp_path, monkeypatch)
     assert scan(music, home)[0]["tracks"][0]["title"].startswith("A much longer") and len(reads) == 1
 
 
-def test_names_from_folders_only_for_a_clean_layout(tmp_path):
+def test_names_from_folders_only_where_the_layout_matches_the_tags(tmp_path):
     music, home = tmp_path / "music", tmp_path / "home"
-    put(music, "Pixies/Doolittle/03 Wave of Mutilation.flac")
-    put(music, "Downloads/track.flac")
+    # "CD" is laid out Artist/Album/Track, as its tagged files show; "from_web" isn't.
+    for i in range(1, 6):
+        tagged(
+            music, f"CD/Pixies/Doolittle/0{i} x.flac", TITLE=f"Song {i}", ARTIST="Pixies", ALBUM="Doolittle"
+        )
+        tagged(music, f"from_web/MashUp/{i} y.flac", TITLE=f"Mash {i}", ARTIST=f"DJ {i}", ALBUM="Mixes")
+    put(music, "CD/Pixies/Doolittle/07 Wave of Mutilation.flac")
+    put(music, "CD/Pixies/Doolittle/08 Unknown Track.flac")  # a ripper's placeholder is no name
+    put(music, "from_web/MashUp/55 DJ ZEBRA  Got to stand it up.flac")
+    put(music, "loose.flac")
     catalog, report = scan(music, home)
-    (t,) = catalog["tracks"]
+    (t,) = [t for t in catalog["tracks"] if t.get("from_path")]
     assert t | {"id": "x", "duration_ms": 1} == {
         "id": "x",
         "artist": "Pixies",
         "album": "Doolittle",
         "title": "Wave of Mutilation",
-        "track_number": 3,
+        "track_number": 7,
         "duration_ms": 1,
         "from_path": True,
     }
-    assert report.skipped[folder.NO_NAMES] == 1 and report.samples[folder.NO_NAMES] == [
-        "Downloads/track.flac"
+    assert sorted(report.samples[folder.NO_NAMES]) == [
+        "CD/Pixies/Doolittle/08 Unknown Track.flac",
+        "from_web/MashUp/55 DJ ZEBRA  Got to stand it up.flac",
+        "loose.flac",
     ]
+
+
+def test_placeholder_tags_are_no_name(tmp_path):
+    p = vorbis(put(tmp_path, "a.flac"), TITLE="Track 15", ARTIST="Unknown Artist", ALBUM="Unknown Album")
+    assert not {"title", "artist", "album"} & tags.read(p).fields.keys()
+    p = vorbis(p, TITLE="Untitled", ARTIST="Unknown Mortal Orchestra", ALBUM="II")
+    assert (
+        tags.read(p).fields["artist"] == "Unknown Mortal Orchestra"
+        and tags.read(p).fields["title"] == "Untitled"
+    )
 
 
 def test_best_copy_of_a_recording_is_kept(tmp_path):

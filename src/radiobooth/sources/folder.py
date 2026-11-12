@@ -45,7 +45,10 @@ UNSUPPORTED = "a file type Booth can't read yet"
 ONE_FILE_ALBUM = "a whole album in one file, with a CUE sheet (not split into tracks yet)"
 SAME_NAME = "another file has the same name, written with different accent characters"
 READERS = 8  # files read at once
-READER = 1  # bump when tags.py reads differently, so the index reads every file again
+# Folder names stand in for missing tags only where at least this share of the tagged files (and at least
+# LAYOUT_MIN of them) sit in Artist/Album folders that match their tags.
+LAYOUT_SHARE, LAYOUT_MIN = 0.6, 5
+READER = 2  # bump when tags.py reads differently, so the index reads every file again
 
 # What each piece of coverage gives the DJ, for the tag report. Keys are tagreader Bag names.
 COVERAGE = {
@@ -376,19 +379,44 @@ def assign_ids(current: list[Found], known: dict[str, Found], key: bytes) -> Non
 
 
 def from_path(rel: str) -> dict:
-    """Names from a clean Artist/Album/NN Title layout, or nothing."""
+    """Names from the last three parts of a path, Artist/Album/NN Title, or nothing."""
     parts = rel.split("/")
-    if len(parts) != 3:
+    if len(parts) < 3:
         return {}
-    artist, album, name = parts
+    artist, album, name = (p.strip() for p in parts[-3:])
     m = re.fullmatch(r"(\d{1,3})\s*[-._ ]\s*(.+)", os.path.splitext(name)[0])
-    if not m or not artist.strip() or not album.strip() or not m.group(2).strip():
+    if not m or not artist or not album or tagreader.placeholder(title := m.group(2).strip()):
         return {}
-    number = int(m.group(1))
-    found = {"artist": artist.strip(), "album": album.strip(), "title": m.group(2).strip()}
-    if number >= 1:
-        found["track_number"] = number
+    if tagreader.placeholder(artist) or tagreader.placeholder(album):
+        return {}
+    found = {"artist": artist, "album": album, "title": title}
+    if int(m.group(1)) >= 1:
+        found["track_number"] = int(m.group(1))
     return found
+
+
+def _top(rel: str) -> str:
+    """The part of the library a file is in: its top folder when it's deeper than Artist/Album/Track."""
+    parts = rel.split("/")
+    return parts[0] if len(parts) > 3 else ""
+
+
+def trusted_layouts(files: list[Found]) -> set[str]:
+    """The parts of the library (see _top) whose folders are laid out Artist/Album/Track, learnt from the
+    tagged files there: folder names are only trusted where they agree with the listener's own tags."""
+    agree, total = Counter(), Counter()
+    for f in files:
+        t = (f.tags or {}).get("fields", {})
+        parts = f.rel.split("/")
+        if len(parts) < 3 or not (t.get("artist") and t.get("album")):
+            continue
+        top = _top(f.rel)
+        artist_dir, album_dir = parts[-3].casefold(), parts[-2].casefold()
+        names = {t["artist"].casefold(), t.get("album_artist", "").casefold()} - {""}
+        total[top] += 1
+        if any(n in artist_dir or artist_dir in n for n in names) and t["album"].casefold() in album_dir:
+            agree[top] += 1
+    return {top for top, n in total.items() if n >= LAYOUT_MIN and agree[top] >= LAYOUT_SHARE * n}
 
 
 def _quality(f: Found) -> tuple:
@@ -430,6 +458,7 @@ def _copies(tracks: list[tuple[Found, dict]]) -> list[list[tuple[Found, dict]]]:
 def tracks_of(files: list[Found], report: Report) -> list[dict]:
     """The catalog tracks for the indexed files, noting in the report what was left out and why."""
     usable: list[tuple[Found, dict]] = []
+    layouts = trusted_layouts(files)
     for f in files:
         if f.tags is None:
             reason = UNSUPPORTED if f.problem and "not a format" in f.problem else UNREADABLE
@@ -438,7 +467,7 @@ def tracks_of(files: list[Found], report: Report) -> list[dict]:
             continue
         t = dict(f.tags["fields"])
         if not (t.get("title") and t.get("artist")):
-            guess = from_path(f.rel)
+            guess = from_path(f.rel) if _top(f.rel) in layouts else {}
             if not guess:
                 report.skipped[NO_NAMES] += 1
                 report.note(NO_NAMES, f.rel)
