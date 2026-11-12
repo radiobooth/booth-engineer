@@ -7,7 +7,7 @@ Files the release workflow uses to build the double-click apps.
 - `version_info.py`: writes the Windows file details (name "Radio Booth", version from `radiobooth`), and
   holds the copyright line the apps use.
 - `notices.py`: writes `NOTICES.txt` (the copyright, the GPL, where the source is, and the licenses of the
-  Python and PyInstaller bootloader bundled in the apps). It goes inside each program with `LICENSE`, in the
+  Python, PyInstaller bootloader and mutagen bundled in the apps). It goes inside each program with `LICENSE`, in the
   Mac app's Resources, and next to the downloads.
 - `booth.icns`: the Mac app icon, from the same kit: the 1024 icon drawn on Apple's icon grid (an 824 px
   rounded square with a soft shadow), and the lit light alone at 16 px.

@@ -71,7 +71,6 @@ def test_track_mapping():
         "play_count": 12,
         "last_played_at": "2024-10-27T03:33:20Z",
         "rating": 0.8,
-        "musicbrainz_id": "0d3cbd4f-0000-0000-0000-000000000000",
     }
 
 

@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import socket
+import sqlite3
 import sys
 import time
 from collections import Counter
@@ -21,6 +22,10 @@ NEEDS_SETUP, NEEDS_PAIRING, ALREADY_RUNNING = 3, 4, 5
 COMMANDS = {
     "setup": "Set up Booth step by step: sign in to Plex, pick your music, connect to your Booth account.",
     "index": "Read your music library and write a catalog file (nothing leaves this machine).",
+    "scan": (
+        "Read a folder of music files and report on their tags: what Booth can use, what it leaves out and"
+        " why (nothing leaves this machine)."
+    ),
     "deliver": "Put a finished show's breaks where your music server sees them and build the playlist.",
     "pair": "Connect this machine to your Radio Booth account with a pairing code.",
 }
@@ -47,6 +52,13 @@ def build_parser() -> argparse.ArgumentParser:
                 default=os.environ.get("BOOTH_MUSIC_LIBRARY") or None,
                 help="Plex music library, if the server has more than one (default $BOOTH_MUSIC_LIBRARY)",
             )
+        if name == "scan":
+            p.add_argument(
+                "folder", nargs="?", help="the music folder (default $BOOTH_MUSIC_FOLDER, then the saved one)"
+            )
+            p.add_argument("--name", default="Music", help="what to call this library on the DJ's side")
+            p.add_argument("--catalog", metavar="FILE", help="also write the exact catalog Booth would send")
+            p.add_argument("--examples", type=int, default=5, help="example files to list per issue")
         if name == "deliver":
             p.add_argument("show", help="show folder from Booth DJ (with show.json and breaks/)")
             p.add_argument("--library", help="Plex library for breaks (default $BOOTH_BREAKS_LIBRARY)")
@@ -104,6 +116,7 @@ def remember(show_dir: Path, log) -> None:
 
 
 def index(args: argparse.Namespace) -> int:
+    from radiobooth import catalog as catalogs
     from radiobooth import history
     from radiobooth.sources.plex import PlexClient, PlexError, build_catalog
 
@@ -115,7 +128,9 @@ def index(args: argparse.Namespace) -> int:
         exclude = setting("BOOTH_BREAKS_LIBRARY", "breaks_library")
         library = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
         catalog, skipped = build_catalog(PlexClient(url, token), library, exclude=exclude)
-        history.annotate(catalog)
+        # Checked as `booth run` checks it, so this file is exactly what would be sent.
+        catalog, left_out, _ = catalogs.check(history.annotate(catalog))
+        skipped += left_out
     except PlexError as e:
         print(f"booth index: {e}", file=sys.stderr)
         return 1
@@ -124,10 +139,49 @@ def index(args: argparse.Namespace) -> int:
     tracks = catalog["tracks"]
     print(
         f"Wrote {len(tracks)} tracks from {catalog['source']['library']!r} to {out}"
-        f" ({skipped} skipped for missing title, artist or length).",
+        f" ({skipped} left out: no title, artist or length, or details the catalog can't hold).",
         file=sys.stderr,
     )
     print(f"Field coverage: {coverage(tracks)}", file=sys.stderr)
+    return 0
+
+
+def scan(args: argparse.Namespace) -> int:
+    from radiobooth import catalog as catalogs
+    from radiobooth import config, history
+    from radiobooth.sources import folder as folder_source
+
+    where = args.folder or setting("BOOTH_MUSIC_FOLDER", "music_folder")
+    if not where:
+        print("booth scan: name your music folder, e.g. booth scan ~/Music", file=sys.stderr)
+        return 1
+    tty = sys.stderr.isatty()
+
+    def progress(done: int, total: int) -> None:
+        if tty and (done % 250 == 0 or done == total):
+            print(f"\rReading tags: {done} of {total}", end="\n" if done == total else "", file=sys.stderr)
+
+    try:
+        catalog, report = folder_source.build_catalog(
+            where,
+            args.name,
+            config.folder_key(),
+            config.path().parent,
+            progress=progress,
+            examples=max(0, args.examples),
+        )
+        catalog, _, _ = catalogs.check(history.annotate(catalog))  # as `booth run` would send it
+        print("\n".join(report.lines()))
+        if args.catalog:
+            out = Path(args.catalog)
+            out.write_text(json.dumps(catalog, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            print(
+                f"Wrote the catalog Booth would send ({len(catalog['tracks'])} tracks) to {out}.",
+                file=sys.stderr,
+            )
+    except (OSError, ValueError, sqlite3.Error) as e:  # ValueError: a damaged config.json
+        print(f"booth scan: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -410,7 +464,15 @@ def dispatch(argv: list[str] | None) -> int:
         return 0
     if args.command == "index":
         return index(args)
-    commands = {"app": app, "deliver": deliver, "license": license_, "pair": pair, "run": run, "setup": setup}
+    commands = {
+        "app": app,
+        "deliver": deliver,
+        "license": license_,
+        "pair": pair,
+        "run": run,
+        "scan": scan,
+        "setup": setup,
+    }
     return commands[args.command](args)
 
 

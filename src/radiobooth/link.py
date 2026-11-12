@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from radiobooth import __version__
+from radiobooth.catalog import check as check_catalog
 
 USER_AGENT = f"radiobooth/{__version__}"
 
@@ -195,7 +196,9 @@ def handle(link: Link, station: Station, item: dict) -> None:
     if action == "send_catalog":
         if show_id not in station.problems:  # retrying after a logged problem: say nothing new
             station.log(f"{show_id}: reading the library for a new show...")
-        catalog = station.catalog()
+        catalog, skipped, why = check_catalog(station.catalog())
+        if skipped and show_id not in station.problems:
+            station.log(f"{show_id}: left out {skipped} tracks the catalog can't hold (the first: {why}).")
         try:
             link.send_catalog(item["catalog_url"], catalog)
         except LinkError as e:

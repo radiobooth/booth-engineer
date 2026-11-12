@@ -107,14 +107,6 @@ def _tags(meta: dict, key: str) -> list[str]:
     return [t["tag"] for t in meta.get(key, []) if t.get("tag")]
 
 
-def _mbid(meta: dict) -> str | None:
-    for g in meta.get("Guid", []):
-        gid = g.get("id", "")
-        if gid.startswith("mbid://"):
-            return gid.removeprefix("mbid://")
-    return None
-
-
 def to_track(meta: dict, album: dict | None = None) -> dict | None:
     """One Plex track to a catalog track, or None if it lacks what the catalog requires."""
     album = album or {}
@@ -138,7 +130,9 @@ def to_track(meta: dict, album: dict | None = None) -> dict | None:
         "play_count": meta.get("viewCount"),
         "last_played_at": _iso(meta.get("lastViewedAt")),
         "rating": round(meta["userRating"] / 10, 2) if meta.get("userRating") is not None else None,
-        "musicbrainz_id": _mbid(meta),
+        # Not Plex's mbid:// guid: on a real library most are Plex's own ids (UUID version 3), and few of
+        # the rest match the recording ids in the files' own tags, so sending them as MusicBrainz
+        # recording ids would mislead.
     }
     if not (isinstance(track["year"], int) and 1800 <= track["year"] <= 2200):
         track["year"] = None

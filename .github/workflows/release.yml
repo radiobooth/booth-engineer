@@ -203,4 +203,4 @@ jobs:
           NOTES: |
             Download the file for your computer. [Setup steps](https://github.com/${{ github.repository }}/blob/main/docs/getting-started.md)
 
-            Booth is free software under the GNU GPL, version 3 or later, with no warranty (LICENSE.txt). The apps also contain Python and the PyInstaller bootloader, under their own licenses (NOTICES-Windows.txt, NOTICES-macOS.txt). [Source code for this release](https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }})
+            Booth is free software under the GNU GPL, version 3 or later, with no warranty (LICENSE.txt). The apps also contain Python, the PyInstaller bootloader and mutagen, under their own licenses (NOTICES-Windows.txt, NOTICES-macOS.txt). [Source code for this release](https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }})

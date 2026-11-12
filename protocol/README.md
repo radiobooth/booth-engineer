@@ -6,7 +6,7 @@ repo so anyone can read exactly what leaves your machine. Version 0: expect chan
 
 | Schema | Direction | What it is |
 |---|---|---|
-| [`catalog`](catalog.schema.json) | your machine → service | Track metadata: title, artist, album, year, genres, length, when you added it (left out for tracks that came in with a bulk import, such as your server's first scan), play count and rating if your server has them, sonic analysis if your server has it, and when each track was last in one of your Booth shows. |
+| [`catalog`](catalog.schema.json) | your machine → service | Track metadata: title, artist (and every credited artist when a tag lists several), album and album artist, year and original release year, whether it's a compilation, genres, composers, record label, length, MusicBrainz ids, when you added it (left out for tracks that came in with a bulk import, such as your server's first scan), play count and rating if your server has them, sonic analysis if your server has it, whether names came from folder and file names (no tags), and when each track was last in one of your Booth shows. Never file paths: a music folder's tracks get ids that are keyed hashes of their paths. Names come from folder and file names only for a file with no title or artist tag, in a clean Artist/Album/01 Title layout, and such tracks say so (`from_path`). |
 | [`show-request`](show-request.schema.json) | you → service | The prompt, show length, DJ (personality, voice, your name for them) and your station name. |
 | [`show-package`](show-package.schema.json) | service → your machine | The running order: your track ids and the DJ breaks between them, each break with its audio file, transcript and fact sources. |
 
