@@ -287,7 +287,7 @@ def _count(items: list[str]) -> int | None:
     for v in items:
         try:
             n = int(float(v))
-        except ValueError:
+        except (ValueError, OverflowError):  # "inf" and other junk
             continue
         if n >= 0:
             return n

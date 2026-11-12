@@ -351,3 +351,37 @@ def test_audiobooks_and_videos_are_not_music(tmp_path):
     f.save()
     catalog, report = scan(music, home)
     assert catalog["tracks"] == [] and report.files == 0
+
+
+def test_ids_follow_the_music_through_swaps_and_renumbering(tmp_path):
+    music, home = tmp_path / "music", tmp_path / "home"
+    tagged(music, "01.flac", TITLE="X", ARTIST="A")
+    tagged(music, "02.flac", TITLE="Y", ARTIST="A")
+    first = {t["title"]: t["id"] for t in scan(music, home)[0]["tracks"]}
+    # Renumbered: 01 -> 02 and 02 -> 03 (made in two steps, as a file manager would).
+    (music / "02.flac").rename(music / "03.flac")
+    (music / "01.flac").rename(music / "02.flac")
+    assert {t["title"]: t["id"] for t in scan(music, home)[0]["tracks"]} == first
+    # Swapped names.
+    (music / "02.flac").rename(music / "tmp.flac")
+    (music / "03.flac").rename(music / "02.flac")
+    (music / "tmp.flac").rename(music / "03.flac")
+    assert {t["title"]: t["id"] for t in scan(music, home)[0]["tracks"]} == first
+
+
+def test_junk_play_counts_dont_make_a_file_unreadable(tmp_path):
+    p = vorbis(put(tmp_path, "a.flac"), TITLE="T", FMPS_PLAYCOUNT="inf")
+    assert "play_count" not in tags.read(p).fields
+
+
+def test_folders_without_inode_numbers_are_all_scanned(tmp_path, monkeypatch):
+    music, home = tmp_path / "music", tmp_path / "home"
+    tagged(music, "a/b/c.flac", TITLE="Deep", ARTIST="A")
+    real = folder._stat_dir
+
+    class NoInode:
+        def __init__(self, st):
+            self.st_dev, self.st_ino = st.st_dev, 0
+
+    monkeypatch.setattr(folder, "_stat_dir", lambda here: NoInode(real(here)))
+    assert [t["title"] for t in scan(music, home)[0]["tracks"]] == ["Deep"]

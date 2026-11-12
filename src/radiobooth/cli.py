@@ -170,19 +170,18 @@ def scan(args: argparse.Namespace) -> int:
             progress=progress,
             examples=max(0, args.examples),
         )
-    except (OSError, sqlite3.Error) as e:
+        catalog, _, _ = catalogs.check(history.annotate(catalog))  # as `booth run` would send it
+        print("\n".join(report.lines()))
+        if args.catalog:
+            out = Path(args.catalog)
+            out.write_text(json.dumps(catalog, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            print(
+                f"Wrote the catalog Booth would send ({len(catalog['tracks'])} tracks) to {out}.",
+                file=sys.stderr,
+            )
+    except (OSError, ValueError, sqlite3.Error) as e:  # ValueError: a damaged config.json
         print(f"booth scan: {e}", file=sys.stderr)
         return 1
-    catalog, left_out, why = catalogs.check(history.annotate(catalog))
-    print("\n".join(report.lines()))
-    if left_out:
-        print(f"Also left out, as the catalog can't hold them: {left_out} (the first: {why})")
-    if args.catalog:
-        out = Path(args.catalog)
-        out.write_text(json.dumps(catalog, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        print(
-            f"Wrote the catalog Booth would send ({len(catalog['tracks'])} tracks) to {out}.", file=sys.stderr
-        )
     return 0
 
 
@@ -465,8 +464,15 @@ def dispatch(argv: list[str] | None) -> int:
         return 0
     if args.command == "index":
         return index(args)
-    commands = {"app": app, "deliver": deliver, "license": license_, "pair": pair, "run": run, "scan": scan}
-    commands["setup"] = setup
+    commands = {
+        "app": app,
+        "deliver": deliver,
+        "license": license_,
+        "pair": pair,
+        "run": run,
+        "scan": scan,
+        "setup": setup,
+    }
     return commands[args.command](args)
 
 

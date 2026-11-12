@@ -24,10 +24,12 @@ import sqlite3
 import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
+from radiobooth import catalog as catalogs
+from radiobooth import history
 from radiobooth.sources import tags as tagreader
 
 # Folders that hold no music of the listener's: NAS thumbnails and recycle bins, OS bookkeeping.
@@ -42,6 +44,7 @@ UNREADABLE = "couldn't be read"
 UNSUPPORTED = "a file type Booth can't read yet"
 ONE_FILE_ALBUM = "a whole album in one file, with a CUE sheet (not split into tracks yet)"
 SAME_NAME = "another file has the same name, written with different accent characters"
+READERS = 8  # files read at once
 READER = 1  # bump when tags.py reads differently, so the index reads every file again
 
 # What each piece of coverage gives the DJ, for the tag report. Keys are tagreader Bag names.
@@ -153,6 +156,10 @@ class Report:
         return out
 
 
+def _stat_dir(here: str) -> os.stat_result:
+    return os.stat(here)
+
+
 def walk(folder: Path, report: Report, skip: list[Path]) -> list[tuple[Path, os.stat_result]]:
     """Every music file under the folder, with its size and time, in a steady order."""
     found = []
@@ -161,19 +168,21 @@ def walk(folder: Path, report: Report, skip: list[Path]) -> list[tuple[Path, os.
     def refused(_error: OSError) -> None:
         report.unopened_folders += 1
 
-    visited: set[tuple[int, int]] = set()
+    visited: set = set()
     # Linked folders are followed (a music folder often links to another drive), each folder once.
     for here, dirs, files in os.walk(folder, onerror=refused, followlinks=True):
         try:
-            st = os.stat(here)
+            st = _stat_dir(here)
         except OSError:
             report.unopened_folders += 1
             dirs[:] = []
             continue
-        if (st.st_dev, st.st_ino) in visited:
+        # Some file systems (FAT, network drives on Windows) report no inode numbers: use the real path.
+        seen = (st.st_dev, st.st_ino) if st.st_ino else os.path.realpath(here)
+        if seen in visited:
             dirs[:] = []
             continue
-        visited.add((st.st_dev, st.st_ino))
+        visited.add(seen)
         dirs[:] = sorted(
             d
             for d in dirs
@@ -290,11 +299,9 @@ def refresh(
     files = walk(folder, report, list(skip))
     known = index.load()
     current: list[Found] = []
-    replaced: dict[tuple, list[Found]] = defaultdict(list)  # files at a known path whose content changed
+    to_read: list[tuple[Path, Found]] = []
     rels: set[str] = set()
-    for n, (path, st) in enumerate(files, 1):
-        if progress:
-            progress(n, len(files))
+    for path, st in files:
         rel = relative(folder, path)
         if rel in rels:  # "Björk" written two ways (macOS and others), side by side on one disk
             report.skipped[SAME_NAME] += 1
@@ -303,45 +310,69 @@ def refresh(
         rels.add(rel)
         old = known.get(rel)
         # A file that couldn't be read is tried again each scan: the problem may have been a dropped share.
-        if (
-            old
-            and old.size == st.st_size
-            and old.mtime == st.st_mtime_ns
-            and not (old.problem or index.stale)
-        ):
+        if old and (old.size, old.mtime) == (st.st_size, st.st_mtime_ns) and not (old.problem or index.stale):
             current.append(old)
         else:
-            tags, problem = _read(path)
-            new = Found(rel, st.st_size, st.st_mtime_ns, old.id if old else None, tags, problem)
-            current.append(new)
-            if old and (sig := _signature(old)) and sig != _signature(new):
-                replaced[sig].append(new)
-    # Moves and renames: a file that vanished and one that appeared with the same size, length and names.
-    here = {f.rel for f in current}
-    gone: dict[tuple, list[str]] = defaultdict(list)
-    for f in known.values():
-        if f.rel not in here and (sig := _signature(f)):
-            gone[sig].append(f.id)
+            f = Found(rel, st.st_size, st.st_mtime_ns)
+            current.append(f)
+            to_read.append((path, f))
+    done = len(current) - len(to_read)
+    if progress and done:
+        progress(done, len(current))
+    # Reading tags waits on the disk (or the network, for a NAS), so a few files are read at once.
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        for (_, f), (tags, problem) in zip(to_read, pool.map(_read, (p for p, _ in to_read)), strict=True):
+            f.tags, f.problem = tags, problem
+            done += 1
+            if progress:
+                progress(done, len(current))
+    assign_ids(current, known, key)
+    index.save(current, known)
+    return current
+
+
+def assign_ids(current: list[Found], known: dict[str, Found], key: bytes) -> None:
+    """Give each file its id. Ids go with the music: an unchanged file keeps its id; a file whose content
+    matches what another path (or this one) held before takes that id, so moves, renames, swaps and
+    renumbering keep each song's show history; a file retagged where it is keeps its own; anything else
+    is new to Booth."""
+    unchanged = {f.rel for f in current if f.id is not None}
+    # Ids whose file vanished or changed are up for grabs, found by what their music was.
+    free: set[str] = set()
+    by_signature: dict[tuple, list[str]] = defaultdict(list)
+    for old in known.values():
+        if old.rel not in unchanged:
+            free.add(old.id)
+            if sig := _signature(old):
+                by_signature[sig].append(old.id)
+
+    def take(f: Found, prefer: str | None = None) -> bool:
+        ids = [i for i in by_signature.get(_signature(f) or (), []) if i in free]
+        if not ids:
+            return False
+        f.id = prefer if prefer in ids else ids[0]
+        free.discard(f.id)
+        return True
+
+    changed = [f for f in current if f.id is None and f.rel in known]
+    added = [f for f in current if f.id is None and f.rel not in known]
+    for f in changed:  # the same path now holding music that was somewhere (or here) before
+        take(f, prefer=known[f.rel].id)
+    for f in added:  # moved or renamed here
+        take(f)
+    # Retagged in place: its own id, unless its old music turned up unchanged elsewhere (then the id went
+    # with the music, even if that's a copy made before the retag).
+    for f in changed:
+        if f.id is None and known[f.rel].id in free:
+            f.id = known[f.rel].id
+            free.discard(f.id)
     used = {f.id for f in current if f.id}
-    for f in current:
-        if f.id is not None or not (sig := _signature(f)):
-            continue
-        if gone.get(sig):
-            f.id = gone[sig].pop(0)
-            used.add(f.id)
-        elif replaced.get(sig):
-            # Moved away, and another file put at its old path: the id goes with the music, and the file
-            # now at the old path is new to Booth. (A file only retagged in place keeps its id.)
-            other = replaced[sig].pop(0)
-            f.id, other.id = other.id, None
     for f in current:
         if f.id is None:
             f.id, n = track_id(key, f.rel), 1
-            while f.id in used:  # a new file at a moved file's old path
+            while f.id in used or f.id in free:  # never reuse an id another file just had
                 f.id, n = track_id(key, f"{f.rel}\0{n}"), n + 1
             used.add(f.id)
-    index.save(current, known)
-    return current
 
 
 def from_path(rel: str) -> dict:
@@ -435,7 +466,16 @@ def tracks_of(files: list[Found], report: Report) -> list[dict]:
             if f is not best[0]:
                 extra.add(f.rel)
                 report.duplicates.append((f.rel, best[0].rel))
-    kept = [(f, t) for f, t in usable if f.rel not in extra]
+    kept = []
+    for f, t in usable:
+        if f.rel in extra:
+            continue
+        t, why = catalogs.check_track(t)  # the same check as before upload, so the report matches it
+        if t is None:
+            report.skipped[f"details the catalog can't hold ({why})"] += 1
+            report.note(f"details the catalog can't hold ({why})", f.rel)
+            continue
+        kept.append((f, t))
     # A few files with play counts (from some old player) would make the rest look never played.
     counted = sum("play_count" in t for _, t in kept)
     if counted and counted < PLAY_COUNT_SHARE * len(kept):
@@ -470,7 +510,7 @@ def build_catalog(
         index.close()
     catalog = {
         "protocol": "radiobooth/catalog@0",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "generated_at": history.stamp(),
         "source": {"kind": "folder", "library": name},
         "tracks": tracks_of(files, report),
     }

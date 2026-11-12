@@ -197,7 +197,7 @@ def handle(link: Link, station: Station, item: dict) -> None:
         if show_id not in station.problems:  # retrying after a logged problem: say nothing new
             station.log(f"{show_id}: reading the library for a new show...")
         catalog, skipped, why = check_catalog(station.catalog())
-        if skipped:
+        if skipped and show_id not in station.problems:
             station.log(f"{show_id}: left out {skipped} tracks the catalog can't hold (the first: {why}).")
         try:
             link.send_catalog(item["catalog_url"], catalog)
