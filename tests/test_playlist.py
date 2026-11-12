@@ -1,6 +1,7 @@
 """Shows from a music folder: a playlist per show, its breaks beside it, the music left where it is."""
 
 import json
+from pathlib import Path
 import time
 
 import pytest
@@ -246,7 +247,9 @@ def test_a_folder_copied_from_a_mac_holding_composed_names_is_found(tmp_path):
     (folder / "Jóga.flac").write_bytes(b"j")
     done = playlist.deliver(show, out, music, lookup_in({"101": "Björk/Jóga.flac"}))
     assert (done.tracks, done.missing) == (1, 2)
-    assert str(music.resolve() / folder.name / "Jóga.flac") in done.playlist.read_text(encoding="utf-8")
+    # A Mac's disk folds the two spellings together and takes either; elsewhere, the one on disk is written.
+    (written,) = [x for x in done.playlist.read_text(encoding="utf-8").splitlines() if x.endswith(".flac")]
+    assert Path(written).read_bytes() == b"j"
 
 
 def test_a_show_asked_for_while_the_folder_is_still_being_read_waits_without_holding_check_ins(home):
