@@ -1,8 +1,8 @@
 """Shows from a music folder: a playlist per show, its breaks beside it, the music left where it is."""
 
 import json
-from pathlib import Path
 import time
+from pathlib import Path
 
 import pytest
 from test_deliver import make_show
