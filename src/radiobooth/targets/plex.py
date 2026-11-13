@@ -258,12 +258,13 @@ def find_show(client, dest_root: Path, show_id: str, hint: str = "", folder: Pat
     note = _read_note(folder)
     key = note.get("playlist_key")
     items = _items(client, key) if key else None
-    if key and items is None:
-        # The noted playlist was deleted in Plex. Never look for another to take its place: a playlist of
-        # the listener's own that plays the whole show would be taken for it, and deleted on Remove.
-        key = None
-    elif items is None or not _holds(items, folder):
-        key, items = None, None
+    if key:
+        if items is None or not _holds(items, folder):
+            # The noted playlist was deleted in Plex, or no longer plays the show. Never look for another to
+            # take its place: a playlist of the listener's own that plays the whole show would be taken for
+            # it, and deleted on Remove.
+            key, items = None, None
+    else:
         listed = client.get("/playlists", {"playlistType": "audio"})["MediaContainer"].get("Metadata", [])
         hint = hint or note.get("title") or ""
         likely = hint.lower()
@@ -354,7 +355,9 @@ def copy_out(client, dest_root: Path, copies: Path, show_id: str, hint: str = ""
     from radiobooth.targets import playlist
 
     show, items = _playlist_show(client, dest_root, show_id, hint)
-    entries = [(f"{s.seconds},{s.label}", s.ext, lambda dest, s=s: _fetch(client, s, dest)) for s in items]
+    entries = [  # -1: a length Plex didn't give, as #EXTINF writes it
+        (f"{s.seconds or -1},{s.label}", s.ext, lambda dest, s=s: _fetch(client, s, dest)) for s in items
+    ]
     return playlist.write_copy(copies, show.title, show_id, entries, progress)
 
 

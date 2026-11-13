@@ -898,6 +898,7 @@ def test_plex_shows_can_be_copied_and_removed_on_the_page(booth, monkeypatch, tm
     plex = PlexWithPlaylists({"/library/parts/1/1/file.flac": song})
     monkeypatch.setattr(web, "PlexClient", lambda url, token: plex)
     monkeypatch.setattr(web, "default_shows_folder", lambda: tmp_path / "Booth shows")
+    monkeypatch.setattr(web.onboard, "in_container", lambda: True)
     config.update(
         {
             "plex_url": "http://nas:32400",
@@ -925,6 +926,9 @@ def test_plex_shows_can_be_copied_and_removed_on_the_page(booth, monkeypatch, tm
     listed = json.loads(call(port, "GET", "/api/shows", headers=cookie)[2])
     assert [s.get("on_disk") for s in listed["shows"]] == [True, None]  # the other was made elsewhere
 
+    status, data = act(port, key, "copy_show", {"show_id": SHOW, "title": TITLE})
+    assert status == 422 and "BOOTH_SHOWS_FOLDER" in data["error"]  # a copy would stay in the container
+    monkeypatch.setattr(web.onboard, "in_container", lambda: False)
     opened = []
     app.open_folder = opened.append
     assert act(port, key, "copy_show", {"show_id": SHOW, "title": TITLE})[0] == 200

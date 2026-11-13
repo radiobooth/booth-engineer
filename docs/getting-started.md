@@ -89,7 +89,7 @@ of their own, numbered in order, and opens that folder. Drag it onto your phone,
 drive, and it plays in order even in a player that ignores playlists. Or click **Make one file**: Booth mixes
 the show into a single MP3, crossfaded like the radio, with a chapter for each song and break. A 2-hour show
 takes a few minutes to make. With Plex, both go into `Copies` in the `Booth shows` folder in your home
-folder, and Booth fetches the songs from your Plex server first.
+folder (or in `BOOTH_SHOWS_FOLDER`, when that's set), and Booth fetches the songs from your Plex server first.
 
 If your account has a limit, both pages show what's left above the form.
 

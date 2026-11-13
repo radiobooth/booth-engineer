@@ -33,7 +33,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from radiobooth import __version__, autostart, config, engine, history, page, plexshare, qr, update
+from radiobooth import __version__, autostart, config, engine, history, onboard, page, plexshare, qr, update
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError
@@ -307,6 +307,11 @@ class App:
         make = target.one_file if kind == "file" else target.copy_out
         if plex:
             client, dest, _library, copies = plex
+            if onboard.in_container() and not engine.setting(settings, "BOOTH_SHOWS_FOLDER", "shows_folder"):
+                raise SetupError(
+                    "Booth is running in a container, so a copy would stay inside it. Mount a folder and set"
+                    " BOOTH_SHOWS_FOLDER to it, and copies go there."
+                )
             run = functools.partial(make, client, dest, copies, show_id, title)
         else:
             shows = Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
