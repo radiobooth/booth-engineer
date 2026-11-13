@@ -394,6 +394,9 @@ def render_into(
         made = render.render(items, out, progress=progress, **tags)
     except render.RenderError as e:
         raise PlaylistError(str(e)) from None
+    render.write_cue(
+        made.path, title=tags["title"], artist=tags["artist"], show_id=show_id, chapters=made.chapters
+    )
     return OneFile(made.path, made.seconds, len(made.skipped))
 
 
@@ -408,6 +411,7 @@ def drop_copies(copies: Path, show_id: str) -> None:
             shutil.rmtree(d, ignore_errors=True)
         elif d.suffix.lower() == ".mp3" and d.is_file() and file_show(d) == show_id:
             d.unlink(missing_ok=True)
+            d.with_suffix(".cue").unlink(missing_ok=True)
 
 
 def remove(out_root: Path, show_id: str) -> bool:

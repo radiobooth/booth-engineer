@@ -509,6 +509,13 @@ def render(args: argparse.Namespace) -> int:
 
     try:
         made = renderer.render(items, out, progress=progress, **show)
+        renderer.write_cue(
+            made.path,
+            title=show["title"],
+            artist=show["artist"],
+            show_id=show["show_id"],
+            chapters=made.chapters,
+        )
     except renderer.RenderError as e:
         print(f"\n{e}", file=sys.stderr)
         return 1

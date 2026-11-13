@@ -87,7 +87,8 @@ there in your music player. **Remove** under a show on Booth's page deletes its 
 (in Plex, or in your Booth shows folder). To take a show with you, click **Copy to a folder** under it: Booth copies its songs and breaks into a folder
 of their own, numbered in order, and opens that folder. Drag it onto your phone, a USB stick or your car's
 drive, and it plays in order even in a player that ignores playlists. Or click **Make one file**: Booth mixes
-the show into a single MP3, crossfaded like the radio, with a chapter for each song and break. A 2-hour show
+the show into a single MP3, crossfaded like the radio, with a chapter for each song and break. Some players, VLC among them, don't show MP3
+chapters: open the `.cue` file next to the MP3 instead and they list every song and break. A 2-hour show
 takes a few minutes to make. With Plex, both go into `Copies` in the `Booth shows` folder in your home
 folder (or in `BOOTH_SHOWS_FOLDER`, when that's set), and Booth fetches the songs from your Plex server first.
 

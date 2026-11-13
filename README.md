@@ -60,7 +60,9 @@ Booth's page deletes a show's playlist and breaks. **Copy to a folder** copies a
 playlist, to put on a phone, a USB stick or a car's drive. **Make one file** mixes a show into one MP3,
 `Copies/<title>.mp3`, the way it sounds on the radio: levels evened, songs crossfaded (the next track of the
 same album stays gapless), the DJ talking over the ends and starts of songs, and a chapter for each song and
-break. It's made on your computer; nothing is uploaded.
+break. Beside it sits `<title>.cue`, a cue sheet with the same song list, for players that don't read MP3
+chapters (VLC, foobar2000, MusicBee, Winamp: open the `.cue` instead of the MP3). It's made on your computer;
+nothing is uploaded.
 
 The same three buttons sit under shows delivered to Plex. **Remove** deletes the show's Plex playlist and its
 breaks. **Copy to a folder** and **Make one file** fetch the show's songs from your Plex server to this

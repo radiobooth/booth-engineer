@@ -64,6 +64,7 @@ class Rendered:
     seconds: float
     items: int
     skipped: list[str] = field(default_factory=list)  # files that couldn't be read
+    chapters: list[tuple[str, int, int]] = field(default_factory=list)  # (title, start ms, end ms)
 
 
 def decode(path: Path) -> Iterator[av.AudioFrame]:
@@ -345,14 +346,8 @@ def render(
                 flush()
             flush()
             container.mux(stream.encode(None))
-        _tag(
-            partial,
-            title=title,
-            artist=artist,
-            show_id=show_id,
-            cover=cover,
-            chapters=_chapters(kept, lengths, how),
-        )
+        chapters = _chapters(kept, lengths, how)
+        _tag(partial, title=title, artist=artist, show_id=show_id, cover=cover, chapters=chapters)
         os.replace(partial, out)
     except OSError:
         raise
@@ -363,7 +358,33 @@ def render(
     if progress:
         progress(2 * len(items), 2 * len(items))
     seconds = sum(lengths) / RATE - sum(h[1] for h in how)
-    return Rendered(out, seconds, len(ready), skipped)
+    return Rendered(out, seconds, len(ready), skipped, chapters)
+
+
+def _cue_text(text: str) -> str:
+    return " ".join(str(text).replace('"', "'").split())
+
+
+def write_cue(
+    mp3: Path, *, title: str, artist: str, show_id: str, chapters: list[tuple[str, int, int]]
+) -> Path:
+    """A cue sheet beside the show file, `<name>.cue`, listing each song and break as a track: for players
+    that skip by cue sheet rather than by the MP3's own chapters (foobar2000, MusicBee, Winamp, VLC)."""
+    lines = [
+        f"REM {MARK} {_cue_text(show_id)}",
+        f'PERFORMER "{_cue_text(artist)}"',
+        f'TITLE "{_cue_text(title)}"',
+        f'FILE "{mp3.name}" MP3',
+    ]
+    for n, (name, start, _end) in enumerate(chapters, 1):
+        frames = round(start * 75 / 1000)  # cue sheets count in 1/75 s
+        stamp = f"{frames // 4500:02d}:{frames // 75 % 60:02d}:{frames % 75:02d}"
+        lines += [f"  TRACK {n:02d} AUDIO", f'    TITLE "{_cue_text(name)}"', f"    INDEX 01 {stamp}"]
+    cue = mp3.with_suffix(".cue")
+    partial = cue.with_name(f".{cue.name}.partial")
+    partial.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8-sig")
+    os.replace(partial, cue)
+    return cue
 
 
 def _tag(path: Path, *, title: str, artist: str, show_id: str, cover: bytes | None, chapters) -> None:
