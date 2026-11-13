@@ -227,3 +227,39 @@ def test_a_file_that_fails_while_mixing_is_cut_short_not_the_show(tmp_path, monk
     chapters = sorted(MP3(str(made.path)).tags.getall("CHAP"), key=lambda f: f.start_time)
     assert [str(f.sub_frames["TIT2"]) for f in chapters] == ["A", "B", "C"]
     assert abs(MP3(str(made.path)).info.length - made.seconds) < 0.2
+
+
+def test_a_damaged_stretch_is_skipped_not_the_song(tmp_path):
+    song = tone(tmp_path / "a.mp3", "libmp3lame", 10, 440, 0.3, rate=44100, layout="stereo")
+    data = bytearray(song.read_bytes())
+    for k in range(len(data) // 2, len(data) // 2 + 2000, 7):  # a few frames garbled, as in an old rip
+        data[k] ^= 0x5A
+    song.write_bytes(bytes(data))
+    assert render.measure(song).samples / render.RATE > 9
+
+
+def test_a_file_whose_format_changes_partway_is_read_whole(tmp_path):
+    first = tone(tmp_path / "a.mp3", "libmp3lame", 3, 440, 0.3, rate=44100, layout="stereo")
+    second = tone(tmp_path / "b.mp3", "libmp3lame", 3, 440, 0.3, rate=32000, layout="mono").read_bytes()
+    size = (second[6] << 21) | (second[7] << 14) | (second[8] << 7) | second[9]  # past its ID3 header
+    joined = tmp_path / "joined.mp3"
+    joined.write_bytes(first.read_bytes() + second[10 + size :])
+    assert abs(render.measure(joined).samples / render.RATE - 6) < 0.2
+
+
+def test_from_playlist_keeps_a_compilation_gapless(tmp_path):
+    from mutagen.flac import FLAC
+
+    shows = tmp_path / "Booth shows"
+    shows.mkdir()
+    album = tmp_path / "Music" / "Mix"
+    album.mkdir(parents=True)
+    for n, artist in ((1, "A"), (2, "B")):
+        song = FLAC(tone(album / f"{n}.flac", "flac", 1, 440, 0.3))
+        song.update({"artist": artist, "album": "Mix", "tracknumber": str(n), "compilation": "1"})
+        song.save()
+    lines = ["#EXTM3U", "#BOOTH-SHOW:show_abc", "../Music/Mix/1.flac", "../Music/Mix/2.flac"]
+    (shows / "Mix.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    items, _ = render.from_playlist(shows / "Mix.m3u8")
+    assert render.joins(items)[0][0] == "concat"

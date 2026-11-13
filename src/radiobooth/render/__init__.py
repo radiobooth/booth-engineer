@@ -67,13 +67,25 @@ class Rendered:
 
 
 def decode(path: Path) -> Iterator[av.AudioFrame]:
-    """The file's first audio stream as packed float stereo frames at RATE."""
+    """The file's first audio stream as packed float stereo frames at RATE. A damaged stretch is skipped, as
+    players skip it, and a file whose format changes partway (joined from two encodes) carries on."""
     with av.open(str(path)) as container:
         stream = container.streams.audio[0]
-        resampler = av.AudioResampler(format=FORMAT, layout=LAYOUT, rate=RATE)
-        for frame in container.decode(stream):
-            yield from resampler.resample(frame)
-        yield from resampler.resample(None)
+        resampler, shape = None, None
+        for packet in container.demux(stream):
+            try:
+                frames = packet.decode()
+            except av.error.InvalidDataError:
+                continue
+            for frame in frames:
+                now = (frame.format.name, frame.layout.name, frame.sample_rate)
+                if now != shape:  # one resampler takes one input format only
+                    if resampler is not None:
+                        yield from resampler.resample(None)
+                    resampler, shape = av.AudioResampler(format=FORMAT, layout=LAYOUT, rate=RATE), now
+                yield from resampler.resample(frame)
+        if resampler is not None:
+            yield from resampler.resample(None)
 
 
 def _drain(sink) -> Iterator[av.AudioFrame]:
@@ -283,7 +295,7 @@ def render(
         chain = join
     # latency=1: the limiter's lookahead mustn't delay the mix, shifting the chapters and cutting the end
     limit = graph.add("alimiter", "limit=0.95:level=false:latency=1")
-    fmt = graph.add("aformat", "sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo")
+    fmt = graph.add("aformat", f"sample_fmts=fltp:sample_rates={RATE}:channel_layouts={LAYOUT}")
     sink = graph.add("abuffersink")
     chain.link_to(limit)
     limit.link_to(fmt)
@@ -407,7 +419,10 @@ def from_playlist(playlist: Path) -> tuple[list[Item], dict]:
             except Exception:  # noqa: BLE001  # a file that can't be read is left out when rendering
                 fields = {}
             if fields.get("album"):
-                lead = fields.get("album_artist") or fields.get("artist")
+                # A compilation's tracks each name their own artist: only its album artist, if any, is shared.
+                lead = fields.get("album_artist") or (
+                    "" if fields.get("compilation") else fields.get("artist")
+                )
                 album = f"{lead}|{fields['album']}|{fields.get('disc_number') or 1}"
             track = fields.get("track_number")
         items.append(Item(path, name, "break" if is_break else "song", album, track))

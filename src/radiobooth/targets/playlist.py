@@ -241,13 +241,19 @@ class Copy:
     missing: int  # files the playlist names that weren't there to copy
 
 
+def _show(root: Path, show_id: str) -> Show:
+    """The show with this id in the shows folder `root`."""
+    show = next((s for s in shows(root) if s.show_id == show_id), None)
+    if show is None:
+        raise PlaylistError("That show isn't in your Booth shows folder any more.")
+    return show
+
+
 def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] | None = None) -> Copy:
     """Copy a show whole into `Copies/<title>/` in the shows folder: each song and break as a numbered file,
     in playing order, and a playlist of them. Copied again, it replaces its own earlier copy."""
     root = out_root.resolve()
-    show = next((s for s in shows(root) if s.show_id == show_id), None)
-    if show is None:
-        raise PlaylistError("That show isn't in your Booth shows folder any more.")
+    show = _show(root, show_id)
     listed = _entries(show.playlist)
     entries = [(info, path) for info, path in listed if path.is_file()]
     if not entries:
@@ -302,9 +308,7 @@ def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     from radiobooth import render
 
     root = out_root.resolve()
-    show = next((s for s in shows(root) if s.show_id == show_id), None)
-    if show is None:
-        raise PlaylistError("That show isn't in your Booth shows folder any more.")
+    show = _show(root, show_id)
     items, tags = render.from_playlist(show.playlist)
     listed = len(items)
     items = [it for it in items if it.path.is_file()]

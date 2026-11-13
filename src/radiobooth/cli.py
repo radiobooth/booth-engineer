@@ -62,7 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--examples", type=int, default=5, help="example files to list per issue")
         if name == "render":
             p.add_argument("playlist", help="the show's .m3u8 playlist in the Booth shows folder")
-            p.add_argument("-o", "--output", help="the MP3 to write (default: beside the playlist)")
+            p.add_argument(
+                "-o",
+                "--output",
+                help="the MP3 to write (default: Copies/<playlist name>.mp3 beside it)",
+            )
         if name == "deliver":
             p.add_argument("show", help="show folder from Booth DJ (with show.json and breaks/)")
             p.add_argument("--library", help="Plex library for breaks (default $BOOTH_BREAKS_LIBRARY)")
@@ -485,7 +489,10 @@ def render(args: argparse.Namespace) -> int:
     except OSError as e:
         print(f"Couldn't read {playlist} ({e.strerror or e}).", file=sys.stderr)
         return 1
-    out = Path(args.output).expanduser() if args.output else playlist.with_suffix(".mp3")
+    from radiobooth.targets.playlist import COPIES
+
+    out = Path(args.output).expanduser() if args.output else playlist.parent / COPIES / f"{playlist.stem}.mp3"
+    out.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
 
     def progress(done: int, total: int) -> None:
