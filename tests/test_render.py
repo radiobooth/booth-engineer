@@ -49,6 +49,18 @@ def test_gain_cuts_freely_and_boosts_within_peak():
     assert render.gain(hot_quiet) == 0.0  # already near its peak: left alone, never cut for being quiet
 
 
+def test_gapless_album_tracks_share_one_gain():
+    soft = render.Measured(100, loudness=-24.0, peak=-12.0)  # a quiet intro, running straight into
+    loud = render.Measured(100, loudness=-10.0, peak=-0.5)  # the loud track after it
+    other = render.Measured(100, loudness=-10.0, peak=-0.5)
+    a1 = render.Item(None, "a1", album="X|Y", track=1)
+    a2 = render.Item(None, "a2", album="X|Y", track=2)
+    brk = render.Item(None, "break", kind="break")
+    levels = render.gains([a1, a2, brk, render.Item(None, "b")], [soft, loud, soft, other])
+    assert levels[0] == levels[1] < 0  # one cut for the pair, so nothing jumps between them
+    assert levels[2:] == [render.MAX_BOOST, render.gain(other)]  # others each get their own
+
+
 def test_joins():
     a1 = render.Item(None, "a1", album="X|Y", track=1)
     a2 = render.Item(None, "a2", album="X|Y", track=2)
@@ -192,3 +204,26 @@ def test_from_playlist_tells_breaks_by_the_shows_breaks_folder(tmp_path):
     assert [it.kind for it in items] == ["break", "song", "song"]
     assert [j[0] for j in render.joins(items)][1] == "concat"  # 1 then 2 of the same album
     assert show["artist"] == "Penrose"
+
+
+def test_a_file_that_fails_while_mixing_is_cut_short_not_the_show(tmp_path, monkeypatch):
+    a = tone(tmp_path / "a.flac", "flac", 6, 440, 0.3)
+    b = tone(tmp_path / "b.flac", "flac", 6, 550, 0.3)
+    c = tone(tmp_path / "c.flac", "flac", 6, 660, 0.3)
+    real, calls = render.decode, []
+
+    def flaky(path):
+        calls.append(path)
+        frames = real(path)
+        if path == b and calls.count(b) == 2:  # measured fine, then the share drops while mixing
+            yield next(frames)
+            raise OSError("Host is down")
+        yield from frames
+
+    monkeypatch.setattr(render, "decode", flaky)
+    items = [render.Item(a, "A"), render.Item(b, "B"), render.Item(c, "C")]
+    made = render.render(items, tmp_path / "show.mp3", title="t", artist="a", show_id="s")
+    assert made.skipped == [str(b)] and made.items == 3
+    chapters = sorted(MP3(str(made.path)).tags.getall("CHAP"), key=lambda f: f.start_time)
+    assert [str(f.sub_frames["TIT2"]) for f in chapters] == ["A", "B", "C"]
+    assert abs(MP3(str(made.path)).info.length - made.seconds) < 0.2

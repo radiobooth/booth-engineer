@@ -814,8 +814,8 @@ function renderCopy(c) {
   const p = $("copy-status");
   show(p, !!c);
   if (!c) return;
-  const missing = c.missing ? " " + c.missing + (c.missing === 1 ? " file wasn't" : " files weren't") +
-    " there to use." : "";
+  const missing = (what) => c.missing ? " " + c.missing + (c.missing === 1 ? " file wasn't" : " files weren't") +
+    " there to " + what + "." : "";
   if (c.kind === "file") {
     if (!c.finished) {
       p.textContent = "Making the show into one file" + (c.total ? ": " + Math.round(100 * c.done / c.total) + "%..." : "...");
@@ -823,7 +823,7 @@ function renderCopy(c) {
       p.textContent = "The file wasn't made: " + c.error;
     } else {
       p.textContent = "Made " + c.file + " (" + c.minutes + " min). Players that read chapters can skip from song to" +
-        " song." + missing;
+        " song." + missing("use");
     }
   } else if (!c.finished) {
     p.textContent = c.total ? "Copying the show: " + c.done + " of " + c.total + " files..." : "Copying the show...";
@@ -831,7 +831,7 @@ function renderCopy(c) {
     p.textContent = "The copy didn't finish: " + c.error;
   } else {
     p.textContent = "Copied to " + c.folder + ". The files are numbered, so they play in order on a phone, a" +
-      " USB stick or a car's drive." + (c.missing ? " " + c.missing + " files weren't there to copy." : "");
+      " USB stick or a car's drive." + missing("copy");
   }
 }
 

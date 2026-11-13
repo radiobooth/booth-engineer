@@ -17,6 +17,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import av
+from mutagen import MutagenError
 from mutagen.id3 import APIC, CHAP, CTOC, ID3, TALB, TIT2, TPE1, TXXX, CTOCFlags
 
 from radiobooth.targets.playlist import FILE_MARK as MARK
@@ -146,10 +147,41 @@ def gain(m: Measured) -> float:
     return round(max(g, -30.0), 2)
 
 
+def gains(items: list[Item], measured: list[Measured]) -> list[float]:
+    """dB per item. Songs that play gapless (the next track of the same album) share one gain, from their
+    combined loudness and highest peak, so the album's own level changes survive and nothing jumps where
+    one track runs into the next."""
+    out = [gain(m) for m in measured]
+    gapless = [k == "concat" and a.kind == "song" for (k, *_), a in zip(joins(items), items, strict=False)]
+    i = 0
+    while i < len(items):
+        j = i
+        while j < len(gapless) and gapless[j]:
+            j += 1
+        loud = [(m.samples, m.loudness) for m in measured[i : j + 1] if m.loudness is not None]
+        if j > i and loud:
+            total = sum(n for n, _ in loud)
+            level = 10 * math.log10(sum(n * 10 ** (lufs / 10) for n, lufs in loud) / total)
+            peaks = [m.peak for m in measured[i : j + 1] if m.peak is not None]
+            out[i : j + 1] = [gain(Measured(total, level, max(peaks) if peaks else None))] * (j + 1 - i)
+        i = j + 1
+    return out
+
+
+def _quiet(samples: int) -> av.AudioFrame:
+    """`samples` of silence, in the mixing format."""
+    f = av.AudioFrame(format=FORMAT, layout=LAYOUT, samples=samples)
+    f.sample_rate = RATE
+    f.planes[0].update(bytes(samples * BYTES))
+    return f
+
+
 def _trimmed(frames: Iterable[av.AudioFrame], start: int, stop: int) -> Iterator[av.AudioFrame]:
     """The samples start..stop of an item, as frames (packed stereo is one plane of BYTES per sample)."""
     at = 0
     for f in frames:
+        if at >= stop:  # the rest is the tail left out: no need to decode it
+            return
         lo, hi = max(start - at, 0), min(stop - at, f.samples)
         at += f.samples
         if hi <= lo:
@@ -229,12 +261,14 @@ def render(
     ]
     how = [("concat", 0.0, "", "") if not n else (k, n / RATE, c1, c2) for k, n, c1, c2 in how]
 
+    levels = gains(kept, [m for _, m in ready])
+
     graph = av.filter.Graph()
     sources, chain = [], None
-    for i, (_item, m) in enumerate(ready):
+    for i in range(len(ready)):
         src = _abuffer(graph)
         sources.append(src)
-        vol = graph.add("volume", f"volume={gain(m)}dB")
+        vol = graph.add("volume", f"volume={levels[i]}dB")
         src.link_to(vol)
         if chain is None:
             chain = vol
@@ -247,7 +281,8 @@ def render(
         chain.link_to(join, 0, 0)
         vol.link_to(join, 0, 1)
         chain = join
-    limit = graph.add("alimiter", "limit=0.95:level=false")
+    # latency=1: the limiter's lookahead mustn't delay the mix, shifting the chapters and cutting the end
+    limit = graph.add("alimiter", "limit=0.95:level=false:latency=1")
     fmt = graph.add("aformat", "sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo")
     sink = graph.add("abuffersink")
     chain.link_to(limit)
@@ -274,14 +309,23 @@ def render(
                 tail = m.tail if i < len(how) and how[i][0] != "concat" else 0
                 stop = max(m.samples - tail, lead + 1)
                 pts = 0
-                try:
-                    for f in _trimmed(decode(item.path), lead, stop):
-                        f.pts, f.time_base = pts, Fraction(1, RATE)
-                        pts += f.samples
-                        sources[i].push(f)
-                        flush()
-                except (OSError, av.error.FFmpegError, IndexError) as e:
-                    raise RenderError(f"{item.path.name} couldn't be read while mixing ({e}).") from None
+                frames = _trimmed(decode(item.path), lead, stop)
+                while True:
+                    try:  # only reading the item: a write error below is the output's, not this file's
+                        f = next(frames, None)
+                    except (OSError, av.error.FFmpegError, IndexError):
+                        # It read fine a moment ago (a share dropping, a file being replaced): cut it short
+                        # here rather than lose the whole show, with enough quiet for its crossfades.
+                        skipped.append(str(item.path))
+                        overlap = max(how[i - 1][1] if i else 0.0, how[i][1] if i < len(how) else 0.0)
+                        short = max(round(overlap * RATE) * 2 - pts, 0)
+                        f, frames = (_quiet(short) if short else None), iter(())
+                    if f is None:
+                        break
+                    f.pts, f.time_base = pts, Fraction(1, RATE)
+                    pts += f.samples
+                    sources[i].push(f)
+                    flush()
                 lengths.append(pts)
                 sources[i].push(None)
                 flush()
@@ -296,6 +340,10 @@ def render(
             chapters=_chapters(kept, lengths, how),
         )
         os.replace(partial, out)
+    except OSError:
+        raise
+    except (av.error.FFmpegError, MutagenError) as e:  # encoding or tagging failed, not a disk error
+        raise RenderError(f"The show couldn't be mixed ({e}).") from None
     finally:
         partial.unlink(missing_ok=True)
     if progress:

@@ -231,7 +231,10 @@ class App:
         with self._copy_lock:
             copying = self.copy
             if copying and not copying.get("finished") and copying.get("show_id") == show_id:
-                raise SetupError("Booth is copying that show. Wait for that to finish, then remove it.")
+                raise SetupError(
+                    "Booth is copying that show or making it into one file. Wait for that to finish, then"
+                    " remove it."
+                )
             try:
                 gone = playlist_target.remove(Path(shows).expanduser(), show_id)
             except OSError as e:
@@ -253,7 +256,9 @@ class App:
         shows = Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
         with self._copy_lock:
             if self.copy and not self.copy.get("finished"):
-                raise SetupError("Booth is copying a show already. Wait for that one to finish.")
+                raise SetupError(
+                    "Booth is copying a show or making one into a file already. Wait for that one to finish."
+                )
             self.copy = {"show_id": show_id, "kind": kind, "done": 0, "total": 0, "finished": False}
         threading.Thread(
             target=self._copy, args=(shows, show_id, kind), name="booth-copy", daemon=True
