@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
@@ -43,14 +43,13 @@ class Item:
     path: Path
     title: str  # the chapter's name
     kind: str = "song"  # or "break"
-    album: str | None = None  # album artist and album, to tell the next track of the same album
+    album: str | None = None  # album artist, album and disc, to tell the next track of the same album
     track: int | None = None
 
 
 @dataclass
 class Measured:
-    frames: list  # the item's audio, s16 stereo at RATE
-    samples: int
+    samples: int  # the item's length, in samples at RATE
     loudness: float | None  # integrated LUFS, None for silence
     peak: float | None  # true peak, dBTP
     lead: int = 0  # samples of silence at the start
@@ -98,7 +97,7 @@ def measure(path: Path) -> Measured:
     meter.link_to(quiet)
     quiet.link_to(sink)
     graph.configure()
-    frames, samples, meta = [], 0, {}
+    samples, meta = 0, {}
     silences: list[list[float | None]] = []
 
     def take(out: av.AudioFrame) -> None:
@@ -111,7 +110,6 @@ def measure(path: Path) -> Measured:
 
     for frame in decode(path):
         frame.pts, frame.time_base = samples, Fraction(1, RATE)
-        frames.append(frame)
         samples += frame.samples
         src.push(frame)
         for out in _drain(sink):
@@ -124,7 +122,6 @@ def measure(path: Path) -> Measured:
     loud = float(meta["lavfi.r128.I"]) if "lavfi.r128.I" in meta else None
     peak = float(meta.get("lavfi.r128.true_peak", 0))  # linear
     item = Measured(
-        frames,
         samples,
         loud if loud is not None and loud > -70 else None,
         20 * math.log10(peak) if peak > 0 else None,
@@ -148,7 +145,7 @@ def gain(m: Measured) -> float:
     return round(max(g, -30.0), 2)
 
 
-def _trimmed(frames: list, start: int, stop: int) -> Iterator[av.AudioFrame]:
+def _trimmed(frames: Iterable[av.AudioFrame], start: int, stop: int) -> Iterator[av.AudioFrame]:
     """The samples start..stop of an item, as frames (s16 stereo is one plane of BYTES per sample)."""
     at = 0
     for f in frames:
@@ -208,7 +205,7 @@ def render(
     ready: list[tuple[Item, Measured]] = []
     skipped = []
     # First pass: measure every item, so the mix can be planned whole. Items are decoded again in the
-    # second pass rather than held, which keeps memory to one item at a time.
+    # second pass rather than held, and streamed through both passes, so memory stays small.
     for n, item in enumerate(items):
         if progress:
             progress(n, 2 * len(items))
@@ -217,7 +214,6 @@ def render(
         except (OSError, av.error.FFmpegError, RenderError, IndexError):
             skipped.append(str(item.path))
             continue
-        m.frames = []  # decoded again when mixed
         ready.append((item, m))
     if not any(it.kind == "song" for it, _ in ready):
         raise RenderError("None of this show's songs could be read.")
@@ -268,18 +264,19 @@ def render(
             for i, (item, m) in enumerate(ready):
                 if progress:
                     progress(len(items) + i, 2 * len(items))
-                frames = list(decode(item.path))
-                total = sum(f.samples for f in frames)
                 lead = m.lead if i > 0 and how[i - 1][0] != "concat" else 0
                 tail = m.tail if i < len(how) and how[i][0] != "concat" else 0
-                stop = max(total - tail, lead + 1)
-                lengths.append(stop - lead)
+                stop = max(m.samples - tail, lead + 1)
                 pts = 0
-                for f in _trimmed(frames, lead, stop):
-                    f.pts, f.time_base = pts, Fraction(1, RATE)
-                    pts += f.samples
-                    sources[i].push(f)
-                    flush()
+                try:
+                    for f in _trimmed(decode(item.path), lead, stop):
+                        f.pts, f.time_base = pts, Fraction(1, RATE)
+                        pts += f.samples
+                        sources[i].push(f)
+                        flush()
+                except (OSError, av.error.FFmpegError, IndexError) as e:
+                    raise RenderError(f"{item.path.name} couldn't be read while mixing ({e}).") from None
+                lengths.append(pts)
                 sources[i].push(None)
                 flush()
             flush()
@@ -308,7 +305,8 @@ def _tag(path: Path, *, title: str, artist: str, show_id: str, cover: bytes | No
     tags.add(TALB(encoding=3, text="Booth shows"))
     tags.add(TXXX(encoding=3, desc=MARK, text=show_id))
     if cover:
-        tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=cover))
+        mime = "image/png" if cover.startswith(b"\x89PNG") else "image/jpeg"
+        tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover))
     ids = [f"ch{n}" for n in range(len(chapters))]
     tags.add(
         CTOC(
@@ -325,37 +323,39 @@ def _tag(path: Path, *, title: str, artist: str, show_id: str, cover: bytes | No
     tags.save(path, v2_version=3)
 
 
-def _tag_of(tags, key: str) -> str | None:
-    return (tags.get(key) or [None])[0]
-
-
 def from_playlist(playlist: Path) -> tuple[list[Item], dict]:
     """The items a Booth playlist plays, and what the show file is called and tagged with."""
     from mutagen import File as AudioFile
 
+    from radiobooth.sources import tags as tag_reader
     from radiobooth.targets import playlist as target
 
     header = target._header(playlist)
+    breaks = (playlist.parent / target.BREAKS).resolve()
     items, dj, cover = [], None, None
     for info, path in target._entries(playlist):
         name = info.partition(",")[2].strip() or path.stem
-        is_break = path.parent.parent.name == target.BREAKS
+        is_break = path.parent.parent.resolve() == breaks
         album = track = None
-        try:
-            tags = AudioFile(str(path), easy=not is_break)
-        except Exception:  # noqa: BLE001  # a file that can't be read is left out when rendering
-            tags = None
         if is_break:
             dj = dj or name.rpartition(" - Break")[0] or None
-            if cover is None and tags is not None and tags.tags is not None:
-                pics = tags.tags.getall("APIC") if hasattr(tags.tags, "getall") else []
-                cover = pics[0].data if pics else None
-        elif tags is not None:
-            if _tag_of(tags, "album"):
-                lead = _tag_of(tags, "albumartist") or _tag_of(tags, "artist")
-                album = f"{lead}|{_tag_of(tags, 'album')}"
-            num = (_tag_of(tags, "tracknumber") or "").partition("/")[0]
-            track = int(num) if num.isdigit() else None
+            if cover is None:
+                try:
+                    found = AudioFile(str(path))
+                except Exception:  # noqa: BLE001  # a file that can't be read is left out when rendering
+                    found = None
+                if found is not None and hasattr(found.tags, "getall"):
+                    pics = found.tags.getall("APIC")
+                    cover = pics[0].data if pics else None
+        else:
+            try:
+                fields = tag_reader.read(path).fields
+            except Exception:  # noqa: BLE001  # a file that can't be read is left out when rendering
+                fields = {}
+            if fields.get("album"):
+                lead = fields.get("album_artist") or fields.get("artist")
+                album = f"{lead}|{fields['album']}|{fields.get('disc_number') or 1}"
+            track = fields.get("track_number")
         items.append(Item(path, name, "break" if is_break else "song", album, track))
     show = {
         "title": header.get("title") or playlist.stem,

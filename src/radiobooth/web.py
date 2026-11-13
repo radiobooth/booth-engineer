@@ -226,6 +226,9 @@ class App:
         settings = config.load()
         if not engine.folder_mode(settings) or not SHOW_ID.fullmatch(show_id):
             raise SetupError("Booth can't remove that show here.")
+        copying = self.copy
+        if copying and not copying.get("finished") and copying.get("show_id") == show_id:
+            raise SetupError("Booth is copying that show. Wait for that to finish, then remove it.")
         shows = engine.folder_settings(settings)[0]["shows"]
         try:
             gone = playlist_target.remove(Path(shows).expanduser(), show_id)

@@ -41,9 +41,9 @@ def test_measure_reads_level_and_trailing_silence(tmp_path):
 
 
 def test_gain_cuts_freely_and_boosts_within_peak():
-    loud = render.Measured([], 1, loudness=-6.0, peak=-0.1)
-    quiet = render.Measured([], 1, loudness=-30.0, peak=-12.0)
-    hot_quiet = render.Measured([], 1, loudness=-20.0, peak=-0.5)
+    loud = render.Measured(1, loudness=-6.0, peak=-0.1)
+    quiet = render.Measured(1, loudness=-30.0, peak=-12.0)
+    hot_quiet = render.Measured(1, loudness=-20.0, peak=-0.5)
     assert render.gain(loud) == -8.0
     assert render.gain(quiet) == render.MAX_BOOST
     assert render.gain(hot_quiet) == 0.0  # already near its peak: left alone, never cut for being quiet
@@ -168,3 +168,25 @@ def test_one_file_lands_in_copies_and_goes_with_remove(tmp_path):
 
     assert playlist.remove(shows, "show_abc")
     assert not made.path.exists() and other.exists()
+
+
+def test_from_playlist_tells_breaks_by_the_shows_breaks_folder(tmp_path):
+    from mutagen.flac import FLAC
+
+    shows = tmp_path / "Booth shows"
+    (shows / "breaks" / "Night drive").mkdir(parents=True)
+    tone(shows / "breaks" / "Night drive" / "01.mp3", "libmp3lame", 1, 220, 0.3, rate=24000)
+    album = tmp_path / "Music" / "breaks" / "Album"  # a music folder that happens to be called breaks
+    album.mkdir(parents=True)
+    for n in (1, 2):
+        song = FLAC(tone(album / f"{n}.flac", "flac", 1, 440, 0.3))
+        song.update({"artist": "A", "album": "Y", "tracknumber": f"{n}/9"})
+        song.save()
+    lines = ["#EXTM3U", "#BOOTH-SHOW:show_abc", "#EXTINF:1,Penrose - Break 1", "breaks/Night drive/01.mp3"]
+    lines += ["../Music/breaks/Album/1.flac", "../Music/breaks/Album/2.flac"]
+    (shows / "Night drive.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    items, show = render.from_playlist(shows / "Night drive.m3u8")
+    assert [it.kind for it in items] == ["break", "song", "song"]
+    assert [j[0] for j in render.joins(items)][1] == "concat"  # 1 then 2 of the same album
+    assert show["artist"] == "Penrose"

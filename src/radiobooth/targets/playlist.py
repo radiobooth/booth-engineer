@@ -97,14 +97,22 @@ def _ref(path: Path, root: Path) -> str:
     return f"./{rel}" if rel.startswith("#") else rel  # a line starting "#" would read as a comment
 
 
+def _free(folder: Path, base: str, ext: str, mine: Callable[[Path], bool]) -> Path | None:
+    """`folder/<base><ext>`, or `<base> (2)<ext>` and so on: the first that's free or already `mine`."""
+    for n in range(1, 1000):
+        candidate = folder / (f"{base}{ext}" if n == 1 else f"{base} ({n}){ext}")
+        if not candidate.exists() or mine(candidate):
+            return candidate
+    return None
+
+
 def _place(out_root: Path, title: str, show_id: str) -> Path:
     """The show's playlist file: its own from an earlier delivery, else a free name."""
     base = file_name(title)
-    for n in range(1, 1000):
-        candidate = out_root / (f"{base}.m3u8" if n == 1 else f"{base} ({n}).m3u8")
-        if not candidate.exists() or show_of(candidate) == show_id:
-            return candidate
-    raise PlaylistError(f"Too many playlists named {base!r} in {out_root}.")
+    found = _free(out_root, base, ".m3u8", lambda p: show_of(p) == show_id)
+    if found is None:
+        raise PlaylistError(f"Too many playlists named {base!r} in {out_root}.")
+    return found
 
 
 def _music_file(music_root: Path, rel: str) -> Path | None:
@@ -245,11 +253,8 @@ def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
         raise PlaylistError("None of this show's files are there to copy.")
     copies = root / COPIES
     base = file_name(show.title)
-    for n in range(1, 1000):
-        folder = copies / (base if n == 1 else f"{base} ({n})")
-        if not folder.exists() or any(show_of(p) == show_id for p in folder.glob("*.m3u8")):
-            break
-    else:
+    folder = _free(copies, base, "", lambda d: any(show_of(p) == show_id for p in d.glob("*.m3u8")))
+    if folder is None:
         raise PlaylistError(f"Too many copies named {base!r} in {copies}.")
     partial = copies / f".{folder.name}.partial"
     shutil.rmtree(partial, ignore_errors=True)
@@ -280,13 +285,14 @@ class OneFile:
 
 def file_show(path: Path) -> str | None:
     """The show id a one-file show was tagged with, or None for any other MP3."""
-    from mutagen.id3 import ID3, ID3NoHeaderError
+    from mutagen import MutagenError
+    from mutagen.id3 import ID3
 
     from radiobooth import render
 
     try:
         marks = ID3(str(path)).getall(f"TXXX:{render.MARK}")
-    except (OSError, ID3NoHeaderError, ValueError):
+    except (OSError, MutagenError, ValueError):  # not tagged, or tagged in a way mutagen doesn't read
         return None
     return str(marks[0].text[0]) if marks and marks[0].text else None
 
@@ -308,11 +314,8 @@ def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     copies = root / COPIES
     copies.mkdir(parents=True, exist_ok=True)
     base = file_name(show.title)
-    for n in range(1, 1000):
-        out = copies / (f"{base}.mp3" if n == 1 else f"{base} ({n}).mp3")
-        if not out.exists() or file_show(out) == show_id:
-            break
-    else:
+    out = _free(copies, base, ".mp3", lambda p: file_show(p) == show_id)
+    if out is None:
         raise PlaylistError(f"Too many files named {base!r} in {copies}.")
     try:
         made = render.render(items, out, progress=progress, **tags)

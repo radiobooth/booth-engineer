@@ -38,7 +38,8 @@ def render(v: str | None = None, ref: str | None = None) -> str:
         f"== Python {platform.python_version()} ==\n\n"
         + python_license()
         + "\n== PyInstaller bootloader ==\n\nGPL-2.0-or-later with the PyInstaller bootloader exception.\n"
-        + f"\n== mutagen {mutagen_version()} ==\n\nReads music files' tags. GPL-2.0-or-later, used here under"
+        + f"\n== mutagen {installed_version('mutagen')} ==\n\nReads music files' tags."
+        " GPL-2.0-or-later, used here under"
         " GPL-3.0-or-later\n(see LICENSE). Source: https://github.com/quodlibet/mutagen\n"
         + f"\n== PyAV {installed_version('av')} and FFmpeg ==\n\nDecodes and mixes music into one-file shows."
         " PyAV is BSD-3-Clause. It bundles FFmpeg and the\nlibraries FFmpeg is built with (LAME among them),"
@@ -51,10 +52,6 @@ def installed_version(package: str) -> str:
     from importlib.metadata import version as installed
 
     return installed(package)
-
-
-def mutagen_version() -> str:
-    return installed_version("mutagen")
 
 
 if __name__ == "__main__":

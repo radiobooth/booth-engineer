@@ -477,7 +477,14 @@ def render(args: argparse.Namespace) -> int:
     from radiobooth import render as renderer
 
     playlist = Path(args.playlist).expanduser()
-    items, show = renderer.from_playlist(playlist)
+    if not playlist.is_file():
+        print(f"There's no playlist at {playlist}.", file=sys.stderr)
+        return 1
+    try:
+        items, show = renderer.from_playlist(playlist)
+    except OSError as e:
+        print(f"Couldn't read {playlist} ({e.strerror or e}).", file=sys.stderr)
+        return 1
     out = Path(args.output).expanduser() if args.output else playlist.with_suffix(".mp3")
     started = time.monotonic()
 
@@ -488,6 +495,9 @@ def render(args: argparse.Namespace) -> int:
         made = renderer.render(items, out, progress=progress, **show)
     except renderer.RenderError as e:
         print(f"\n{e}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"\nCouldn't write {out} ({e.strerror or e}).", file=sys.stderr)
         return 1
     print(
         f"\nWrote {made.path} ({made.seconds / 60:.1f} min, {made.items} items) in"
