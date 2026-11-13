@@ -762,6 +762,7 @@ function renderShows(list) {
   show(ul, list.length > 0);
   ul.replaceChildren(...list.map((s) => {
     const li = document.createElement("li");
+    li.dataset.show = s.show_id;
     const t = document.createElement("span");
     t.className = "title";
     t.textContent = s.title || s.prompt;
@@ -785,6 +786,19 @@ function renderShows(list) {
     if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
+  placeCopy();
+}
+
+// The copy's progress sits under its own show, or below the list when that show isn't listed.
+// Kept by reference: rebuilding the list takes it out of the page while it sits in a show.
+let copyShow = null;
+const copyStatus = $("copy-status");
+function placeCopy() {
+  const p = copyStatus;
+  const li = copyShow && [...$("shows").children].find((li) => li.dataset.show === copyShow);
+  if (li ? p.parentNode !== li || li.lastChild !== p : p.previousElementSibling !== $("shows")) {
+    if (li) li.append(p); else $("shows").after(p);
+  }
 }
 
 const COPY_KINDS = {
@@ -811,7 +825,9 @@ function copyButton(s, kind = "folder") {
 
 // A show being copied to a folder or made into one file, or the last one.
 function renderCopy(c) {
-  const p = $("copy-status");
+  const p = copyStatus;
+  copyShow = c ? c.show_id : null;
+  placeCopy();
   show(p, !!c);
   if (!c) return;
   const missing = (what) => c.missing ? " " + c.missing + (c.missing === 1 ? " file wasn't" : " files weren't") +
