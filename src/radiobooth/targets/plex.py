@@ -160,8 +160,10 @@ def _read_note(folder: Path) -> dict:
 
 
 def _folders(dest_root: Path) -> list[Path]:
+    """What's in `dest_root` (often a network share): folder or not is checked only for the few names that
+    could be a show's."""
     try:
-        return [d for d in dest_root.iterdir() if d.is_dir()]
+        return list(dest_root.iterdir())
     except OSError:
         return []
 
@@ -175,7 +177,8 @@ def show_folder(
     tail = re.sub(r"[^a-z0-9]", "", show_id.lower())[-6:]
     if not tail:
         return None
-    found = [d for d in (_folders(dest_root) if folders is None else folders) if d.name.endswith(f"-{tail}")]
+    listed = _folders(dest_root) if folders is None else folders
+    found = [d for d in listed if d.name.endswith(f"-{tail}") and d.is_dir()]
     noted = [d for d in found if _read_note(d).get("show_id") == show_id]
     if noted:
         return noted[0]
@@ -209,19 +212,21 @@ def _items(client, key: str) -> list[dict] | None:
         return None
 
 
-def _holds(items: list[dict], folder: Path, every: bool = False) -> bool:
-    """Whether a playlist plays breaks from this folder; `every`: all of them, so a playlist of the
-    listener's own that took in a break or two is never mistaken for the show's."""
+def _breaks(folder: Path) -> set[str] | None:
+    """The names of the break files in a show's breaks folder, or None if it can't be read."""
+    try:
+        return {p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")}
+    except OSError:
+        return None
+
+
+def _holds(items: list[dict], folder: Path, breaks: set[str] | None = None) -> bool:
+    """Whether a playlist plays breaks from this folder; given the folder's `breaks`, all of them, so a
+    playlist of the listener's own that took in a break or two is never mistaken for the show's."""
     mark = f"/{folder.name}/"
     files = (_part(m).get("file", "").replace("\\", "/") for m in items)
     played = {PurePosixPath(f).name for f in files if mark in f}
-    if not played or not every:
-        return bool(played)
-    try:
-        breaks = {p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")}
-    except OSError:
-        return False
-    return breaks <= played
+    return bool(played) and (breaks is None or breaks <= played)
 
 
 @dataclass
@@ -233,11 +238,12 @@ class PlexShow:
     items: list[dict] = field(default_factory=list)  # the playlist's items, as Plex lists them
 
 
-def find_show(client, dest_root: Path, show_id: str, hint: str = "") -> PlexShow:
+def find_show(client, dest_root: Path, show_id: str, hint: str = "", folder: Path | None = None) -> PlexShow:
     """A delivered show: its breaks folder and its playlist (found from the note beside the breaks, or for
     older shows by looking through the audio playlists for one that plays them; `hint` is its title, to
-    look at likely playlists first). The playlist is None when it's been deleted in Plex."""
-    folder = show_folder(dest_root, show_id, hint)
+    look at likely playlists first). The playlist is None when it's been deleted in Plex. `folder`: its
+    breaks folder, if it's been found already."""
+    folder = folder or show_folder(dest_root, show_id, hint)
     if folder is None:
         raise PlexError("That show's breaks aren't in Booth's breaks folder any more.")
     note = _read_note(folder)
@@ -248,12 +254,13 @@ def find_show(client, dest_root: Path, show_id: str, hint: str = "") -> PlexShow
         listed = client.get("/playlists", {"playlistType": "audio"})["MediaContainer"].get("Metadata", [])
         hint = hint or note.get("title") or ""
         likely = hint.lower()
+        breaks = _breaks(folder)
         listed.sort(key=lambda p: not (likely and likely in str(p.get("title", "")).lower()))
         for p in listed:
             if p.get("smart"):
                 continue
             found = _items(client, str(p.get("ratingKey")))
-            if found and _holds(found, folder, every=True):
+            if found and breaks is not None and _holds(found, folder, breaks):
                 key, items = str(p["ratingKey"]), found
                 title = p.get("title") or hint
                 _note(folder, show_id, key, title)
@@ -360,7 +367,9 @@ def one_file(client, dest_root: Path, copies: Path, show_id: str, hint: str = ""
                 path = work / f"{n:03d}{s.ext.lower()}"
                 try:
                     _fetch(client, s, path)
-                except OSError:
+                except OSError as e:
+                    if e.errno in playlist.FULL:
+                        raise
                     missing += 1
                     continue
                 finally:
@@ -372,9 +381,8 @@ def one_file(client, dest_root: Path, copies: Path, show_id: str, hint: str = ""
         if not ready:
             raise PlexError("None of this show's files could be fetched from Plex.")
         dj = next((s.artist for s in items if s.kind == "break" and s.artist), "") or "Booth"
-        cover = next(
-            (c for s in items if s.kind == "break" and s.local for c in [_cover(s.local)] if c), None
-        )
+        covers = (render.cover_of(s.local) for s in items if s.kind == "break" and s.local)
+        cover = next((c for c in covers if c), None)
         tags = {"title": show.title, "show_id": show_id, "artist": dj, "cover": cover}
         total = len(fetch) + 2 * len(ready)  # what's left to do now that the missing are known
         step = (lambda done, _t: progress(len(fetch) + done, total)) if progress else None
@@ -385,25 +393,18 @@ def one_file(client, dest_root: Path, copies: Path, show_id: str, hint: str = ""
     return made
 
 
-def _cover(path: Path) -> bytes | None:
-    from mutagen import File as AudioFile
-
-    try:
-        found = AudioFile(str(path))
-    except Exception:  # noqa: BLE001  # no cover is fine
-        return None
-    if found is None or not hasattr(found.tags, "getall"):
-        return None
-    pics = found.tags.getall("APIC")
-    return pics[0].data if pics else None
-
-
 def remove(client, dest_root: Path, library: str, show_id: str, hint: str = "") -> bool:
     """Delete a show from Plex: its playlist and its breaks (never the user's music). False when its breaks
     folder isn't here."""
-    if show_folder(dest_root, show_id, hint) is None:
+    folder = show_folder(dest_root, show_id, hint)
+    if folder is None:
         return False
-    show = find_show(client, dest_root, show_id, hint)
+    remove_found(client, dest_root, library, find_show(client, dest_root, show_id, hint, folder))
+    return True
+
+
+def remove_found(client, dest_root: Path, library: str, show: PlexShow) -> None:
+    """Delete a show `find_show` found: its playlist, then its breaks."""
     if not show.folder.resolve().is_relative_to(dest_root.resolve()):
         raise PlexError(f"Refusing to delete outside {dest_root}.")
     if show.playlist_key:
@@ -415,4 +416,3 @@ def remove(client, dest_root: Path, library: str, show_id: str, hint: str = "") 
         raise
     except PlexError:
         pass
-    return True

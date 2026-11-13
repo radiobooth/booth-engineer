@@ -88,6 +88,9 @@ class PlexClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp, dest.open("wb") as out:
                 shutil.copyfileobj(resp, out, 1 << 20)
+                # A body cut short of its Content-Length reads as a plain end, not IncompleteRead.
+                if resp.length:
+                    raise PlexError("Plex stopped sending a song's file partway")
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 raise PlexAuthError() from None

@@ -187,3 +187,16 @@ def test_an_unnoted_folder_needs_its_title_too(plex_show):
     assert target.show_folder(dest, SHOW, TITLE) == dest / FOLDER
     assert target.show_folder(dest, SHOW) is None
     assert target.show_folder(dest, SHOW, "Something Else") is None
+
+
+def test_a_full_disk_stops_the_copy_instead_of_skipping_every_file(tmp_path):
+    import errno
+
+    def full(dest):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    fills = []
+    entries = [("5,One", ".flac", full), ("5,Two", ".flac", fills.append)]
+    with pytest.raises(OSError, match="No space left"):
+        playlist.write_copy(tmp_path / "Copies", TITLE, SHOW, entries)
+    assert fills == [] and list((tmp_path / "Copies").iterdir()) == []

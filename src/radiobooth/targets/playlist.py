@@ -17,6 +17,7 @@ break, in the same Copies folder.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shutil
@@ -273,6 +274,10 @@ def _named(info: str, name: str) -> str:
     return info if said.strip() else f"{secs},{name}"
 
 
+# Errors writing where a copy goes: every file after would fail too, so the copy stops rather than skip them.
+FULL = {errno.ENOSPC, errno.EDQUOT, errno.EROFS}
+
+
 # A file to put in a copy: its #EXTINF info ("seconds,name"), its extension, and how to write it to a path.
 Entry = tuple[str, str, Callable[[Path], None]]
 
@@ -305,8 +310,10 @@ def write_copy(
             name = f"{written + 1:0{width}d} {file_name(label)}{ext.lower()}"
             try:
                 fill(partial / name)
-            except OSError:
+            except OSError as e:
                 (partial / name).unlink(missing_ok=True)
+                if e.errno in FULL:
+                    raise
                 continue
             written += 1
             lines += [f"#EXTINF:{_line(info)}", name]

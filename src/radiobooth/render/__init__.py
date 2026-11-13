@@ -391,10 +391,22 @@ def _tag(path: Path, *, title: str, artist: str, show_id: str, cover: bytes | No
     tags.save(path, v2_version=3)
 
 
-def from_playlist(playlist: Path) -> tuple[list[Item], dict]:
-    """The items a Booth playlist plays, and what the show file is called and tagged with."""
+def cover_of(path: Path) -> bytes | None:
+    """A file's embedded picture (a break's cover), or None."""
     from mutagen import File as AudioFile
 
+    try:
+        found = AudioFile(str(path))
+    except Exception:  # noqa: BLE001  # a file that can't be read just has no cover
+        return None
+    if found is None or not hasattr(found.tags, "getall"):
+        return None
+    pics = found.tags.getall("APIC")
+    return pics[0].data if pics else None
+
+
+def from_playlist(playlist: Path) -> tuple[list[Item], dict]:
+    """The items a Booth playlist plays, and what the show file is called and tagged with."""
     from radiobooth.sources import tags as tag_reader
     from radiobooth.targets import playlist as target
 
@@ -408,13 +420,7 @@ def from_playlist(playlist: Path) -> tuple[list[Item], dict]:
         if is_break:
             dj = dj or name.rpartition(" - Break")[0] or None
             if cover is None:
-                try:
-                    found = AudioFile(str(path))
-                except Exception:  # noqa: BLE001  # a file that can't be read is left out when rendering
-                    found = None
-                if found is not None and hasattr(found.tags, "getall"):
-                    pics = found.tags.getall("APIC")
-                    cover = pics[0].data if pics else None
+                cover = cover_of(path)
         else:
             try:
                 fields = tag_reader.read(path).fields

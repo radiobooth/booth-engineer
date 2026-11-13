@@ -141,7 +141,8 @@ class App:
         self._roster: tuple[float, dict] | None = None
         self._paired = 0  # counts pairings, so a roster from before the latest one isn't kept
         self.copy: dict | None = None  # the latest show copied to a folder: how it's going, or how it went
-        self._removed: set[str] = set()  # Plex shows removed from this page, so the list can say so
+        # Plex shows removed from this page, so the list can say so (kept in the config across restarts)
+        self._removed: set[str] = set(config.load().get("plex_removed") or [])
         self._copy_lock = threading.Lock()
         self.open_folder = lambda path: open_folder(path, self.platform)
 
@@ -232,7 +233,10 @@ class App:
         if missing:
             return None
         copies = (
-            Path(settings.get("shows_folder") or default_shows_folder()).expanduser() / playlist_target.COPIES
+            Path(
+                engine.setting(settings, "BOOTH_SHOWS_FOLDER", "shows_folder") or default_shows_folder()
+            ).expanduser()
+            / playlist_target.COPIES
         )
         client = PlexClient(found["url"], found["token"])
         return client, Path(found["dest"]).expanduser(), found["library"], copies
@@ -244,6 +248,15 @@ class App:
         plex = self._plex_shows(settings)
         if not SHOW_ID.fullmatch(show_id) or (not engine.folder_mode(settings) and plex is None):
             raise SetupError("Booth can't remove that show here.")
+        found = None
+        if plex is not None:  # looking for an older show's playlist can take a while: not under the lock
+            client, dest, library, copies = plex
+            if plex_target.show_folder(dest, show_id, title) is None:
+                raise SetupError("That show's breaks aren't in Booth's breaks folder any more.")
+            try:
+                found = plex_target.find_show(client, dest, show_id, title)
+            except PlexError as e:
+                raise SetupError(f"Couldn't remove that show from Plex ({e}).") from None
         # Under the copy lock, so a copy of this show can't start while it's being removed.
         with self._copy_lock:
             copying = self.copy
@@ -256,12 +269,16 @@ class App:
                 if plex is None:
                     shows = engine.folder_settings(settings)[0]["shows"]
                     gone = playlist_target.remove(Path(shows).expanduser(), show_id)
+                elif not found.folder.exists():  # removed meanwhile, from another tab
+                    gone = False
                 else:
-                    client, dest, library, copies = plex
-                    gone = plex_target.remove(client, dest, library, show_id, title)
-                    if gone:
-                        playlist_target.drop_copies(copies, show_id)
-                        self._removed.add(show_id)
+                    plex_target.remove_found(client, dest, library, found)
+                    gone = True
+                    playlist_target.drop_copies(copies, show_id)
+                    self._removed.add(show_id)
+                    with contextlib.suppress(OSError):  # so the page still says so after a restart
+                        removed = [i for i in config.load().get("plex_removed", []) if i != show_id]
+                        config.update({"plex_removed": (removed + [show_id])[-50:]})
             except PlexError as e:
                 raise SetupError(f"Couldn't remove that show from Plex ({e}).") from None
             except OSError as e:
