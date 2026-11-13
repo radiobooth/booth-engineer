@@ -31,6 +31,7 @@ from radiobooth.targets.plex import folder_name, load_package
 MARK = "#BOOTH-SHOW:"  # show id, on its own line in each playlist Booth writes
 BREAKS = "breaks"
 COPIES = "Copies"  # in the shows folder: shows copied whole, to take along
+FILE_MARK = "BOOTH-SHOW"  # the ID3 TXXX tag a one-file show keeps its show id in
 # Names Windows keeps for devices, with or without an extension.
 _RESERVED = {"con", "prn", "aux", "nul", *(f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10))}
 
@@ -288,10 +289,8 @@ def file_show(path: Path) -> str | None:
     from mutagen import MutagenError
     from mutagen.id3 import ID3
 
-    from radiobooth import render
-
     try:
-        marks = ID3(str(path)).getall(f"TXXX:{render.MARK}")
+        marks = ID3(str(path)).getall(f"TXXX:{FILE_MARK}")
     except (OSError, MutagenError, ValueError):  # not tagged, or tagged in a way mutagen doesn't read
         return None
     return str(marks[0].text[0]) if marks and marks[0].text else None

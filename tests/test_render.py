@@ -121,8 +121,10 @@ def test_render_evens_levels(tmp_path):
     for start, stop in ((0.5, 1.5), (6.5, 7.5)):  # either side of the 4s crossfade
         frames = list(render.decode(out))
         whole = b"".join(bytes(f.planes[0])[: f.samples * render.BYTES] for f in frames)
-        part = array.array("h", whole[int(start * render.RATE) * 4 : int(stop * render.RATE) * 4])
-        levels.append(20 * math.log10(math.sqrt(sum(s * s for s in part) / len(part)) / 32767))
+        part = array.array(
+            "f", whole[int(start * render.RATE) * render.BYTES : int(stop * render.RATE) * render.BYTES]
+        )
+        levels.append(20 * math.log10(math.sqrt(sum(s * s for s in part) / len(part))))
     assert abs(levels[0] - levels[1]) < 1.0
 
 

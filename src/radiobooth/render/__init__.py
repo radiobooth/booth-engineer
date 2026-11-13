@@ -19,10 +19,12 @@ from pathlib import Path
 import av
 from mutagen.id3 import APIC, CHAP, CTOC, ID3, TALB, TIT2, TPE1, TXXX, CTOCFlags
 
+from radiobooth.targets.playlist import FILE_MARK as MARK
+
 RATE = 44100
 LAYOUT = "stereo"
-FORMAT = "s16"  # what each item is held as between its passes: half the memory of floats
-BYTES = 4  # per sample frame of s16 stereo
+FORMAT = "flt"  # floats, so a hot master's decoded overs survive until its gain brings them down
+BYTES = 8  # per sample frame of packed float stereo
 BITRATE = 192_000
 TARGET = -14.0  # LUFS every song and break is brought towards
 MAX_BOOST = 6.0  # dB: a quiet master is raised at most this much, and never past its peak
@@ -31,7 +33,6 @@ SILENCE = "n=-50dB:d=0.3"  # what counts as dead air at an item's edges
 SONG_FADE = 4.0  # seconds songs overlap
 BREAK_IN = 1.5  # the DJ starts this long before a song ends
 BREAK_OUT = 1.0  # the next song starts this long before the DJ finishes
-MARK = "BOOTH-SHOW"
 
 
 class RenderError(Exception):
@@ -65,7 +66,7 @@ class Rendered:
 
 
 def decode(path: Path) -> Iterator[av.AudioFrame]:
-    """The file's first audio stream as s16 stereo frames at RATE."""
+    """The file's first audio stream as packed float stereo frames at RATE."""
     with av.open(str(path)) as container:
         stream = container.streams.audio[0]
         resampler = av.AudioResampler(format=FORMAT, layout=LAYOUT, rate=RATE)
@@ -146,7 +147,7 @@ def gain(m: Measured) -> float:
 
 
 def _trimmed(frames: Iterable[av.AudioFrame], start: int, stop: int) -> Iterator[av.AudioFrame]:
-    """The samples start..stop of an item, as frames (s16 stereo is one plane of BYTES per sample)."""
+    """The samples start..stop of an item, as frames (packed stereo is one plane of BYTES per sample)."""
     at = 0
     for f in frames:
         lo, hi = max(start - at, 0), min(stop - at, f.samples)
@@ -220,8 +221,13 @@ def render(
     kept = [it for it, _ in ready]
     how = joins(kept)
     heard = [(m.samples - m.lead - m.tail) / RATE for _, m in ready]
-    # A very short item can't be overlapped by more than half of itself.
-    how = [(k, min(s, heard[i] / 2, heard[i + 1] / 2), c1, c2) for i, (k, s, c1, c2) in enumerate(how)]
+    # A very short item can't be overlapped by more than half of itself. Overlaps are whole samples, so the
+    # crossfade FFmpeg makes is exactly the one the chapters count; one too short to make is a plain join.
+    how = [
+        (k, math.floor(min(s, heard[i] / 2, heard[i + 1] / 2) * RATE), c1, c2)
+        for i, (k, s, c1, c2) in enumerate(how)
+    ]
+    how = [("concat", 0.0, "", "") if not n else (k, n / RATE, c1, c2) for k, n, c1, c2 in how]
 
     graph = av.filter.Graph()
     sources, chain = [], None
@@ -237,7 +243,7 @@ def render(
         if kind == "concat":
             join = graph.add("concat", "n=2:v=0:a=1")
         else:
-            join = graph.add("acrossfade", f"d={secs}:c1={c1}:c2={c2}")
+            join = graph.add("acrossfade", f"ns={round(secs * RATE)}:c1={c1}:c2={c2}")
         chain.link_to(join, 0, 0)
         vol.link_to(join, 0, 1)
         chain = join

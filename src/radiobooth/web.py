@@ -226,14 +226,16 @@ class App:
         settings = config.load()
         if not engine.folder_mode(settings) or not SHOW_ID.fullmatch(show_id):
             raise SetupError("Booth can't remove that show here.")
-        copying = self.copy
-        if copying and not copying.get("finished") and copying.get("show_id") == show_id:
-            raise SetupError("Booth is copying that show. Wait for that to finish, then remove it.")
         shows = engine.folder_settings(settings)[0]["shows"]
-        try:
-            gone = playlist_target.remove(Path(shows).expanduser(), show_id)
-        except OSError as e:
-            raise SetupError(f"Couldn't remove that show ({e.strerror or e}).") from None
+        # Under the copy lock, so a copy of this show can't start while it's being removed.
+        with self._copy_lock:
+            copying = self.copy
+            if copying and not copying.get("finished") and copying.get("show_id") == show_id:
+                raise SetupError("Booth is copying that show. Wait for that to finish, then remove it.")
+            try:
+                gone = playlist_target.remove(Path(shows).expanduser(), show_id)
+            except OSError as e:
+                raise SetupError(f"Couldn't remove that show ({e.strerror or e}).") from None
         if not gone:
             raise SetupError("That show isn't in your Booth shows folder any more.")
 
@@ -272,7 +274,8 @@ class App:
             self.copy = self.copy | {"finished": True, "error": str(e)}
             return
         except Exception as e:  # noqa: BLE001  # a show that can't be copied must never stop the app
-            said = f"Couldn't copy that show ({getattr(e, 'strerror', None) or e})."
+            what = "make that show into one file" if kind == "file" else "copy that show"
+            said = f"Couldn't {what} ({getattr(e, 'strerror', None) or e})."
             self.copy = self.copy | {"finished": True, "error": said}
             return
         self.copy = self.copy | done | {"finished": True, "folder": str(folder), "missing": made.missing}

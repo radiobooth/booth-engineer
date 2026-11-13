@@ -781,19 +781,22 @@ function renderShows(list) {
     m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
     li.append(t, st, m);
     if (s.feedback) li.append(feedbackButton(s));
-    if (here && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, fileButton(s), copyButton(s), removeButton(s)));
+    if (here && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, copyButton(s, "file"), copyButton(s), removeButton(s)));
     if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
 }
 
+const COPY_KINDS = {
+  folder: ["Copy to a folder", "Copies the songs and breaks into a folder of their own, numbered in order, to put" +
+    " on a phone, a USB stick or a car's drive"],
+  file: ["Make one file", "Mixes the show into one MP3, like it sounds on the radio, with a chapter for each song" +
+    " and break"],
+};
+
 function copyButton(s, kind = "folder") {
-  const b = kind === "file"
-    ? el("button", {type: "button", className: "quiet remove", textContent: "Make one file",
-        title: "Mixes the show into one MP3, like it sounds on the radio, with a chapter for each song and break"})
-    : el("button", {type: "button", className: "quiet remove", textContent: "Copy to a folder",
-        title: "Copies the songs and breaks into a folder of their own, numbered in order, to put on a phone," +
-          " a USB stick or a car's drive"});
+  const [textContent, title] = COPY_KINDS[kind];
+  const b = el("button", {type: "button", className: "quiet remove", textContent, title});
   b.onclick = async () => {
     b.disabled = true;
     try {
@@ -805,8 +808,6 @@ function copyButton(s, kind = "folder") {
   };
   return b;
 }
-
-function fileButton(s) { return copyButton(s, "file"); }
 
 // A show being copied to a folder or made into one file, or the last one.
 function renderCopy(c) {
