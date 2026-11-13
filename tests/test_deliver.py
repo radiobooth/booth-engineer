@@ -98,7 +98,18 @@ def test_deliver_copies_scans_and_builds_playlist_in_order(tmp_path):
     dest.mkdir()
     result = target.deliver(plex, show, "Radio Booth", dest, sleep=lambda s: None)
     folder = "2026-11-03-wipers-on-long-way-home-123456"
-    assert sorted(p.name for p in (dest / folder).iterdir()) == ["01.mp3", "02.mp3", "03.mp3"]
+    assert sorted(p.name for p in (dest / folder).iterdir()) == [
+        ".booth-show.json",
+        "01.mp3",
+        "02.mp3",
+        "03.mp3",
+    ]
+    note = json.loads((dest / folder / ".booth-show.json").read_text(encoding="utf-8"))
+    assert note == {
+        "show_id": "show_abcdef123456",
+        "playlist_key": "5555",
+        "title": "Wipers On, Long Way Home",
+    }
     refresh = next(c for c in plex.calls if c[1].endswith("/refresh"))
     assert refresh[1] == "/library/sections/7/refresh"
     assert refresh[2] is None  # whole library: Plex ignored folder-scoped scans in practice

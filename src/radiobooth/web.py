@@ -37,6 +37,7 @@ from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError
 from radiobooth.targets import playlist as playlist_target
+from radiobooth.targets import plex as plex_target
 from radiobooth.websetup import WebSetup, default_music_folder, default_shows_folder, music_ready, plex_ready
 
 HOST = "127.0.0.1"
@@ -139,6 +140,7 @@ class App:
         self._roster: tuple[float, dict] | None = None
         self._paired = 0  # counts pairings, so a roster from before the latest one isn't kept
         self.copy: dict | None = None  # the latest show copied to a folder: how it's going, or how it went
+        self._removed: set[str] = set()  # Plex shows removed from this page, so the list can say so
         self._copy_lock = threading.Lock()
         self.open_folder = lambda path: open_folder(path, self.platform)
 
@@ -221,12 +223,26 @@ class App:
             "suggest": {"music": str(music) if music else "", "shows": str(default_shows_folder())},
         }
 
-    def remove_show(self, show_id: str) -> None:
-        """Delete a show's playlist and breaks from the Booth shows folder (never any music)."""
+    def _plex_shows(self, settings: dict) -> tuple[PlexClient, Path, str, Path] | None:
+        """For a Plex setup: its server, the breaks folder, the breaks library, and where copies go."""
+        if engine.folder_mode(settings) or not plex_ready(settings):
+            return None
+        found, missing = engine.delivery_settings(settings)
+        if missing:
+            return None
+        copies = (
+            Path(settings.get("shows_folder") or default_shows_folder()).expanduser() / playlist_target.COPIES
+        )
+        client = PlexClient(found["url"], found["token"])
+        return client, Path(found["dest"]).expanduser(), found["library"], copies
+
+    def remove_show(self, show_id: str, title: str = "") -> None:
+        """Delete a show (never any music): its playlist file and breaks from the Booth shows folder, or its
+        playlist and breaks from Plex. Any copy Booth made of it goes too."""
         settings = config.load()
-        if not engine.folder_mode(settings) or not SHOW_ID.fullmatch(show_id):
+        plex = self._plex_shows(settings)
+        if not SHOW_ID.fullmatch(show_id) or (not engine.folder_mode(settings) and plex is None):
             raise SetupError("Booth can't remove that show here.")
-        shows = engine.folder_settings(settings)[0]["shows"]
         # Under the copy lock, so a copy of this show can't start while it's being removed.
         with self._copy_lock:
             copying = self.copy
@@ -236,24 +252,39 @@ class App:
                     " remove it."
                 )
             try:
-                gone = playlist_target.remove(Path(shows).expanduser(), show_id)
+                if plex is None:
+                    shows = engine.folder_settings(settings)[0]["shows"]
+                    gone = playlist_target.remove(Path(shows).expanduser(), show_id)
+                else:
+                    client, dest, library, copies = plex
+                    gone = plex_target.remove(client, dest, library, show_id, title)
+                    if gone:
+                        playlist_target.drop_copies(copies, show_id)
+                        self._removed.add(show_id)
+            except PlexError as e:
+                raise SetupError(f"Couldn't remove that show from Plex ({e}).") from None
             except OSError as e:
                 raise SetupError(f"Couldn't remove that show ({e.strerror or e}).") from None
         if not gone:
-            raise SetupError("That show isn't in your Booth shows folder any more.")
+            raise SetupError(
+                "That show isn't in your Booth shows folder any more."
+                if plex is None
+                else "That show's breaks aren't in Booth's breaks folder any more."
+            )
 
-    def copy_show(self, show_id: str, kind: str = "folder") -> None:
+    def copy_show(self, show_id: str, kind: str = "folder", title: str = "") -> None:
         """In the background, copy a show whole into a folder of its own (songs and breaks as numbered files,
         ready to drag onto a phone, a USB stick or a car's drive) or, `kind` "file", mix it into one MP3 with
         chapters. Then open the folder it's in. One at a time."""
         settings = config.load()
+        plex = self._plex_shows(settings)
         if (
-            not engine.folder_mode(settings)
+            (not engine.folder_mode(settings) and plex is None)
             or not SHOW_ID.fullmatch(show_id)
             or kind not in ("folder", "file")
         ):
             raise SetupError("Booth can't copy that show here.")
-        shows = Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
+        where = plex or Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
         with self._copy_lock:
             if self.copy and not self.copy.get("finished"):
                 raise SetupError(
@@ -261,21 +292,31 @@ class App:
                 )
             self.copy = {"show_id": show_id, "kind": kind, "done": 0, "total": 0, "finished": False}
         threading.Thread(
-            target=self._copy, args=(shows, show_id, kind), name="booth-copy", daemon=True
+            target=self._copy, args=(where, show_id, kind, title), name="booth-copy", daemon=True
         ).start()
 
-    def _copy(self, shows: Path, show_id: str, kind: str) -> None:
+    def _copy(self, where, show_id: str, kind: str, title: str = "") -> None:
+        """`where`: the Booth shows folder, or (for Plex) what `_plex_shows` gives."""
+
         def progress(done: int, total: int) -> None:
             self.copy = self.copy | {"done": done, "total": total}
 
         try:
+            if isinstance(where, tuple):
+                client, dest, _library, copies = where
+                if kind == "file":
+                    made = plex_target.one_file(client, dest, copies, show_id, title, progress)
+                else:
+                    made = plex_target.copy_out(client, dest, copies, show_id, title, progress)
+            elif kind == "file":
+                made = playlist_target.one_file(where, show_id, progress)
+            else:
+                made = playlist_target.copy_out(where, show_id, progress)
             if kind == "file":
-                made = playlist_target.one_file(shows, show_id, progress)
                 folder, done = made.path.parent, {"file": str(made.path), "minutes": round(made.seconds / 60)}
             else:
-                made = playlist_target.copy_out(shows, show_id, progress)
                 folder, done = made.folder, {}
-        except playlist_target.PlaylistError as e:
+        except (playlist_target.PlaylistError, PlexError) as e:
             self.copy = self.copy | {"finished": True, "error": str(e)}
             return
         except Exception as e:  # noqa: BLE001  # a show that can't be copied must never stop the app
@@ -370,6 +411,16 @@ class App:
             folder = engine.folder_settings(settings)[0]["shows"]
             here = {s.show_id for s in playlist_target.shows(Path(folder).expanduser())} if folder else set()
             shows = [s | {"on_disk": s.get("show_id") in here} for s in shows]
+        elif (
+            plex := self._plex_shows(settings)
+        ) is not None:  # which shows' breaks are still here, to copy or remove
+            ids = [str(s.get("show_id")) for s in shows if SHOW_ID.fullmatch(str(s.get("show_id")))]
+            here = plex_target.shows_here(plex[1], ids)
+            for s in shows:
+                if s.get("show_id") in here:
+                    s["on_disk"] = True
+                elif s.get("show_id") in self._removed:
+                    s["on_disk"] = False
         return {
             "roster": roster,
             "allowance": listed.get("allowance"),
@@ -559,9 +610,13 @@ class App:
             if not self.engine.scan_music():
                 raise SetupError("Booth is reading your music already.")
         elif action == "remove_show":
-            self.remove_show(str(body.get("show_id", "")))
+            self.remove_show(str(body.get("show_id", "")), str(body.get("title") or "")[:200])
         elif action == "copy_show":
-            self.copy_show(str(body.get("show_id", "")), str(body.get("kind", "folder")))
+            self.copy_show(
+                str(body.get("show_id", "")),
+                str(body.get("kind", "folder")),
+                str(body.get("title") or "")[:200],
+            )
         elif action == "new_show":
             return self.new_show(body)
         elif action == "feedback":

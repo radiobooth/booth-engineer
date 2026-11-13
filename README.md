@@ -62,6 +62,10 @@ playlist, to put on a phone, a USB stick or a car's drive. **Make one file** mix
 same album stays gapless), the DJ talking over the ends and starts of songs, and a chapter for each song and
 break. It's made on your computer; nothing is uploaded.
 
+The same three buttons sit under shows delivered to Plex. **Remove** deletes the show's Plex playlist and its
+breaks. **Copy to a folder** and **Make one file** fetch the show's songs from your Plex server to this
+computer and write the copy into `Copies/` in the `Booth shows` folder in your home folder.
+
 Booth reads the folder's tags when you set it up (with a progress bar: the first read of a big collection
 takes a while) and again when Booth starts and for each show, reading only files that are new or changed. It
 keeps what it read in an index next to its config file (`folders/`). Booth's page shows what it found in your

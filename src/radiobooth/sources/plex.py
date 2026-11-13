@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol
 
 from radiobooth.sources.added import drop_bulk_dates
@@ -75,6 +77,22 @@ class PlexClient:
                 f"{self.base_url} answered with {ctype or 'something'} instead of Plex JSON."
                 " Check PLEX_URL, including the port (Plex usually listens on 32400)."
             ) from None
+
+    def download(self, part_key: str, dest: Path) -> None:
+        """Save one of the server's media files (a Part's key, as /library/parts/...) to `dest`, on this
+        computer: for copies of a show the listener asked for. Nothing is sent anywhere else."""
+        if not part_key.startswith("/library/parts/"):
+            raise PlexError(f"Not a Plex media file: {part_key!r}")
+        req = urllib.request.Request(f"{self.base_url}{part_key}", headers={"X-Plex-Token": self.token})
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp, dest.open("wb") as out:
+                shutil.copyfileobj(resp, out, 1 << 20)
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                raise PlexAuthError() from None
+            raise PlexError(f"Plex returned HTTP {e.code} for a song's file") from None
+        except urllib.error.URLError as e:
+            raise PlexError(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
 
 
 def music_sections(client: Getter) -> list[dict]:

@@ -883,3 +883,54 @@ def test_the_footer_links_to_the_license(booth):
         and f'href="{radiobooth.LICENSE_URL}"' in body.decode()
         and "__LICENSE_URL__" not in body.decode()
     )
+
+
+def test_plex_shows_can_be_copied_and_removed_on_the_page(booth, monkeypatch, tmp_path):
+    from test_plex_shows import FOLDER, SHOW, PlexWithPlaylists
+    from test_render import tone
+
+    app, port, key, _ = booth
+    dest = tmp_path / "radiobooth"
+    (dest / FOLDER).mkdir(parents=True)
+    tone(dest / FOLDER / "01.mp3", "libmp3lame", 2, 220, 0.3, rate=24000)
+    tone(dest / FOLDER / "02.mp3", "libmp3lame", 2, 330, 0.3, rate=24000)
+    song = tone(tmp_path / "1.flac", "flac", 3, 440, 0.3)
+    plex = PlexWithPlaylists({"/library/parts/1/1/file.flac": song})
+    monkeypatch.setattr(web, "PlexClient", lambda url, token: plex)
+    monkeypatch.setattr(web, "default_shows_folder", lambda: tmp_path / "Booth shows")
+    config.update(
+        {
+            "plex_url": "http://nas:32400",
+            "plex_token": "tok",
+            "music_library": "Music",
+            "breaks_library": "Radio Booth",
+            "breaks_dir": str(dest),
+            "device_token": "be_device",
+            "server": "https://booth.example",
+        }
+    )
+    roster = {"djs": [{"id": "penrose", "name": "Penrose", "role": "night owl"}], "voices": ["A"]}
+
+    def get(self, path):
+        if path == "/v0/me":
+            return {"name": "Thomas", "roster": roster}
+        return {"shows": [{"show_id": i, "status": "delivered"} for i in (SHOW, "show_elsewhere1")]}
+
+    monkeypatch.setattr(web.Link, "get", get)
+    cookie = {"Cookie": f"{web.COOKIE}={key}"}
+    listed = json.loads(call(port, "GET", "/api/shows", headers=cookie)[2])
+    assert [s.get("on_disk") for s in listed["shows"]] == [True, None]  # the other was made elsewhere
+
+    opened = []
+    app.open_folder = opened.append
+    assert act(port, key, "copy_show", {"show_id": SHOW, "title": "Wipers On"})[0] == 200
+    wait_for(lambda: app.copy and app.copy["finished"])
+    copy = tmp_path / "Booth shows" / "Copies" / "Wipers On, Long Way Home"
+    assert app.copy["folder"] == str(copy) and app.copy["missing"] == 2 and opened == [copy]
+
+    assert act(port, key, "remove_show", {"show_id": SHOW, "title": "Wipers On"})[0] == 200
+    assert plex.deleted == ["5555"] and not (dest / FOLDER).exists() and not copy.exists()
+    listed = json.loads(call(port, "GET", "/api/shows", headers=cookie)[2])
+    assert listed["shows"][0]["on_disk"] is False
+    status, data = act(port, key, "remove_show", {"show_id": SHOW})
+    assert status == 422 and "breaks aren't in Booth's breaks folder" in data["error"]
