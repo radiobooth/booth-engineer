@@ -3,6 +3,10 @@
 Copies the show's break files into a folder that a Plex music library watches (normally a library of its
 own, so breaks never mix into the user's music), asks Plex to scan that folder, waits for the breaks to
 appear, then builds an ordinary playlist of the user's tracks and the breaks in running order.
+
+A delivered show can be found again from its id (its breaks folder's name ends with part of it, and a small
+note beside the breaks names its playlist): to copy it whole into a folder, mix it into one file, or remove
+it. Songs for a copy are fetched from the Plex server to this computer; nothing goes anywhere else.
 """
 
 from __future__ import annotations
@@ -12,12 +16,13 @@ import json
 import re
 import shutil
 import time
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 
-from radiobooth.sources.plex import TRACK, PlexError, _paged
+from radiobooth.sources.plex import TRACK, PlexAuthError, PlexError, PlexUnreachable, _paged
 
 SCAN_TIMEOUT = 180  # seconds to wait for Plex to pick up new breaks
+NOTE = ".booth-show.json"  # beside a show's breaks: its id, title and playlist, to find it again
 
 
 @dataclass
@@ -126,6 +131,7 @@ def deliver(
     uri = f"server://{machine}/com.plexapp.plugins.library/library/metadata/{','.join(keys)}"
     out = client.request("POST", "/playlists", {"type": "audio", "title": title, "smart": 0, "uri": uri})
     playlist = out["MediaContainer"]["Metadata"][0]
+    _note(dest_root / folder, package["show_id"], str(playlist["ratingKey"]), playlist.get("title", title))
     return Delivery(
         playlist_key=str(playlist["ratingKey"]),
         title=playlist.get("title", title),
@@ -134,3 +140,301 @@ def deliver(
         folder=dest_root / folder,
         machine=machine,
     )
+
+
+def _note(folder: Path, show_id: str, playlist_key: str, title: str) -> None:
+    """Note beside the breaks which show and playlist they are. Without it, finding them is only slower."""
+    try:
+        note = {"show_id": show_id, "playlist_key": playlist_key, "title": title}
+        (folder / NOTE).write_text(json.dumps(note), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_note(folder: Path) -> dict:
+    try:
+        note = json.loads((folder / NOTE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return note if isinstance(note, dict) else {}
+
+
+def _folders(dest_root: Path) -> list[Path]:
+    """What's in `dest_root` (often a network share): folder or not is checked only for the few names that
+    could be a show's."""
+    try:
+        return list(dest_root.iterdir())
+    except OSError:
+        return []
+
+
+def show_folder(
+    dest_root: Path, show_id: str, title: str = "", folders: list[Path] | None = None
+) -> Path | None:
+    """The breaks folder of the show with this id, if it's still there. `folders`: `dest_root`'s, if
+    they've been listed already. A folder from before the note beside the breaks counts only when its name
+    also carries the show's `title`, so another show's folder that happens to end the same way never does."""
+    tail = re.sub(r"[^a-z0-9]", "", show_id.lower())[-6:]
+    if not tail:
+        return None
+    listed = _folders(dest_root) if folders is None else folders
+    found = [d for d in listed if d.name.endswith(f"-{tail}") and d.is_dir()]
+    notes = {d: _read_note(d) for d in found}  # read once: `dest_root` is often a network share
+    noted = [d for d in found if notes[d].get("show_id") == show_id]
+    if noted:
+        return noted[0]
+    if not title:
+        return None
+    named = f"-{folder_name({'title': title, 'created_at': '', 'show_id': show_id}).split('-', 1)[1]}"
+    unnoted = [d for d in found if d.name.endswith(named) and not notes[d]]
+    return unnoted[0] if len(unnoted) == 1 else None
+
+
+def shows_here(dest_root: Path, shows: dict[str, str]) -> set[str]:
+    """Which of these shows (id -> title) still have their breaks folder here."""
+    folders = _folders(dest_root)
+    return {i for i, title in shows.items() if show_folder(dest_root, i, title, folders) is not None}
+
+
+def _part(meta: dict) -> dict:
+    for media in meta.get("Media") or []:
+        for part in media.get("Part") or []:
+            return part
+    return {}
+
+
+def _items(client, key: str) -> list[dict] | None:
+    """A playlist's items, or None if Plex has no such playlist. Any other error (Plex unreachable, say) is
+    raised: taken for a deleted playlist, it would leave the show's playlist behind when it's removed."""
+    try:
+        return client.get(f"/playlists/{key}/items")["MediaContainer"].get("Metadata", [])
+    except PlexError as e:
+        if e.status in (400, 404):
+            return None
+        raise
+
+
+def _breaks(folder: Path) -> set[str] | None:
+    """The names of the break files in a show's breaks folder, or None if it can't be read. Only audio
+    files count: a Thumbs.db or desktop.ini beside the breaks is never in a playlist."""
+    from radiobooth.sources.tags import EXTENSIONS
+
+    try:
+        return {
+            p.name
+            for p in folder.iterdir()
+            if p.suffix.lower() in EXTENSIONS and p.is_file() and not p.name.startswith(".")
+        }
+    except OSError:
+        return None
+
+
+def _holds(items: list[dict], folder: Path, breaks: set[str] | None = None) -> bool:
+    """Whether a playlist plays breaks from this folder; given the folder's `breaks`, all of them, so a
+    playlist of the listener's own that took in a break or two is never mistaken for the show's."""
+    mark = f"/{folder.name}/"
+    files = (_part(m).get("file", "").replace("\\", "/") for m in items)
+    played = {PurePosixPath(f).name for f in files if mark in f}
+    return bool(played) and (breaks is None or breaks <= played)
+
+
+@dataclass
+class PlexShow:
+    show_id: str
+    title: str
+    folder: Path  # its breaks, on this computer
+    playlist_key: str | None
+    items: list[dict] = field(default_factory=list)  # the playlist's items, as Plex lists them
+
+
+def find_show(client, dest_root: Path, show_id: str, hint: str = "", folder: Path | None = None) -> PlexShow:
+    """A delivered show: its breaks folder and its playlist (found from the note beside the breaks, or for
+    older shows by looking through the audio playlists for one that plays them; `hint` is its title, to
+    look at likely playlists first). The playlist is None when it's been deleted in Plex. `folder`: its
+    breaks folder, if it's been found already."""
+    folder = folder or show_folder(dest_root, show_id, hint)
+    if folder is None:
+        raise PlexError("That show's breaks aren't in Booth's breaks folder any more.")
+    note = _read_note(folder)
+    key = note.get("playlist_key")
+    items = _items(client, key) if key else None
+    if key:
+        if items is None or not _holds(items, folder):
+            # The noted playlist was deleted in Plex, or no longer plays the show. Never look for another to
+            # take its place: a playlist of the listener's own that plays the whole show would be taken for
+            # it, and deleted on Remove.
+            key, items = None, None
+    else:
+        listed = client.get("/playlists", {"playlistType": "audio"})["MediaContainer"].get("Metadata", [])
+        hint = hint or note.get("title") or ""
+        likely = hint.lower()
+        breaks = _breaks(folder)
+        listed.sort(key=lambda p: not (likely and likely in str(p.get("title", "")).lower()))
+        for p in listed if breaks else []:  # with no breaks to look for, no playlist can be the show's
+            count = p.get("leafCount")
+            if p.get("smart") or (isinstance(count, int) and count < len(breaks)):
+                continue
+            found = _items(client, str(p.get("ratingKey")))
+            if found and _holds(found, folder, breaks):
+                key, items = str(p["ratingKey"]), found
+                title = p.get("title") or hint
+                _note(folder, show_id, key, title)
+                note = {"title": title}
+                break
+    title = note.get("title") or hint or folder.name
+    return PlexShow(show_id, title, folder, key, items or [])
+
+
+@dataclass
+class Song:
+    """One item of a Plex show's playlist, ready to copy or mix."""
+
+    label: str  # "Artist - Title", for numbered file names and chapters
+    seconds: int
+    kind: str  # "song" or "break"
+    ext: str
+    local: Path | None  # a break's file on this computer
+    part_key: str | None  # a song's file on the Plex server
+    album: str | None
+    track: int | None
+    artist: str
+
+
+def songs(show: PlexShow) -> list[Song]:
+    out = []
+    for m in show.items:
+        part = _part(m)
+        file = str(part.get("file") or "").replace("\\", "/")
+        is_break = f"/{show.folder.name}/" in file
+        name = PurePosixPath(file).name
+        ext = PurePosixPath(name).suffix or (f".{part['container']}" if part.get("container") else ".mp3")
+        artist = str(m.get("originalTitle") or m.get("grandparentTitle") or "")
+        title = str(m.get("title") or name)
+        album = None
+        if m.get("parentRatingKey"):
+            album = f"{m['parentRatingKey']}|{m.get('parentIndex') or 1}"
+        out.append(
+            Song(
+                label=f"{artist} - {title}" if artist and not is_break else title,
+                seconds=round((m.get("duration") or 0) / 1000),
+                kind="break" if is_break else "song",
+                ext=ext,
+                local=show.folder / name if is_break and name else None,
+                part_key=None if is_break else part.get("key"),
+                album=None if is_break else album,
+                track=m.get("index") if not is_break else None,
+                artist=artist,
+            )
+        )
+    return out
+
+
+def _fetch(client, song: Song, dest: Path) -> None:
+    if song.local is not None:
+        shutil.copyfile(song.local, dest)
+    elif song.part_key:
+        try:
+            client.download(song.part_key, dest)
+        except (PlexAuthError, PlexUnreachable):  # every song would fail the same way: stop here
+            raise
+        except PlexError as e:  # this one file: left out, counted
+            raise OSError(str(e)) from None
+    else:
+        raise OSError("no file for this item")
+
+
+def _playlist_show(client, dest_root: Path, show_id: str, hint: str) -> tuple[PlexShow, list[Song]]:
+    show = find_show(client, dest_root, show_id, hint)
+    if show.playlist_key is None:
+        raise PlexError("That show's playlist isn't in Plex any more.")
+    return show, songs(show)
+
+
+def copy_out(client, dest_root: Path, copies: Path, show_id: str, hint: str = "", progress=None):
+    """Copy a Plex show whole into `copies/<title>/`: songs fetched from Plex, breaks from their folder."""
+    from radiobooth.targets import playlist
+
+    show, items = _playlist_show(client, dest_root, show_id, hint)
+    entries = [  # -1: a length Plex didn't give, as #EXTINF writes it
+        (f"{s.seconds or -1},{s.label}", s.ext, lambda dest, s=s: _fetch(client, s, dest)) for s in items
+    ]
+    return playlist.write_copy(copies, show.title, show_id, entries, progress)
+
+
+def one_file(client, dest_root: Path, copies: Path, show_id: str, hint: str = "", progress=None):
+    """Mix a Plex show into `copies/<title>.mp3`. Its songs are fetched from Plex into a folder beside it
+    first (the mix reads each one twice), and deleted after."""
+    from radiobooth import render
+    from radiobooth.targets import playlist
+
+    show, items = _playlist_show(client, dest_root, show_id, hint)
+    fetch = [s for s in items if s.local is None]
+    total = len(fetch) + 2 * len(items)
+    copies.mkdir(parents=True, exist_ok=True)
+    for stale in copies.glob(".*.songs"):  # left by a mix Booth was closed during (one runs at a time)
+        shutil.rmtree(stale, ignore_errors=True)
+    work = copies / f".{playlist.file_name(show.title)}.songs"
+    work.mkdir()
+    try:
+        ready, missing, got = [], 0, 0
+        for n, s in enumerate(items):
+            path = s.local
+            if path is None:
+                if progress:
+                    progress(got, total)
+                path = work / f"{n:03d}{s.ext.lower()}"
+                try:
+                    _fetch(client, s, path)
+                except OSError as e:
+                    if e.errno in playlist.FULL:
+                        raise
+                    missing += 1
+                    continue
+                finally:
+                    got += 1
+            elif not path.is_file():
+                missing += 1
+                continue
+            ready.append(render.Item(path, s.label, s.kind, s.album, s.track))
+        if not ready:
+            raise PlexError("None of this show's files could be fetched from Plex.")
+        dj = next((s.artist for s in items if s.kind == "break" and s.artist), "") or "Booth"
+        covers = (render.cover_of(s.local) for s in items if s.kind == "break" and s.local)
+        cover = next((c for c in covers if c), None)
+        tags = {"title": show.title, "show_id": show_id, "artist": dj, "cover": cover}
+        total = len(fetch) + 2 * len(ready)  # what's left to do now that the missing are known
+        step = (lambda done, _t: progress(len(fetch) + done, total)) if progress else None
+        made = playlist.render_into(copies, show.title, show_id, ready, tags, step)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    made.missing += missing
+    return made
+
+
+def remove(client, dest_root: Path, library: str, show_id: str, hint: str = "") -> bool:
+    """Delete a show from Plex: its playlist and its breaks (never the user's music). False when its breaks
+    folder isn't here."""
+    folder = show_folder(dest_root, show_id, hint)
+    if folder is None:
+        return False
+    remove_found(client, dest_root, library, find_show(client, dest_root, show_id, hint, folder))
+    return True
+
+
+def remove_found(client, dest_root: Path, library: str, show: PlexShow) -> None:
+    """Delete a show `find_show` found: its playlist, then its breaks."""
+    if not show.folder.resolve().is_relative_to(dest_root.resolve()):
+        raise PlexError(f"Refusing to delete outside {dest_root}.")
+    if show.playlist_key:
+        try:
+            client.request("DELETE", f"/playlists/{show.playlist_key}")
+        except PlexError as e:
+            if e.status != 404:  # 404: deleted in Plex since it was found, so its breaks still go
+                raise
+    shutil.rmtree(show.folder)
+    try:  # so Plex drops the breaks from its breaks library
+        client.get(f"/library/sections/{section_named(client, library)['key']}/refresh")
+    except PlexAuthError:
+        raise
+    except PlexError:
+        pass

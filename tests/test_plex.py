@@ -185,3 +185,22 @@ def test_a_refused_sign_in_says_to_sign_in_again(monkeypatch):
     monkeypatch.setattr(plex.urllib.request, "urlopen", refuse)
     with pytest.raises(plex.PlexAuthError, match="Sign in to Plex again"):
         plex.PlexClient("http://nas.local:32400", "stale").get("/library/sections")
+
+
+def test_a_song_file_cut_off_partway_is_an_error(tmp_path):
+    import socketserver
+    import threading
+
+    class Short(socketserver.StreamRequestHandler):
+        def handle(self):
+            while self.rfile.readline() not in (b"\r\n", b""):
+                pass
+            self.wfile.write(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n" + b"x" * 10
+            )
+
+    with socketserver.TCPServer(("127.0.0.1", 0), Short) as server:
+        threading.Thread(target=server.handle_request, daemon=True).start()
+        client = plex.PlexClient(f"http://127.0.0.1:{server.server_address[1]}", "t", timeout=5)
+        with pytest.raises(plex.PlexError, match="partway"):
+            client.download("/library/parts/1/1/file.flac", tmp_path / "song.flac")

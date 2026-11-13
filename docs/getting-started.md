@@ -83,12 +83,13 @@ That's it.
 On your phone, or on Booth's page on the computer, describe the show, pick a length and a DJ, and tap **Make
 the show**. The page tells you how it's going. When it says **In Plex**, open Plex and look under
 **Playlists**. With your music in a folder, it says **In your Booth shows folder**: open the new playlist
-there in your music player. **Remove** under a show on Booth's page deletes its playlist and DJ breaks.
-To take a show with you, click **Copy to a folder** under it: Booth copies its songs and breaks into a folder
+there in your music player. **Remove** under a show on Booth's page deletes its playlist and DJ breaks
+(in Plex, or in your Booth shows folder). To take a show with you, click **Copy to a folder** under it: Booth copies its songs and breaks into a folder
 of their own, numbered in order, and opens that folder. Drag it onto your phone, a USB stick or your car's
 drive, and it plays in order even in a player that ignores playlists. Or click **Make one file**: Booth mixes
 the show into a single MP3, crossfaded like the radio, with a chapter for each song and break. A 2-hour show
-takes a few minutes to make.
+takes a few minutes to make. With Plex, both go into `Copies` in the `Booth shows` folder in your home
+folder (or in `BOOTH_SHOWS_FOLDER`, when that's set), and Booth fetches the songs from your Plex server first.
 
 If your account has a limit, both pages show what's left above the form.
 

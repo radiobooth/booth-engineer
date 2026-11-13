@@ -17,6 +17,7 @@ break, in the same Copies folder.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shutil
@@ -255,11 +256,43 @@ def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     root = out_root.resolve()
     show = _show(root, show_id)
     listed = _entries(show.playlist)
-    entries = [(info, path) for info, path in listed if path.is_file()]
+    entries = [
+        (_named(info, path.stem), path.suffix, lambda dest, src=path: shutil.copyfile(src, dest))
+        for info, path in listed
+        if path.is_file()
+    ]
     if not entries:
         raise PlaylistError("None of this show's files are there to copy.")
-    copies = root / COPIES
-    base = file_name(show.title)
+    made = write_copy(root / COPIES, show.title, show_id, entries, progress)
+    made.missing += len(listed) - len(entries)
+    return made
+
+
+def _named(info: str, name: str) -> str:
+    """#EXTINF info ("seconds,name"), with `name` when it has none."""
+    secs, _, said = info.partition(",")
+    return info if said.strip() else f"{secs},{name}"
+
+
+# Errors writing where a copy goes: every file after would fail too, so the copy stops rather than skip them.
+FULL = {errno.ENOSPC, errno.EDQUOT, errno.EROFS}
+
+
+# A file to put in a copy: its #EXTINF info ("seconds,name"), its extension, and how to write it to a path.
+Entry = tuple[str, str, Callable[[Path], None]]
+
+
+def write_copy(
+    copies: Path,
+    title: str,
+    show_id: str,
+    entries: list[Entry],
+    progress: Callable[[int, int], None] | None = None,
+) -> Copy:
+    """Write a show's files into `copies/<title>/`, numbered in playing order, with a playlist of them
+    marked with the show's id. Written again, it replaces its own earlier copy. A file that can't be
+    written is left out and counted."""
+    base = file_name(title)
     folder = _free(copies, base, "", lambda d: any(show_of(p) == show_id for p in d.glob("*.m3u8")))
     if folder is None:
         raise PlaylistError(f"Too many copies named {base!r} in {copies}.")
@@ -267,20 +300,33 @@ def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir(parents=True)
     width = max(2, len(str(len(entries))))
-    lines = ["#EXTM3U", f"#PLAYLIST:{_line(show.title)}", f"{MARK}{_line(show_id)}"]
-    for n, (info, src) in enumerate(entries, 1):
-        if progress:
-            progress(n - 1, len(entries))
-        label = info.partition(",")[2].strip() or src.stem
-        name = f"{n:0{width}d} {file_name(label)}{src.suffix.lower()}"
-        shutil.copyfile(src, partial / name)
-        lines += [f"#EXTINF:{info}", name]
-    (partial / f"{base}.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    shutil.rmtree(folder, ignore_errors=True)  # this show's earlier copy
-    partial.rename(folder)
+    lines = ["#EXTM3U", f"#PLAYLIST:{_line(title)}", f"{MARK}{_line(show_id)}"]
+    written = 0
+    try:
+        for n, (info, ext, fill) in enumerate(entries):
+            if progress:
+                progress(n, len(entries))
+            label = info.partition(",")[2].strip() or f"Track {n + 1}"
+            name = f"{written + 1:0{width}d} {file_name(label)}{ext.lower()}"
+            try:
+                fill(partial / name)
+            except OSError as e:
+                (partial / name).unlink(missing_ok=True)
+                if e.errno in FULL:
+                    raise
+                continue
+            written += 1
+            lines += [f"#EXTINF:{_line(info)}", name]
+        if not written:
+            raise PlaylistError("None of this show's files could be copied.")
+        (partial / f"{base}.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        shutil.rmtree(folder, ignore_errors=True)  # this show's earlier copy
+        partial.rename(folder)
+    finally:
+        shutil.rmtree(partial, ignore_errors=True)
     if progress:
         progress(len(entries), len(entries))
-    return Copy(folder, len(entries), len(listed) - len(entries))
+    return Copy(folder, written, len(entries) - written)
 
 
 @dataclass
@@ -324,21 +370,34 @@ def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     items = [it for it in items if it.path.is_file()]
     if not items:
         raise PlaylistError("None of this show's files are there to make it from.")
-    copies = root / COPIES
+    made = render_into(root / COPIES, show.title, show_id, items, tags, progress)
+    made.missing += listed - len(items)
+    return made
+
+
+def render_into(
+    copies: Path,
+    title: str,
+    show_id: str,
+    items: list,
+    tags: dict,
+    progress: Callable[[int, int], None] | None = None,
+) -> OneFile:
+    """Mix `items` (render.Item) into `copies/<title>.mp3`, replacing this show's own earlier file."""
+    from radiobooth import render
+
     copies.mkdir(parents=True, exist_ok=True)
-    for stale in copies.glob(
-        ".*.mp3.partial"
-    ):  # left by a render Booth was closed during (one runs at a time)
+    for stale in copies.glob(".*.mp3.partial"):  # left by a render Booth was closed during (one at a time)
         stale.unlink(missing_ok=True)
-    out = one_file_path(copies, show.title, show_id)
+    out = one_file_path(copies, title, show_id)
     try:
         made = render.render(items, out, progress=progress, **tags)
     except render.RenderError as e:
         raise PlaylistError(str(e)) from None
-    return OneFile(made.path, made.seconds, listed - len(items) + len(made.skipped))
+    return OneFile(made.path, made.seconds, len(made.skipped))
 
 
-def _drop_copies(copies: Path, show_id: str) -> None:
+def drop_copies(copies: Path, show_id: str) -> None:
     """Delete the show's copies in `Copies/` (found by the mark in their playlists) and its one file."""
     try:
         entries = [d for d in copies.iterdir() if not d.name.startswith(".")]
@@ -369,5 +428,5 @@ def remove(out_root: Path, show_id: str) -> bool:
         s.playlist.unlink(missing_ok=True)
         gone = True
     if gone:
-        _drop_copies(root / COPIES, show_id)
+        drop_copies(root / COPIES, show_id)
     return gone

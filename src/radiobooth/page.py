@@ -771,7 +771,9 @@ function renderShows(list) {
     const here = inFolder() && !s.for_computer;
     let text = (here && FOLDER_STATUS[s.status]) || SHOW_STATUS[s.status] || s.status;
     if (s.waiting_for_earlier) text = "Up next, after your earlier show";
-    if (here && s.status === "delivered" && s.on_disk === false) text = "Removed from your Booth shows folder";
+    if (!s.for_computer && s.status === "delivered" && s.on_disk === false) {
+      text = here ? "Removed from your Booth shows folder" : "Removed from Plex";
+    }
     else
     if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
     if (s.status === "failed" && s.error) text += ". " + s.error;
@@ -782,7 +784,7 @@ function renderShows(list) {
     m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
     li.append(t, st, m);
     if (s.feedback) li.append(feedbackButton(s));
-    if (here && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, copyButton(s, "file"), copyButton(s), removeButton(s)));
+    if (!s.for_computer && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, copyButton(s, "file"), copyButton(s), removeButton(s)));
     if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
@@ -814,7 +816,7 @@ function copyButton(s, kind = "folder") {
   b.onclick = async () => {
     b.disabled = true;
     try {
-      await post("copy_show", {show_id: s.show_id, kind});
+      await post("copy_show", {show_id: s.show_id, kind, title: s.title || ""});
       error("shows-error", "");
       refresh();
     } catch (x) { error("shows-error", x.message); }
@@ -854,11 +856,12 @@ function renderCopy(c) {
 function removeButton(s) {
   const b = el("button", {type: "button", className: "quiet remove", textContent: "Remove"});
   b.onclick = async () => {
-    if (!confirm("Remove “" + (s.playlist || s.title) + "” from your Booth shows folder? Its playlist, DJ breaks" +
+    const where = inFolder() ? "your Booth shows folder" : "Plex";
+    if (!confirm("Remove “" + (s.playlist || s.title) + "” from " + where + "? Its playlist, DJ breaks" +
       " and any copy or one file Booth made of it are deleted. Your music stays where it is.")) return;
     b.disabled = true;
     try {
-      await post("remove_show", {show_id: s.show_id});
+      await post("remove_show", {show_id: s.show_id, title: s.title || ""});
       error("shows-error", "");
     } catch (x) { error("shows-error", x.message); }
     loadShows();
