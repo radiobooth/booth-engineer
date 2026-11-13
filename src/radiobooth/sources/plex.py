@@ -7,6 +7,7 @@ responses are dropped here and never reach the catalog.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,7 +18,8 @@ from typing import Protocol
 from radiobooth.sources.added import drop_bulk_dates
 
 PAGE_SIZE = 500
-TRACK, ALBUM = 10, 9  # Plex metadata type numbers
+TRACK, ALBUM, ARTIST = 10, 9, 8  # Plex metadata type numbers
+VARIOUS = "various artists"  # the album artist Plex gives compilations
 
 
 class PlexError(RuntimeError):
@@ -107,8 +109,46 @@ def _tags(meta: dict, key: str) -> list[str]:
     return [t["tag"] for t in meta.get(key, []) if t.get("tag")]
 
 
-def to_track(meta: dict, album: dict | None = None) -> dict | None:
-    """One Plex track to a catalog track, or None if it lacks what the catalog requires."""
+MUSICBRAINZ = re.compile(r"mbid://([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})")
+
+
+def _musicbrainz(meta: dict) -> str | None:
+    """A real MusicBrainz id among an item's guids. MusicBrainz ids are random (UUID version 4); Plex gives
+    items it couldn't match ids of its own in the same mbid:// form (version 3), which mean nothing there."""
+    for g in meta.get("Guid", []):
+        if m := MUSICBRAINZ.fullmatch(g.get("id", "")):
+            return m.group(1)
+    return None
+
+
+def _album_year(meta: dict) -> int | None:
+    """An album's year. Plex sometimes files a release dated 1 January one year early (a time-zone slip:
+    year 1998, release date 1999-01-01, while the files' own tags say 1999), so the date wins then."""
+    year, date = meta.get("year"), meta.get("originallyAvailableAt")
+    if isinstance(year, int) and isinstance(date, str) and date == f"{year + 1}-01-01":
+        return year + 1
+    return year
+
+
+def _label(meta: dict) -> str | None:
+    """An album's record label, leaving out MusicBrainz placeholders such as "[no label]"."""
+    studio = (meta.get("studio") or "").strip()
+    return studio if studio and not (studio.startswith("[") and studio.endswith("]")) else None
+
+
+def album_details(meta: dict) -> dict:
+    """What a Plex album adds to each of its tracks."""
+    return {
+        "year": _album_year(meta),
+        "genres": _tags(meta, "Genre"),
+        "label": _label(meta),
+        "compilation": (meta.get("parentTitle") or "").casefold() == VARIOUS or None,
+    }
+
+
+def to_track(meta: dict, album: dict | None = None, artist_mbid: str | None = None) -> dict | None:
+    """One Plex track to a catalog track, or None if it lacks what the catalog requires. `album`: its album's
+    details (`album_details`); `artist_mbid`: the album artist's MusicBrainz id."""
     album = album or {}
     title, album_artist = meta.get("title"), meta.get("grandparentTitle")
     artist = meta.get("originalTitle") or album_artist
@@ -123,16 +163,21 @@ def to_track(meta: dict, album: dict | None = None) -> dict | None:
         "album": meta.get("parentTitle"),
         "disc_number": meta.get("parentIndex"),
         "track_number": meta.get("index"),
-        "year": meta.get("parentYear") or meta.get("year") or album.get("year"),
+        "year": album.get("year") or meta.get("parentYear") or meta.get("year"),
         "genres": _tags(meta, "Genre") or album.get("genres") or None,
+        "label": album.get("label"),
+        "compilation": album.get("compilation"),
         "duration_ms": int(duration),
         "added_at": _iso(meta.get("addedAt")),
         "play_count": meta.get("viewCount"),
         "last_played_at": _iso(meta.get("lastViewedAt")),
         "rating": round(meta["userRating"] / 10, 2) if meta.get("userRating") is not None else None,
-        # Not Plex's mbid:// guid: on a real library most are Plex's own ids (UUID version 3), and few of
-        # the rest match the recording ids in the files' own tags, so sending them as MusicBrainz
-        # recording ids would mislead.
+        # The album artist's id, so only where the track is theirs (not a guest's or a compilation's).
+        "musicbrainz_artist_id": artist_mbid if artist == album_artist else None,
+        # Not Plex's track or album mbid:// guids: on a real library most track ones are Plex's own ids
+        # (UUID version 3), few of the rest match the recording ids in the files' own tags, and album ones
+        # aren't known to be release groups, so sending them as MusicBrainz ids would mislead. Plex's one
+        # year per album isn't sent as original_year either: it can be the original or the copy's.
     }
     if not (isinstance(track["year"], int) and 1800 <= track["year"] <= 2200):
         track["year"] = None
@@ -144,13 +189,15 @@ def to_track(meta: dict, album: dict | None = None) -> dict | None:
 
 def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
     """All usable tracks in one music section, and how many were skipped."""
-    albums = {
-        str(a["ratingKey"]): {"year": a.get("year"), "genres": _tags(a, "Genre")}
-        for a in _paged(client, section["key"], ALBUM)
-    }
+    artists = {str(a["ratingKey"]): _musicbrainz(a) for a in _paged(client, section["key"], ARTIST)}
+    albums = {str(a["ratingKey"]): album_details(a) for a in _paged(client, section["key"], ALBUM)}
     tracks, skipped = [], 0
     for meta in _paged(client, section["key"], TRACK):
-        track = to_track(meta, albums.get(str(meta.get("parentRatingKey"))))
+        track = to_track(
+            meta,
+            albums.get(str(meta.get("parentRatingKey"))),
+            artists.get(str(meta.get("grandparentRatingKey"))),
+        )
         if track is None:
             skipped += 1
         else:
