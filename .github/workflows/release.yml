@@ -100,6 +100,12 @@ jobs:
         shell: bash
       - run: ./dist/${{ matrix.file }} --version
         shell: bash
+      # The app makes one-file shows with the FFmpeg PyAV bundles: check it made it into the package.
+      - run: |
+          uv run python packaging/render_check.py make render-check
+          ./dist/${{ matrix.file }} render render-check/show.m3u8 -o render-check/show.mp3
+          uv run python packaging/render_check.py check render-check
+        shell: bash
       - run: mv dist/${{ matrix.file }} dist/${{ matrix.asset }}
         shell: bash
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
