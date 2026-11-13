@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument(
                 "-o",
                 "--output",
-                help="the MP3 to write (default: Copies/<playlist name>.mp3 beside it)",
+                help="the MP3 to write (default: Copies/<show title>.mp3 beside it)",
             )
         if name == "deliver":
             p.add_argument("show", help="show folder from Booth DJ (with show.json and breaks/)")
@@ -489,9 +489,18 @@ def render(args: argparse.Namespace) -> int:
     except OSError as e:
         print(f"Couldn't read {playlist} ({e.strerror or e}).", file=sys.stderr)
         return 1
-    from radiobooth.targets.playlist import COPIES
+    from radiobooth.targets import playlist as playlist_target
 
-    out = Path(args.output).expanduser() if args.output else playlist.parent / COPIES / f"{playlist.stem}.mp3"
+    if args.output:
+        out = Path(args.output).expanduser()
+    else:  # named the way Booth's page names it, never over another show's file
+        try:
+            out = playlist_target.one_file_path(
+                playlist.parent / playlist_target.COPIES, show["title"], show["show_id"]
+            )
+        except playlist_target.PlaylistError as e:
+            print(e, file=sys.stderr)
+            return 1
     out.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
 

@@ -317,8 +317,10 @@ def render(
             for i, (item, m) in enumerate(ready):
                 if progress:
                     progress(len(items) + i, 2 * len(items))
-                lead = m.lead if i > 0 and how[i - 1][0] != "concat" else 0
-                tail = m.tail if i < len(how) and how[i][0] != "concat" else 0
+                # Dead air goes wherever items overlap, and at the show's very start and end; gapless joins
+                # keep theirs.
+                lead = m.lead if i == 0 or how[i - 1][0] != "concat" else 0
+                tail = m.tail if i == len(how) or how[i][0] != "concat" else 0
                 stop = max(m.samples - tail, lead + 1)
                 pts = 0
                 frames = _trimmed(decode(item.path), lead, stop)

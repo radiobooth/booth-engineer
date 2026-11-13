@@ -302,6 +302,16 @@ def file_show(path: Path) -> str | None:
     return str(marks[0].text[0]) if marks and marks[0].text else None
 
 
+def one_file_path(copies: Path, title: str, show_id: str) -> Path:
+    """Where a show's one file goes in `copies`: its own from an earlier time, else a free name after its
+    title, so it never replaces another show's file."""
+    base = file_name(title)
+    out = _free(copies, base, ".mp3", lambda p: file_show(p) == show_id)
+    if out is None:
+        raise PlaylistError(f"Too many files named {base!r} in {copies}.")
+    return out
+
+
 def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] | None = None) -> OneFile:
     """Mix a show into one MP3, `Copies/<title>.mp3` in the shows folder, with a chapter per song and break.
     Made again, it replaces its own earlier file."""
@@ -316,10 +326,11 @@ def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
         raise PlaylistError("None of this show's files are there to make it from.")
     copies = root / COPIES
     copies.mkdir(parents=True, exist_ok=True)
-    base = file_name(show.title)
-    out = _free(copies, base, ".mp3", lambda p: file_show(p) == show_id)
-    if out is None:
-        raise PlaylistError(f"Too many files named {base!r} in {copies}.")
+    for stale in copies.glob(
+        ".*.mp3.partial"
+    ):  # left by a render Booth was closed during (one runs at a time)
+        stale.unlink(missing_ok=True)
+    out = one_file_path(copies, show.title, show_id)
     try:
         made = render.render(items, out, progress=progress, **tags)
     except render.RenderError as e:
