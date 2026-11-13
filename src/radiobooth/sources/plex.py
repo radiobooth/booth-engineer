@@ -6,6 +6,7 @@ responses are dropped here and never reach the catalog.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import shutil
@@ -93,6 +94,8 @@ class PlexClient:
             raise PlexError(f"Plex returned HTTP {e.code} for a song's file") from None
         except urllib.error.URLError as e:
             raise PlexError(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
+        except http.client.HTTPException as e:  # cut off partway (IncompleteRead, say)
+            raise PlexError(f"Plex stopped sending a song's file ({type(e).__name__})") from None
 
 
 def music_sections(client: Getter) -> list[dict]:

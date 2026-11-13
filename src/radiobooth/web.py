@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import functools
 import hmac
 import json
 import os
@@ -284,34 +285,30 @@ class App:
             or kind not in ("folder", "file")
         ):
             raise SetupError("Booth can't copy that show here.")
-        where = plex or Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
+        target = plex_target if plex else playlist_target
+        make = target.one_file if kind == "file" else target.copy_out
+        if plex:
+            client, dest, _library, copies = plex
+            run = functools.partial(make, client, dest, copies, show_id, title)
+        else:
+            shows = Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
+            run = functools.partial(make, shows, show_id)
         with self._copy_lock:
             if self.copy and not self.copy.get("finished"):
                 raise SetupError(
                     "Booth is copying a show or making one into a file already. Wait for that one to finish."
                 )
             self.copy = {"show_id": show_id, "kind": kind, "done": 0, "total": 0, "finished": False}
-        threading.Thread(
-            target=self._copy, args=(where, show_id, kind, title), name="booth-copy", daemon=True
-        ).start()
+        threading.Thread(target=self._copy, args=(run, kind), name="booth-copy", daemon=True).start()
 
-    def _copy(self, where, show_id: str, kind: str, title: str = "") -> None:
-        """`where`: the Booth shows folder, or (for Plex) what `_plex_shows` gives."""
+    def _copy(self, run: Callable, kind: str) -> None:
+        """`run(progress)` copies the show (`kind` "folder") or makes it into one file."""
 
         def progress(done: int, total: int) -> None:
             self.copy = self.copy | {"done": done, "total": total}
 
         try:
-            if isinstance(where, tuple):
-                client, dest, _library, copies = where
-                if kind == "file":
-                    made = plex_target.one_file(client, dest, copies, show_id, title, progress)
-                else:
-                    made = plex_target.copy_out(client, dest, copies, show_id, title, progress)
-            elif kind == "file":
-                made = playlist_target.one_file(where, show_id, progress)
-            else:
-                made = playlist_target.copy_out(where, show_id, progress)
+            made = run(progress)
             if kind == "file":
                 folder, done = made.path.parent, {"file": str(made.path), "minutes": round(made.seconds / 60)}
             else:
@@ -414,7 +411,11 @@ class App:
         elif (
             plex := self._plex_shows(settings)
         ) is not None:  # which shows' breaks are still here, to copy or remove
-            ids = [str(s.get("show_id")) for s in shows if SHOW_ID.fullmatch(str(s.get("show_id")))]
+            ids = {
+                str(s["show_id"]): str(s.get("title") or "")
+                for s in shows
+                if SHOW_ID.fullmatch(str(s.get("show_id")))
+            }
             here = plex_target.shows_here(plex[1], ids)
             for s in shows:
                 if s.get("show_id") in here:

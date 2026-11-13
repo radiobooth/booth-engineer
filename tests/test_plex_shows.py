@@ -13,6 +13,7 @@ from radiobooth.targets import plex as target
 
 SHOW = "show_abcdef123456"
 FOLDER = "2026-11-03-wipers-on-long-way-home-123456"
+TITLE = "Wipers On, Long Way Home"
 
 
 class PlexWithPlaylists:
@@ -116,8 +117,9 @@ def plex_show(tmp_path):
 
 def test_an_older_show_is_found_by_its_breaks_and_noted(plex_show):
     plex, dest, _ = plex_show
-    assert target.shows_here(dest, [SHOW, "show_other99"]) == {SHOW}
-    show = target.find_show(plex, dest, SHOW, "Wipers On")
+    assert target.shows_here(dest, {SHOW: "Wipers On, Long Way Home", "show_other99": "x"}) == {SHOW}
+    assert target.shows_here(dest, {SHOW: ""}) == set()  # an older folder needs the title to be sure
+    show = target.find_show(plex, dest, SHOW, "Wipers On, Long Way Home")
     assert show.playlist_key == "5555" and show.title == "Wipers On, Long Way Home"
     note = json.loads((dest / FOLDER / target.NOTE).read_text(encoding="utf-8"))
     assert note["playlist_key"] == "5555"
@@ -128,7 +130,7 @@ def test_an_older_show_is_found_by_its_breaks_and_noted(plex_show):
 
 def test_copy_fetches_songs_from_plex_and_breaks_from_their_folder(plex_show):
     plex, dest, copies = plex_show
-    made = target.copy_out(plex, dest, copies, SHOW)
+    made = target.copy_out(plex, dest, copies, SHOW, TITLE)
     names = sorted(p.name for p in made.folder.iterdir())
     assert names == [
         "01 Break 1.mp3",
@@ -144,7 +146,7 @@ def test_copy_fetches_songs_from_plex_and_breaks_from_their_folder(plex_show):
 def test_one_file_mixes_a_plex_show_and_cleans_up(plex_show):
     plex, dest, copies = plex_show
     seen = []
-    made = target.one_file(plex, dest, copies, SHOW, progress=lambda *p: seen.append(p))
+    made = target.one_file(plex, dest, copies, SHOW, TITLE, progress=lambda *p: seen.append(p))
     assert made.path == copies / "Wipers On, Long Way Home.mp3" and made.missing == 1
     mp3 = MP3(str(made.path))
     assert str(mp3.tags["TPE1"]) == "Penrose"
@@ -161,25 +163,27 @@ def test_one_file_mixes_a_plex_show_and_cleans_up(plex_show):
 
 def test_remove_deletes_the_playlist_breaks_and_copies_only(plex_show):
     plex, dest, copies = plex_show
-    target.copy_out(plex, dest, copies, SHOW)
-    assert target.remove(plex, dest, "Radio Booth", SHOW)
+    target.copy_out(plex, dest, copies, SHOW, TITLE)
+    assert target.remove(plex, dest, "Radio Booth", SHOW, TITLE)
     playlist.drop_copies(copies, SHOW)
     assert plex.deleted == ["5555"] and "77" in plex.playlists
     assert not (dest / FOLDER).exists() and list(copies.iterdir()) == []
     assert ("GET", "/library/sections/7/refresh", None) in plex.calls
-    assert not target.remove(plex, dest, "Radio Booth", SHOW)
+    assert not target.remove(plex, dest, "Radio Booth", SHOW, TITLE)
 
 
 def test_a_show_whose_playlist_was_deleted_in_plex(plex_show):
     plex, dest, copies = plex_show
     del plex.playlists["5555"]
     with pytest.raises(PlexError, match="playlist isn't in Plex"):
-        target.copy_out(plex, dest, copies, SHOW)
-    assert target.remove(plex, dest, "Radio Booth", SHOW)  # its breaks still go
+        target.copy_out(plex, dest, copies, SHOW, TITLE)
+    assert target.remove(plex, dest, "Radio Booth", SHOW, TITLE)  # its breaks still go
     assert not (dest / FOLDER).exists()
 
 
-def test_two_unnoted_folders_with_the_same_tail_are_left_alone(plex_show):
+def test_an_unnoted_folder_needs_its_title_too(plex_show):
     _, dest, _ = plex_show
     (dest / "2026-11-04-other-123456").mkdir()
+    assert target.show_folder(dest, SHOW, TITLE) == dest / FOLDER
     assert target.show_folder(dest, SHOW) is None
+    assert target.show_folder(dest, SHOW, "Something Else") is None

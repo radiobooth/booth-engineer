@@ -256,7 +256,7 @@ def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     show = _show(root, show_id)
     listed = _entries(show.playlist)
     entries = [
-        (info, path.suffix, lambda dest, src=path: shutil.copyfile(src, dest))
+        (_named(info, path.stem), path.suffix, lambda dest, src=path: shutil.copyfile(src, dest))
         for info, path in listed
         if path.is_file()
     ]
@@ -265,6 +265,12 @@ def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     made = write_copy(root / COPIES, show.title, show_id, entries, progress)
     made.missing += len(listed) - len(entries)
     return made
+
+
+def _named(info: str, name: str) -> str:
+    """#EXTINF info ("seconds,name"), with `name` when it has none."""
+    secs, _, said = info.partition(",")
+    return info if said.strip() else f"{secs},{name}"
 
 
 # A file to put in a copy: its #EXTINF info ("seconds,name"), its extension, and how to write it to a path.
@@ -303,7 +309,7 @@ def write_copy(
                 (partial / name).unlink(missing_ok=True)
                 continue
             written += 1
-            lines += [f"#EXTINF:{info}", name]
+            lines += [f"#EXTINF:{_line(info)}", name]
         if not written:
             raise PlaylistError("None of this show's files could be copied.")
         (partial / f"{base}.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")

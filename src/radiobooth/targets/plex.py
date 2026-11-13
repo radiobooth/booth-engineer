@@ -159,25 +159,37 @@ def _read_note(folder: Path) -> dict:
     return note if isinstance(note, dict) else {}
 
 
-def show_folder(dest_root: Path, show_id: str) -> Path | None:
-    """The breaks folder of the show with this id, if it's still there."""
+def _folders(dest_root: Path) -> list[Path]:
+    try:
+        return [d for d in dest_root.iterdir() if d.is_dir()]
+    except OSError:
+        return []
+
+
+def show_folder(
+    dest_root: Path, show_id: str, title: str = "", folders: list[Path] | None = None
+) -> Path | None:
+    """The breaks folder of the show with this id, if it's still there. `folders`: `dest_root`'s, if
+    they've been listed already. A folder from before the note beside the breaks counts only when its name
+    also carries the show's `title`, so another show's folder that happens to end the same way never does."""
     tail = re.sub(r"[^a-z0-9]", "", show_id.lower())[-6:]
     if not tail:
         return None
-    try:
-        found = [d for d in dest_root.glob(f"*-{tail}") if d.is_dir()]
-    except OSError:
-        return None
+    found = [d for d in (_folders(dest_root) if folders is None else folders) if d.name.endswith(f"-{tail}")]
     noted = [d for d in found if _read_note(d).get("show_id") == show_id]
     if noted:
         return noted[0]
-    unnoted = [d for d in found if not _read_note(d)]  # delivered before the note: only if it's the only one
+    if not title:
+        return None
+    named = f"-{folder_name({'title': title, 'created_at': '', 'show_id': show_id}).split('-', 1)[1]}"
+    unnoted = [d for d in found if d.name.endswith(named) and not _read_note(d)]
     return unnoted[0] if len(unnoted) == 1 else None
 
 
-def shows_here(dest_root: Path, show_ids: list[str]) -> set[str]:
-    """Which of these shows still have their breaks folder here."""
-    return {i for i in show_ids if show_folder(dest_root, i) is not None}
+def shows_here(dest_root: Path, shows: dict[str, str]) -> set[str]:
+    """Which of these shows (id -> title) still have their breaks folder here."""
+    folders = _folders(dest_root)
+    return {i for i, title in shows.items() if show_folder(dest_root, i, title, folders) is not None}
 
 
 def _part(meta: dict) -> dict:
@@ -197,10 +209,19 @@ def _items(client, key: str) -> list[dict] | None:
         return None
 
 
-def _holds(items: list[dict], folder: Path) -> bool:
-    """Whether a playlist plays breaks from this folder."""
+def _holds(items: list[dict], folder: Path, every: bool = False) -> bool:
+    """Whether a playlist plays breaks from this folder; `every`: all of them, so a playlist of the
+    listener's own that took in a break or two is never mistaken for the show's."""
     mark = f"/{folder.name}/"
-    return any(mark in _part(m).get("file", "").replace("\\", "/") for m in items)
+    files = (_part(m).get("file", "").replace("\\", "/") for m in items)
+    played = {PurePosixPath(f).name for f in files if mark in f}
+    if not played or not every:
+        return bool(played)
+    try:
+        breaks = {p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")}
+    except OSError:
+        return False
+    return breaks <= played
 
 
 @dataclass
@@ -216,7 +237,7 @@ def find_show(client, dest_root: Path, show_id: str, hint: str = "") -> PlexShow
     """A delivered show: its breaks folder and its playlist (found from the note beside the breaks, or for
     older shows by looking through the audio playlists for one that plays them; `hint` is its title, to
     look at likely playlists first). The playlist is None when it's been deleted in Plex."""
-    folder = show_folder(dest_root, show_id)
+    folder = show_folder(dest_root, show_id, hint)
     if folder is None:
         raise PlexError("That show's breaks aren't in Booth's breaks folder any more.")
     note = _read_note(folder)
@@ -225,13 +246,14 @@ def find_show(client, dest_root: Path, show_id: str, hint: str = "") -> PlexShow
     if items is None or not _holds(items, folder):
         key, items = None, None
         listed = client.get("/playlists", {"playlistType": "audio"})["MediaContainer"].get("Metadata", [])
-        hint = (hint or note.get("title") or "").lower()
-        listed.sort(key=lambda p: not (hint and hint in str(p.get("title", "")).lower()))
+        hint = hint or note.get("title") or ""
+        likely = hint.lower()
+        listed.sort(key=lambda p: not (likely and likely in str(p.get("title", "")).lower()))
         for p in listed:
             if p.get("smart"):
                 continue
             found = _items(client, str(p.get("ratingKey")))
-            if found and _holds(found, folder):
+            if found and _holds(found, folder, every=True):
                 key, items = str(p["ratingKey"]), found
                 title = p.get("title") or hint
                 _note(folder, show_id, key, title)
@@ -379,13 +401,13 @@ def _cover(path: Path) -> bytes | None:
 def remove(client, dest_root: Path, library: str, show_id: str, hint: str = "") -> bool:
     """Delete a show from Plex: its playlist and its breaks (never the user's music). False when its breaks
     folder isn't here."""
-    if show_folder(dest_root, show_id) is None:
+    if show_folder(dest_root, show_id, hint) is None:
         return False
     show = find_show(client, dest_root, show_id, hint)
-    if show.playlist_key:
-        client.request("DELETE", f"/playlists/{show.playlist_key}")
     if not show.folder.resolve().is_relative_to(dest_root.resolve()):
         raise PlexError(f"Refusing to delete outside {dest_root}.")
+    if show.playlist_key:
+        client.request("DELETE", f"/playlists/{show.playlist_key}")
     shutil.rmtree(show.folder)
     try:  # so Plex drops the breaks from its breaks library
         client.get(f"/library/sections/{section_named(client, library)['key']}/refresh")
