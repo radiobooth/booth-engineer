@@ -157,7 +157,8 @@ def test_one_file_mixes_a_plex_show_and_cleans_up(plex_show):
         "The Band - Two",
         "Break 2",
     ]
-    assert sorted(p.name for p in copies.iterdir()) == ["Wipers On, Long Way Home.mp3"]  # fetched songs gone
+    made = sorted(p.name for p in copies.iterdir())  # fetched songs gone
+    assert made == ["Wipers On, Long Way Home.cue", "Wipers On, Long Way Home.mp3"]
     assert seen[-1][0] == seen[-1][1]
 
 

@@ -263,3 +263,21 @@ def test_from_playlist_keeps_a_compilation_gapless(tmp_path):
 
     items, _ = render.from_playlist(shows / "Mix.m3u8")
     assert render.joins(items)[0][0] == "concat"
+
+
+def test_a_cue_sheet_lists_the_chapters(tmp_path):
+    mp3 = tmp_path / "Night drive.mp3"
+    mp3.write_bytes(b"")
+    chapters = [("Penrose - Break 1", 0, 12500), ('A "B" - One', 12500, 75120), ("Two", 75120, 3_725_000)]
+    cue = render.write_cue(mp3, title="Night drive", artist="Penrose", show_id="show_abc", chapters=chapters)
+    assert cue == tmp_path / "Night drive.cue"
+    raw = cue.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf") and b"\r\n" in raw  # UTF-8 with a BOM, Windows line ends
+    text = raw.decode("utf-8-sig")
+    assert 'FILE "Night drive.mp3" MP3' in text and "REM BOOTH-SHOW show_abc" in text
+    assert "TITLE \"A 'B' - One\"" in text
+    assert [line.strip() for line in text.splitlines() if "INDEX" in line] == [
+        "INDEX 01 00:00:00",
+        "INDEX 01 00:12:38",
+        "INDEX 01 01:15:09",
+    ]
