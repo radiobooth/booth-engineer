@@ -131,3 +131,40 @@ def test_render_fails_without_songs(tmp_path):
     bad.write_bytes(b"not audio")
     with pytest.raises(render.RenderError):
         render.render([render.Item(bad, "Broken")], tmp_path / "show.mp3", title="t", artist="a", show_id="s")
+
+
+def test_one_file_lands_in_copies_and_goes_with_remove(tmp_path):
+    from radiobooth.targets import playlist
+
+    shows = tmp_path / "Booth shows"
+    breaks = shows / "breaks" / "Night drive"
+    breaks.mkdir(parents=True)
+    music = tmp_path / "Music"
+    music.mkdir()
+    tone(music / "one.flac", "flac", 5, 440, 0.3)
+    tone(breaks / "01.mp3", "libmp3lame", 3, 220, 0.3, rate=24000)
+    lines = [
+        "#EXTM3U",
+        "#PLAYLIST:Night drive",
+        "#BOOTH-SHOW:show_abc",
+        "#EXTINF:3,Penrose - Break 1",
+        "breaks/Night drive/01.mp3",
+        "#EXTINF:5,A - One",
+        "../Music/one.flac",
+        "#EXTINF:5,A - Gone",
+        "../Music/gone.flac",
+    ]
+    (shows / "Night drive.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    other = shows / "Copies" / "Night drive.mp3"  # another show of the same name
+    other.parent.mkdir()
+    other.write_bytes(b"someone else's")
+
+    made = playlist.one_file(shows, "show_abc")
+    assert made.path == shows.resolve() / "Copies" / "Night drive (2).mp3"
+    assert made.missing == 1 and abs(made.seconds - (3 + 5 - render.BREAK_OUT)) < 0.2
+    assert playlist.file_show(made.path) == "show_abc"
+    assert str(MP3(str(made.path)).tags["TPE1"]) == "Penrose"
+    assert playlist.one_file(shows, "show_abc").path == made.path  # made again, it replaces itself
+
+    assert playlist.remove(shows, "show_abc")
+    assert not made.path.exists() and other.exists()

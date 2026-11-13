@@ -844,6 +844,7 @@ def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypa
     copy = shows.resolve() / "Copies" / "Wipers On, Long Way Home"
     assert app.copy == {
         "show_id": "show_abcdef123456",
+        "kind": "folder",
         "done": 6,
         "total": 6,
         "finished": True,
@@ -854,12 +855,20 @@ def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypa
     state = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])
     assert state["copy"]["folder"] == str(copy)
     assert act(port, key, "copy_show", {"show_id": "../../x"})[0] == 422
+    assert act(port, key, "copy_show", {"show_id": "show_abcdef123456", "kind": "zip"})[0] == 422
+    assert act(port, key, "copy_show", {"show_id": "show_abcdef123456", "kind": "file"})[0] == 200
+    wait_for(lambda: app.copy["finished"])
+    one = shows.resolve() / "Copies" / "Wipers On, Long Way Home.mp3"
+    assert (
+        app.copy["file"] == str(one) and one.exists() and app.copy["missing"] == 3
+    )  # its breaks aren't audio
+    assert opened[-1] == one.parent
     assert act(port, key, "copy_show", {"show_id": "show_gone000000"})[0] == 200  # it says why when done
     wait_for(lambda: app.copy["finished"])
     assert "isn't in your Booth shows folder" in app.copy["error"]
 
     assert act(port, key, "remove_show", {"show_id": "show_abcdef123456"})[0] == 200
-    assert not copy.exists()
+    assert not copy.exists() and not one.exists()
     assert playlist.shows(shows) == [] and (music / "a" / "1.flac").exists()
     status, data = act(port, key, "remove_show", {"show_id": "show_abcdef123456"})
     assert status == 422 and "isn't in your Booth shows folder" in data["error"]

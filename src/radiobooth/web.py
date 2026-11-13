@@ -234,34 +234,46 @@ class App:
         if not gone:
             raise SetupError("That show isn't in your Booth shows folder any more.")
 
-    def copy_show(self, show_id: str) -> None:
-        """Copy a show whole into a folder of its own in the background (songs and breaks as numbered files),
-        then open that folder, ready to drag onto a phone, a USB stick or a car's drive."""
+    def copy_show(self, show_id: str, kind: str = "folder") -> None:
+        """In the background, copy a show whole into a folder of its own (songs and breaks as numbered files,
+        ready to drag onto a phone, a USB stick or a car's drive) or, `kind` "file", mix it into one MP3 with
+        chapters. Then open the folder it's in. One at a time."""
         settings = config.load()
-        if not engine.folder_mode(settings) or not SHOW_ID.fullmatch(show_id):
+        if (
+            not engine.folder_mode(settings)
+            or not SHOW_ID.fullmatch(show_id)
+            or kind not in ("folder", "file")
+        ):
             raise SetupError("Booth can't copy that show here.")
         shows = Path(engine.folder_settings(settings)[0]["shows"]).expanduser()
         with self._copy_lock:
             if self.copy and not self.copy.get("finished"):
                 raise SetupError("Booth is copying a show already. Wait for that one to finish.")
-            self.copy = {"show_id": show_id, "done": 0, "total": 0, "finished": False}
-        threading.Thread(target=self._copy, args=(shows, show_id), name="booth-copy", daemon=True).start()
+            self.copy = {"show_id": show_id, "kind": kind, "done": 0, "total": 0, "finished": False}
+        threading.Thread(
+            target=self._copy, args=(shows, show_id, kind), name="booth-copy", daemon=True
+        ).start()
 
-    def _copy(self, shows: Path, show_id: str) -> None:
+    def _copy(self, shows: Path, show_id: str, kind: str) -> None:
         def progress(done: int, total: int) -> None:
             self.copy = self.copy | {"done": done, "total": total}
 
         try:
-            made = playlist_target.copy_out(shows, show_id, progress)
+            if kind == "file":
+                made = playlist_target.one_file(shows, show_id, progress)
+                folder, done = made.path.parent, {"file": str(made.path), "minutes": round(made.seconds / 60)}
+            else:
+                made = playlist_target.copy_out(shows, show_id, progress)
+                folder, done = made.folder, {}
         except playlist_target.PlaylistError as e:
             self.copy = self.copy | {"finished": True, "error": str(e)}
             return
-        except OSError as e:
-            said = f"Couldn't copy that show ({e.strerror or e})."
+        except Exception as e:  # noqa: BLE001  # a show that can't be copied must never stop the app
+            said = f"Couldn't copy that show ({getattr(e, 'strerror', None) or e})."
             self.copy = self.copy | {"finished": True, "error": said}
             return
-        self.copy = self.copy | {"finished": True, "folder": str(made.folder), "missing": made.missing}
-        self.open_folder(made.folder)
+        self.copy = self.copy | done | {"finished": True, "folder": str(folder), "missing": made.missing}
+        self.open_folder(folder)
 
     def _link(self, settings: dict | None = None, who: str | None = None) -> Link:
         """The link for this computer's own account, or (`who`) for another person sharing it."""
@@ -538,7 +550,7 @@ class App:
         elif action == "remove_show":
             self.remove_show(str(body.get("show_id", "")))
         elif action == "copy_show":
-            self.copy_show(str(body.get("show_id", "")))
+            self.copy_show(str(body.get("show_id", "")), str(body.get("kind", "folder")))
         elif action == "new_show":
             return self.new_show(body)
         elif action == "feedback":
