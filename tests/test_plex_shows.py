@@ -81,7 +81,7 @@ class PlexWithPlaylists:
         if path.startswith("/playlists/") and path.endswith("/items"):
             key = path.split("/")[2]
             if key not in self.playlists:
-                raise PlexError("Plex returned HTTP 404")
+                raise PlexError("Plex returned HTTP 404", 404)
             return {"MediaContainer": {"Metadata": self.playlists[key]}}
         if method == "DELETE" and path.startswith("/playlists/"):
             key = path.split("/")[2]
@@ -181,6 +181,21 @@ def test_a_show_whose_playlist_was_deleted_in_plex(plex_show):
     assert not (dest / FOLDER).exists()
 
 
+def test_plex_failing_is_never_taken_for_a_deleted_playlist(plex_show, monkeypatch):
+    plex, dest, _ = plex_show
+    real = plex.request
+
+    def failing(method, path, params=None):
+        if path.endswith("/items"):
+            raise PlexError("Plex returned HTTP 500", 500)
+        return real(method, path, params)
+
+    monkeypatch.setattr(plex, "request", failing)
+    with pytest.raises(PlexError, match="HTTP 500"):
+        target.remove(plex, dest, "Radio Booth", SHOW, TITLE)
+    assert plex.deleted == [] and (dest / FOLDER).exists()  # nothing is left half removed
+
+
 def test_an_unnoted_folder_needs_its_title_too(plex_show):
     _, dest, _ = plex_show
     (dest / "2026-11-04-other-123456").mkdir()
@@ -200,3 +215,34 @@ def test_a_full_disk_stops_the_copy_instead_of_skipping_every_file(tmp_path):
     with pytest.raises(OSError, match="No space left"):
         playlist.write_copy(tmp_path / "Copies", TITLE, SHOW, entries)
     assert fills == [] and list((tmp_path / "Copies").iterdir()) == []
+
+
+def test_a_noted_shows_deleted_playlist_is_never_replaced_by_one_of_the_users(plex_show):
+    plex, dest, _ = plex_show
+    assert target.find_show(plex, dest, SHOW, TITLE).playlist_key == "5555"  # noted
+    plex.playlists["77"] = plex.playlists.pop("5555")  # the listener kept the whole show in a playlist
+    assert target.find_show(plex, dest, SHOW, TITLE).playlist_key is None
+    assert target.remove(plex, dest, "Radio Booth", SHOW, TITLE)
+    assert plex.deleted == [] and "77" in plex.playlists and not (dest / FOLDER).exists()
+
+
+def test_files_beside_the_breaks_dont_hide_an_older_shows_playlist(plex_show):
+    plex, dest, _ = plex_show
+    (dest / FOLDER / "Thumbs.db").write_bytes(b"x")
+    assert target.find_show(plex, dest, SHOW, TITLE).playlist_key == "5555"
+
+
+def test_a_server_gone_mid_copy_stops_the_copy(plex_show):
+    from radiobooth.sources.plex import PlexUnreachable
+
+    plex, dest, copies = plex_show
+
+    def gone(part_key, dest_file):
+        raise PlexUnreachable("Could not reach Plex at http://nas:32400: timed out")
+
+    plex.download = gone
+    with pytest.raises(PlexUnreachable):
+        target.copy_out(plex, dest, copies, SHOW, TITLE)
+    with pytest.raises(PlexUnreachable):
+        target.one_file(plex, dest, copies, SHOW, TITLE)
+    assert not copies.exists() or not [p for p in copies.iterdir() if not p.name.startswith(".")]

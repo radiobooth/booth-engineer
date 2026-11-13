@@ -26,7 +26,13 @@ VARIOUS = "various artists"  # the album artist Plex gives compilations
 
 
 class PlexError(RuntimeError):
-    pass
+    def __init__(self, message: str = "", status: int | None = None):
+        super().__init__(message)
+        self.status = status  # the HTTP status Plex answered with, when it answered with an error
+
+
+class PlexUnreachable(PlexError):
+    """The server didn't answer at all (not a refusal of one request)."""
 
 
 SIGN_IN_AGAIN = (
@@ -66,9 +72,9 @@ class PlexClient:
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 raise PlexAuthError() from None
-            raise PlexError(f"Plex returned HTTP {e.code} for {method} {path}") from None
+            raise PlexError(f"Plex returned HTTP {e.code} for {method} {path}", e.code) from None
         except urllib.error.URLError as e:
-            raise PlexError(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
+            raise PlexUnreachable(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
         if not body.strip():
             return {}
         try:
@@ -94,9 +100,9 @@ class PlexClient:
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 raise PlexAuthError() from None
-            raise PlexError(f"Plex returned HTTP {e.code} for a song's file") from None
+            raise PlexError(f"Plex returned HTTP {e.code} for a song's file", e.code) from None
         except urllib.error.URLError as e:
-            raise PlexError(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
+            raise PlexUnreachable(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
         except http.client.HTTPException as e:  # cut off partway (IncompleteRead, say)
             raise PlexError(f"Plex stopped sending a song's file ({type(e).__name__})") from None
 

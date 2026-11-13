@@ -227,9 +227,9 @@ class App:
 
     def _plex_shows(self, settings: dict) -> tuple[PlexClient, Path, str, Path] | None:
         """For a Plex setup: its server, the breaks folder, the breaks library, and where copies go."""
-        if engine.folder_mode(settings) or not plex_ready(settings):
+        if engine.folder_mode(settings):
             return None
-        found, missing = engine.delivery_settings(settings)
+        found, missing = engine.delivery_settings(settings)  # set in the config or the environment
         if missing:
             return None
         copies = (
@@ -251,10 +251,11 @@ class App:
         found = None
         if plex is not None:  # looking for an older show's playlist can take a while: not under the lock
             client, dest, library, copies = plex
-            if plex_target.show_folder(dest, show_id, title) is None:
+            folder = plex_target.show_folder(dest, show_id, title)
+            if folder is None:
                 raise SetupError("That show's breaks aren't in Booth's breaks folder any more.")
             try:
-                found = plex_target.find_show(client, dest, show_id, title)
+                found = plex_target.find_show(client, dest, show_id, title, folder)
             except PlexError as e:
                 raise SetupError(f"Couldn't remove that show from Plex ({e}).") from None
         # Under the copy lock, so a copy of this show can't start while it's being removed.
@@ -277,7 +278,7 @@ class App:
                     playlist_target.drop_copies(copies, show_id)
                     self._removed.add(show_id)
                     with contextlib.suppress(OSError):  # so the page still says so after a restart
-                        removed = [i for i in config.load().get("plex_removed", []) if i != show_id]
+                        removed = [i for i in (config.load().get("plex_removed") or []) if i != show_id]
                         config.update({"plex_removed": (removed + [show_id])[-50:]})
             except PlexError as e:
                 raise SetupError(f"Couldn't remove that show from Plex ({e}).") from None

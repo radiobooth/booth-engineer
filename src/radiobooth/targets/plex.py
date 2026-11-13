@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from radiobooth.sources.plex import TRACK, PlexAuthError, PlexError, _paged
+from radiobooth.sources.plex import TRACK, PlexAuthError, PlexError, PlexUnreachable, _paged
 
 SCAN_TIMEOUT = 180  # seconds to wait for Plex to pick up new breaks
 NOTE = ".booth-show.json"  # beside a show's breaks: its id, title and playlist, to find it again
@@ -179,13 +179,14 @@ def show_folder(
         return None
     listed = _folders(dest_root) if folders is None else folders
     found = [d for d in listed if d.name.endswith(f"-{tail}") and d.is_dir()]
-    noted = [d for d in found if _read_note(d).get("show_id") == show_id]
+    notes = {d: _read_note(d) for d in found}  # read once: `dest_root` is often a network share
+    noted = [d for d in found if notes[d].get("show_id") == show_id]
     if noted:
         return noted[0]
     if not title:
         return None
     named = f"-{folder_name({'title': title, 'created_at': '', 'show_id': show_id}).split('-', 1)[1]}"
-    unnoted = [d for d in found if d.name.endswith(named) and not _read_note(d)]
+    unnoted = [d for d in found if d.name.endswith(named) and not notes[d]]
     return unnoted[0] if len(unnoted) == 1 else None
 
 
@@ -203,19 +204,27 @@ def _part(meta: dict) -> dict:
 
 
 def _items(client, key: str) -> list[dict] | None:
-    """A playlist's items, or None if Plex has no such playlist."""
+    """A playlist's items, or None if Plex has no such playlist. Any other error (Plex unreachable, say) is
+    raised: taken for a deleted playlist, it would leave the show's playlist behind when it's removed."""
     try:
         return client.get(f"/playlists/{key}/items")["MediaContainer"].get("Metadata", [])
-    except PlexAuthError:
+    except PlexError as e:
+        if e.status in (400, 404):
+            return None
         raise
-    except PlexError:
-        return None
 
 
 def _breaks(folder: Path) -> set[str] | None:
-    """The names of the break files in a show's breaks folder, or None if it can't be read."""
+    """The names of the break files in a show's breaks folder, or None if it can't be read. Only audio
+    files count: a Thumbs.db or desktop.ini beside the breaks is never in a playlist."""
+    from radiobooth.sources.tags import EXTENSIONS
+
     try:
-        return {p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")}
+        return {
+            p.name
+            for p in folder.iterdir()
+            if p.suffix.lower() in EXTENSIONS and p.is_file() and not p.name.startswith(".")
+        }
     except OSError:
         return None
 
@@ -249,18 +258,23 @@ def find_show(client, dest_root: Path, show_id: str, hint: str = "", folder: Pat
     note = _read_note(folder)
     key = note.get("playlist_key")
     items = _items(client, key) if key else None
-    if items is None or not _holds(items, folder):
+    if key and items is None:
+        # The noted playlist was deleted in Plex. Never look for another to take its place: a playlist of
+        # the listener's own that plays the whole show would be taken for it, and deleted on Remove.
+        key = None
+    elif items is None or not _holds(items, folder):
         key, items = None, None
         listed = client.get("/playlists", {"playlistType": "audio"})["MediaContainer"].get("Metadata", [])
         hint = hint or note.get("title") or ""
         likely = hint.lower()
         breaks = _breaks(folder)
         listed.sort(key=lambda p: not (likely and likely in str(p.get("title", "")).lower()))
-        for p in listed:
-            if p.get("smart"):
+        for p in listed if breaks else []:  # with no breaks to look for, no playlist can be the show's
+            count = p.get("leafCount")
+            if p.get("smart") or (isinstance(count, int) and count < len(breaks)):
                 continue
             found = _items(client, str(p.get("ratingKey")))
-            if found and breaks is not None and _holds(found, folder, breaks):
+            if found and _holds(found, folder, breaks):
                 key, items = str(p["ratingKey"]), found
                 title = p.get("title") or hint
                 _note(folder, show_id, key, title)
@@ -320,9 +334,9 @@ def _fetch(client, song: Song, dest: Path) -> None:
     elif song.part_key:
         try:
             client.download(song.part_key, dest)
-        except PlexAuthError:
+        except (PlexAuthError, PlexUnreachable):  # every song would fail the same way: stop here
             raise
-        except PlexError as e:
+        except PlexError as e:  # this one file: left out, counted
             raise OSError(str(e)) from None
     else:
         raise OSError("no file for this item")
@@ -354,8 +368,9 @@ def one_file(client, dest_root: Path, copies: Path, show_id: str, hint: str = ""
     fetch = [s for s in items if s.local is None]
     total = len(fetch) + 2 * len(items)
     copies.mkdir(parents=True, exist_ok=True)
+    for stale in copies.glob(".*.songs"):  # left by a mix Booth was closed during (one runs at a time)
+        shutil.rmtree(stale, ignore_errors=True)
     work = copies / f".{playlist.file_name(show.title)}.songs"
-    shutil.rmtree(work, ignore_errors=True)
     work.mkdir()
     try:
         ready, missing, got = [], 0, 0
@@ -408,7 +423,11 @@ def remove_found(client, dest_root: Path, library: str, show: PlexShow) -> None:
     if not show.folder.resolve().is_relative_to(dest_root.resolve()):
         raise PlexError(f"Refusing to delete outside {dest_root}.")
     if show.playlist_key:
-        client.request("DELETE", f"/playlists/{show.playlist_key}")
+        try:
+            client.request("DELETE", f"/playlists/{show.playlist_key}")
+        except PlexError as e:
+            if e.status != 404:  # 404: deleted in Plex since it was found, so its breaks still go
+                raise
     shutil.rmtree(show.folder)
     try:  # so Plex drops the breaks from its breaks library
         client.get(f"/library/sections/{section_named(client, library)['key']}/refresh")
