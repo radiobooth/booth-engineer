@@ -781,20 +781,26 @@ function renderShows(list) {
     m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
     li.append(t, st, m);
     if (s.feedback) li.append(feedbackButton(s));
-    if (here && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, copyButton(s), removeButton(s)));
+    if (here && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, copyButton(s, "file"), copyButton(s), removeButton(s)));
     if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
 }
 
-function copyButton(s) {
-  const b = el("button", {type: "button", className: "quiet remove", textContent: "Copy to a folder",
-    title: "Copies the songs and breaks into a folder of their own, numbered in order, to put on a phone," +
-      " a USB stick or a car's drive"});
+const COPY_KINDS = {
+  folder: ["Copy to a folder", "Copies the songs and breaks into a folder of their own, numbered in order, to put" +
+    " on a phone, a USB stick or a car's drive"],
+  file: ["Make one file", "Mixes the show into one MP3, like it sounds on the radio, with a chapter for each song" +
+    " and break"],
+};
+
+function copyButton(s, kind = "folder") {
+  const [textContent, title] = COPY_KINDS[kind];
+  const b = el("button", {type: "button", className: "quiet remove", textContent, title});
   b.onclick = async () => {
     b.disabled = true;
     try {
-      await post("copy_show", {show_id: s.show_id});
+      await post("copy_show", {show_id: s.show_id, kind});
       error("shows-error", "");
       refresh();
     } catch (x) { error("shows-error", x.message); }
@@ -803,18 +809,29 @@ function copyButton(s) {
   return b;
 }
 
-// A show being copied to a folder, or the last one copied.
+// A show being copied to a folder or made into one file, or the last one.
 function renderCopy(c) {
   const p = $("copy-status");
   show(p, !!c);
   if (!c) return;
-  if (!c.finished) {
+  const missing = (what) => c.missing ? " " + c.missing + (c.missing === 1 ? " file wasn't" : " files weren't") +
+    " there to " + what + "." : "";
+  if (c.kind === "file") {
+    if (!c.finished) {
+      p.textContent = "Making the show into one file" + (c.total ? ": " + Math.round(100 * c.done / c.total) + "%..." : "...");
+    } else if (c.error) {
+      p.textContent = "The file wasn't made: " + c.error;
+    } else {
+      p.textContent = "Made " + c.file + " (" + c.minutes + " min). Players that read chapters can skip from song to" +
+        " song." + missing("use");
+    }
+  } else if (!c.finished) {
     p.textContent = c.total ? "Copying the show: " + c.done + " of " + c.total + " files..." : "Copying the show...";
   } else if (c.error) {
     p.textContent = "The copy didn't finish: " + c.error;
   } else {
     p.textContent = "Copied to " + c.folder + ". The files are numbered, so they play in order on a phone, a" +
-      " USB stick or a car's drive." + (c.missing ? " " + c.missing + " files weren't there to copy." : "");
+      " USB stick or a car's drive." + missing("copy");
   }
 }
 
@@ -822,7 +839,7 @@ function removeButton(s) {
   const b = el("button", {type: "button", className: "quiet remove", textContent: "Remove"});
   b.onclick = async () => {
     if (!confirm("Remove “" + (s.playlist || s.title) + "” from your Booth shows folder? Its playlist, DJ breaks" +
-      " and any copy Booth made of it are deleted. Your music stays where it is.")) return;
+      " and any copy or one file Booth made of it are deleted. Your music stays where it is.")) return;
     b.disabled = true;
     try {
       await post("remove_show", {show_id: s.show_id});

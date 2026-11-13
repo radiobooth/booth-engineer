@@ -11,7 +11,8 @@ and Booth's page can list and remove shows without keeping a list of its own.
 
 A show can also be copied whole into a folder of its own (`copy_out`): its songs and breaks as numbered files
 plus a playlist, to put on a phone, a USB stick or a car's drive, where it plays in order even without the
-playlist.
+playlist. Or it can be made into one MP3 (`one_file`), mixed like a radio show with a chapter per song and
+break, in the same Copies folder.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from radiobooth.targets.plex import folder_name, load_package
 MARK = "#BOOTH-SHOW:"  # show id, on its own line in each playlist Booth writes
 BREAKS = "breaks"
 COPIES = "Copies"  # in the shows folder: shows copied whole, to take along
+FILE_MARK = "BOOTH-SHOW"  # the ID3 TXXX tag a one-file show keeps its show id in
 # Names Windows keeps for devices, with or without an extension.
 _RESERVED = {"con", "prn", "aux", "nul", *(f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10))}
 
@@ -96,14 +98,22 @@ def _ref(path: Path, root: Path) -> str:
     return f"./{rel}" if rel.startswith("#") else rel  # a line starting "#" would read as a comment
 
 
+def _free(folder: Path, base: str, ext: str, mine: Callable[[Path], bool]) -> Path | None:
+    """`folder/<base><ext>`, or `<base> (2)<ext>` and so on: the first that's free or already `mine`."""
+    for n in range(1, 1000):
+        candidate = folder / (f"{base}{ext}" if n == 1 else f"{base} ({n}){ext}")
+        if not candidate.exists() or mine(candidate):
+            return candidate
+    return None
+
+
 def _place(out_root: Path, title: str, show_id: str) -> Path:
     """The show's playlist file: its own from an earlier delivery, else a free name."""
     base = file_name(title)
-    for n in range(1, 1000):
-        candidate = out_root / (f"{base}.m3u8" if n == 1 else f"{base} ({n}).m3u8")
-        if not candidate.exists() or show_of(candidate) == show_id:
-            return candidate
-    raise PlaylistError(f"Too many playlists named {base!r} in {out_root}.")
+    found = _free(out_root, base, ".m3u8", lambda p: show_of(p) == show_id)
+    if found is None:
+        raise PlaylistError(f"Too many playlists named {base!r} in {out_root}.")
+    return found
 
 
 def _music_file(music_root: Path, rel: str) -> Path | None:
@@ -231,24 +241,27 @@ class Copy:
     missing: int  # files the playlist names that weren't there to copy
 
 
+def _show(root: Path, show_id: str) -> Show:
+    """The show with this id in the shows folder `root`."""
+    show = next((s for s in shows(root) if s.show_id == show_id), None)
+    if show is None:
+        raise PlaylistError("That show isn't in your Booth shows folder any more.")
+    return show
+
+
 def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] | None = None) -> Copy:
     """Copy a show whole into `Copies/<title>/` in the shows folder: each song and break as a numbered file,
     in playing order, and a playlist of them. Copied again, it replaces its own earlier copy."""
     root = out_root.resolve()
-    show = next((s for s in shows(root) if s.show_id == show_id), None)
-    if show is None:
-        raise PlaylistError("That show isn't in your Booth shows folder any more.")
+    show = _show(root, show_id)
     listed = _entries(show.playlist)
     entries = [(info, path) for info, path in listed if path.is_file()]
     if not entries:
         raise PlaylistError("None of this show's files are there to copy.")
     copies = root / COPIES
     base = file_name(show.title)
-    for n in range(1, 1000):
-        folder = copies / (base if n == 1 else f"{base} ({n})")
-        if not folder.exists() or any(show_of(p) == show_id for p in folder.glob("*.m3u8")):
-            break
-    else:
+    folder = _free(copies, base, "", lambda d: any(show_of(p) == show_id for p in d.glob("*.m3u8")))
+    if folder is None:
         raise PlaylistError(f"Too many copies named {base!r} in {copies}.")
     partial = copies / f".{folder.name}.partial"
     shutil.rmtree(partial, ignore_errors=True)
@@ -270,15 +283,72 @@ def copy_out(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     return Copy(folder, len(entries), len(listed) - len(entries))
 
 
-def _drop_copies(copies: Path, show_id: str) -> None:
-    """Delete the show's copies in `Copies/` (found by the mark in their playlists)."""
+@dataclass
+class OneFile:
+    path: Path
+    seconds: float
+    missing: int  # files the playlist names that weren't there or couldn't be read, left out
+
+
+def file_show(path: Path) -> str | None:
+    """The show id a one-file show was tagged with, or None for any other MP3."""
+    from mutagen import MutagenError
+    from mutagen.id3 import ID3
+
     try:
-        folders = [d for d in copies.iterdir() if d.is_dir() and not d.name.startswith(".")]
+        marks = ID3(str(path)).getall(f"TXXX:{FILE_MARK}")
+    except (OSError, MutagenError, ValueError):  # not tagged, or tagged in a way mutagen doesn't read
+        return None
+    return str(marks[0].text[0]) if marks and marks[0].text else None
+
+
+def one_file_path(copies: Path, title: str, show_id: str) -> Path:
+    """Where a show's one file goes in `copies`: its own from an earlier time, else a free name after its
+    title, so it never replaces another show's file."""
+    base = file_name(title)
+    out = _free(copies, base, ".mp3", lambda p: file_show(p) == show_id)
+    if out is None:
+        raise PlaylistError(f"Too many files named {base!r} in {copies}.")
+    return out
+
+
+def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] | None = None) -> OneFile:
+    """Mix a show into one MP3, `Copies/<title>.mp3` in the shows folder, with a chapter per song and break.
+    Made again, it replaces its own earlier file."""
+    from radiobooth import render
+
+    root = out_root.resolve()
+    show = _show(root, show_id)
+    items, tags = render.from_playlist(show.playlist)
+    listed = len(items)
+    items = [it for it in items if it.path.is_file()]
+    if not items:
+        raise PlaylistError("None of this show's files are there to make it from.")
+    copies = root / COPIES
+    copies.mkdir(parents=True, exist_ok=True)
+    for stale in copies.glob(
+        ".*.mp3.partial"
+    ):  # left by a render Booth was closed during (one runs at a time)
+        stale.unlink(missing_ok=True)
+    out = one_file_path(copies, show.title, show_id)
+    try:
+        made = render.render(items, out, progress=progress, **tags)
+    except render.RenderError as e:
+        raise PlaylistError(str(e)) from None
+    return OneFile(made.path, made.seconds, listed - len(items) + len(made.skipped))
+
+
+def _drop_copies(copies: Path, show_id: str) -> None:
+    """Delete the show's copies in `Copies/` (found by the mark in their playlists) and its one file."""
+    try:
+        entries = [d for d in copies.iterdir() if not d.name.startswith(".")]
     except OSError:
         return
-    for d in folders:
-        if any(show_of(p) == show_id for p in d.glob("*.m3u8")):
+    for d in entries:
+        if d.is_dir() and any(show_of(p) == show_id for p in d.glob("*.m3u8")):
             shutil.rmtree(d, ignore_errors=True)
+        elif d.suffix.lower() == ".mp3" and d.is_file() and file_show(d) == show_id:
+            d.unlink(missing_ok=True)
 
 
 def remove(out_root: Path, show_id: str) -> bool:

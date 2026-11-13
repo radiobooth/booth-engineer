@@ -57,7 +57,10 @@ playlists plays it (foobar2000, MusicBee, VLC, Winamp, Music on a Mac). The play
 where it is: Booth only reads your files, and never changes, moves, renames or uploads them. **Remove** on
 Booth's page deletes a show's playlist and breaks. **Copy to a folder** copies a show whole into
 `Copies/<title>/` in the shows folder: its songs and breaks as numbered files in playing order, plus a
-playlist, to put on a phone, a USB stick or a car's drive.
+playlist, to put on a phone, a USB stick or a car's drive. **Make one file** mixes a show into one MP3,
+`Copies/<title>.mp3`, the way it sounds on the radio: levels evened, songs crossfaded (the next track of the
+same album stays gapless), the DJ talking over the ends and starts of songs, and a chapter for each song and
+break. It's made on your computer; nothing is uploaded.
 
 Booth reads the folder's tags when you set it up (with a progress bar: the first read of a big collection
 takes a while) and again when Booth starts and for each show, reading only files that are new or changed. It

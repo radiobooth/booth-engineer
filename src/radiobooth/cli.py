@@ -33,6 +33,7 @@ COMMANDS["run"] = (
     "Stay connected to Booth DJ: send the catalog when you ask for a show, deliver it when ready."
 )
 COMMANDS["license"] = "Show Booth's license (GNU GPL v3 or later) and the notices for what the app bundles."
+COMMANDS["render"] = "Make one MP3 of a show, with a chapter per song and break, from its playlist."
 COMMANDS["app"] = (
     "Run Booth with its page in your browser (setup, status, settings), or open the page of the Booth"
     " already running here."
@@ -59,6 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--name", default="Music", help="what to call this library on the DJ's side")
             p.add_argument("--catalog", metavar="FILE", help="also write the exact catalog Booth would send")
             p.add_argument("--examples", type=int, default=5, help="example files to list per issue")
+        if name == "render":
+            p.add_argument("playlist", help="the show's .m3u8 playlist in the Booth shows folder")
+            p.add_argument(
+                "-o",
+                "--output",
+                help="the MP3 to write (default: Copies/<show title>.mp3 beside it)",
+            )
         if name == "deliver":
             p.add_argument("show", help="show folder from Booth DJ (with show.json and breaks/)")
             p.add_argument("--library", help="Plex library for breaks (default $BOOTH_BREAKS_LIBRARY)")
@@ -467,6 +475,55 @@ def license_(args, opener=None) -> int:
     return 0
 
 
+def render(args: argparse.Namespace) -> int:
+    import time
+
+    from radiobooth import render as renderer
+
+    playlist = Path(args.playlist).expanduser()
+    if not playlist.is_file():
+        print(f"There's no playlist at {playlist}.", file=sys.stderr)
+        return 1
+    try:
+        items, show = renderer.from_playlist(playlist)
+    except OSError as e:
+        print(f"Couldn't read {playlist} ({e.strerror or e}).", file=sys.stderr)
+        return 1
+    from radiobooth.targets import playlist as playlist_target
+
+    if args.output:
+        out = Path(args.output).expanduser()
+    else:  # named the way Booth's page names it, never over another show's file
+        try:
+            out = playlist_target.one_file_path(
+                playlist.parent / playlist_target.COPIES, show["title"], show["show_id"]
+            )
+        except playlist_target.PlaylistError as e:
+            print(e, file=sys.stderr)
+            return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+
+    def progress(done: int, total: int) -> None:
+        print(f"\r{'Measuring' if done < total // 2 else 'Mixing'} {done}/{total}", end="", flush=True)
+
+    try:
+        made = renderer.render(items, out, progress=progress, **show)
+    except renderer.RenderError as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"\nCouldn't write {out} ({e.strerror or e}).", file=sys.stderr)
+        return 1
+    print(
+        f"\nWrote {made.path} ({made.seconds / 60:.1f} min, {made.items} items) in"
+        f" {time.monotonic() - started:.0f} s."
+    )
+    for path in made.skipped:
+        print(f"Left out (couldn't be read): {path}")
+    return 0
+
+
 def dispatch(argv: list[str] | None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -480,6 +537,7 @@ def dispatch(argv: list[str] | None) -> int:
         "deliver": deliver,
         "license": license_,
         "pair": pair,
+        "render": render,
         "run": run,
         "scan": scan,
         "setup": setup,

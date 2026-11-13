@@ -86,7 +86,9 @@ the show**. The page tells you how it's going. When it says **In Plex**, open Pl
 there in your music player. **Remove** under a show on Booth's page deletes its playlist and DJ breaks.
 To take a show with you, click **Copy to a folder** under it: Booth copies its songs and breaks into a folder
 of their own, numbered in order, and opens that folder. Drag it onto your phone, a USB stick or your car's
-drive, and it plays in order even in a player that ignores playlists.
+drive, and it plays in order even in a player that ignores playlists. Or click **Make one file**: Booth mixes
+the show into a single MP3, crossfaded like the radio, with a chapter for each song and break. A 2-hour show
+takes a few minutes to make.
 
 If your account has a limit, both pages show what's left above the form.
 
