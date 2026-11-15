@@ -79,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
             )
             p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER, then the saved one)")
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
+            p.add_argument(
+                "--replace",
+                action="store_true",
+                help="drop the Booth account this computer is connected to now (to share it, use Add another"
+                " person on Booth's page instead)",
+            )
         if name == "setup":
             p.add_argument("--server", help=argparse.SUPPRESS)
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
@@ -245,6 +251,24 @@ def pair(args: argparse.Namespace) -> int:
     except LinkError as e:
         print(f"booth pair: {e}", file=sys.stderr)
         return 1
+    settings = config.load()
+    if not args.replace and settings.get("device_token") and settings.get("server"):
+        try:
+            same = Link(settings["server"]).server == link.server
+            me = Link(link.server, settings["device_token"], timeout=30).get("/v0/me") if same else None
+        except LinkError:
+            me = None  # forgotten (a 401) or out of reach: pairing again is what's wanted, or fails anyway
+        if me is not None:
+            name = me.get("name") if isinstance(me, dict) else None
+            whose = f"{name}'s Booth account" if isinstance(name, str) and name.strip() else "a Booth account"
+            print(
+                f"booth pair: this computer is already connected to {whose}, and pairing again would drop it."
+                "\n  To make shows for someone else too, open Booth's page (booth app), go to Settings and"
+                " use Add another person with a code from their phone."
+                "\n  To switch this computer to another account for good: booth pair --replace",
+                file=sys.stderr,
+            )
+            return 1
     code = args.code
     if not code:
         print(f"On your phone, open {link.server}/ and tap Get a pairing code.", file=sys.stderr)
@@ -261,7 +285,8 @@ def pair(args: argparse.Namespace) -> int:
     except LinkError as e:
         print(f"booth pair: {e}", file=sys.stderr)
         return 1
-    saved = config.save({**config.load(), "server": server, "device_token": token, "name": args.name})
+    kept = {k: v for k, v in config.load().items() if k != "account_name"}  # maybe another account's now
+    saved = config.save({**kept, "server": server, "device_token": token, "name": args.name})
     print(f"Paired as {args.name!r}. Settings saved in {saved}. Next: booth run", file=sys.stderr)
     return 0
 
