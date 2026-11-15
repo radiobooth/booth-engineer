@@ -276,6 +276,13 @@ HTML = f"""<!doctype html>
             placeholder="Code">
           <button type="submit" id="pair-go">Connect</button>
         </form>
+        <div class="hidden" id="pair-ask">
+          <p id="pair-ask-text"></p>
+          <div class="actions">
+            <button type="button" id="pair-add"></button>
+            <button type="button" class="quiet" id="pair-switch"></button>
+          </div>
+        </div>
         <div class="error hidden" id="pair-error"></div>
       </div>
     </div>
@@ -554,7 +561,7 @@ function render(s) {
   $("pair-text").textContent = pairDone && !changing
     ? "Connected as " + JSON.stringify(s.account.name) + "."
     : "On your phone, open your Booth page and tap “Get a pairing code”. Type the code here.";
-  show($("pair-form"), !pairDone || changing);
+  show($("pair-form"), (!pairDone || changing) && $("pair-ask").classList.contains("hidden"));
 
   // People sharing this Booth, and whose show the form asks for
   const people = s.account.people || [];
@@ -1165,21 +1172,47 @@ function wire() {
     error("pair-error", "");
     $("pair-go").disabled = true;
     try {
-      await post("pair", {code: $("pair-code").value});
+      const r = await post("pair", {code: $("pair-code").value});
       $("pair-code").value = "";
-      changing = false;
-      rosterShown = "";  // maybe another account or Radio Booth: start the New show section afresh
-      renderShows([]);
-      loadShows();
+      if (r.ask) {  // another person's code, and this computer still makes shows for someone: ask which
+        $("pair-ask-text").textContent = "That code is from " + r.ask.theirs + "’s account. Booth makes shows"
+          + " for " + r.ask.own + " here now. Add " + r.ask.theirs + " as another person, or switch this"
+          + " computer to " + r.ask.theirs + "’s account? (Switching stops " + r.ask.own + "’s shows here.)";
+        $("pair-add").textContent = "Add " + r.ask.theirs + " too";
+        $("pair-switch").textContent = "Switch to " + r.ask.theirs;
+        show($("pair-form"), false);
+        show($("pair-ask"), true);
+      } else paired();
     } catch (x) { error("pair-error", x.message); }
     $("pair-go").disabled = false;
     refresh();
   };
+  function paired() {
+    changing = false;
+    rosterShown = "";  // maybe another account or Radio Booth: start the New show section afresh
+    renderShows([]);
+    loadShows();
+  }
+  const pairChoice = (choice) => async () => {
+    error("pair-error", "");
+    $("pair-add").disabled = $("pair-switch").disabled = true;
+    try {
+      const r = await post("pair_choice", {choice});
+      if (r.added) changing = false;
+      else paired();
+    } catch (x) { error("pair-error", x.message); }
+    show($("pair-ask"), false);
+    $("pair-add").disabled = $("pair-switch").disabled = false;
+    refresh();
+  };
+  $("pair-add").onclick = pairChoice("add");
+  $("pair-switch").onclick = pairChoice("switch");
   $("autostart").onchange = (ev) => post("autostart", {on: ev.target.checked}).then(refresh)
     .catch((x) => { error("settings-error", x.message); refresh(); });
   $("auto-update").onchange = (ev) => post("auto_update", {on: ev.target.checked}).then(refresh);
   $("change").onclick = () => {
     changing = !changing;
+    show($("pair-ask"), false);  // a question about someone's code, left unanswered: the code is spent
     if (!changing) { post("cancel"); filesOpen = false; }
     if (last) render(last);
   };

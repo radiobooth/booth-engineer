@@ -942,3 +942,57 @@ def test_plex_shows_can_be_copied_and_removed_on_the_page(booth, monkeypatch, tm
     assert listed["shows"][0]["on_disk"] is False
     status, data = act(port, key, "remove_show", {"show_id": SHOW})
     assert status == 422 and "breaks aren't in Booth's breaks folder" in data["error"]
+
+
+def test_a_new_pairing_with_someone_elses_code_asks_first(booth, monkeypatch):
+    app, port, key, _ = booth
+    monkeypatch.setenv("BOOTH_SERVER", "https://booth.example")
+    config.update({"device_token": "be_own", "server": "https://booth.example", "name": "Den PC"})
+    names = {"be_own": "Thomas", "be_jen": "Jennifer", "be_jen2": "Jennifer", "be_own2": "Thomas"}
+    codes = {"JENN-0001": "be_jen", "JENN-0002": "be_jen2", "THOM-0001": "be_own2"}
+    redeemed = []
+
+    def redeem(self, code, name):
+        redeemed.append((code, name))
+        return codes[code]
+
+    def get(self, path):
+        if self.token not in names:
+            raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
+        return {"name": names[self.token]}
+
+    monkeypatch.setattr(web.Link, "redeem", redeem)
+    monkeypatch.setattr(web.Link, "get", get)
+    monkeypatch.setattr(app.engine, "start", lambda: None)
+
+    # Jennifer's code in Booth's own pairing box: nothing changes until the page's question is answered.
+    status, data = act(port, key, "pair", {"code": "JENN-0001"})
+    assert status == 200 and data == {"ask": {"own": "Thomas", "theirs": "Jennifer"}}
+    assert config.load()["device_token"] == "be_own" and config.people(config.load()) == []
+    assert act(port, key, "pair_choice", {"choice": "maybe"})[0] == 422
+    assert act(port, key, "pair_choice", {"choice": "add"}) == (200, {"added": "Jennifer"})
+    [jen] = config.people(config.load())
+    assert jen["device_token"] == "be_jen" and config.load()["device_token"] == "be_own"
+    status, data = act(port, key, "pair_choice", {"choice": "add"})  # answered once only
+    assert status == 422 and "new code" in data["error"]
+
+    # Asked again, and switched: Jennifer's account becomes this computer's own, and not also a person on it.
+    assert "ask" in act(port, key, "pair", {"code": "JENN-0002"})[1]
+    assert act(port, key, "pair_choice", {"choice": "switch"}) == (200, {"name": "Den PC"})
+    settings = config.load()
+    assert settings["device_token"] == "be_jen2" and settings["account_name"] == "Jennifer"
+    assert config.people(settings) == []
+
+    # The question doesn't stay open for ever.
+    assert "ask" in act(port, key, "pair", {"code": "THOM-0001"})[1]
+    app._pending["at"] -= web.PAIR_ASK_S + 1
+    assert act(port, key, "pair_choice", {"choice": "switch"})[0] == 422
+    assert config.load()["device_token"] == "be_jen2"
+
+    # The same account again, or one this computer's pairing was forgotten by, just pairs.
+    names["be_jen3"] = "Jennifer"
+    codes["JENN-0003"] = "be_jen3"
+    assert act(port, key, "pair", {"code": "JENN-0003"}) == (200, {"name": "Den PC"})
+    del names["be_jen3"]  # Radio Booth forgot it
+    assert act(port, key, "pair", {"code": "THOM-0001"}) == (200, {"name": "Den PC"})
+    assert config.load()["device_token"] == "be_own2"

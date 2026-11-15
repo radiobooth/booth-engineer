@@ -47,6 +47,7 @@ COOKIE = "booth_key"
 SHOW_CHOICES = ("minutes", "dj", "voice", "dj_name", "station")  # kept for next time; the prompt isn't
 SHOW_ID = re.compile(r"show_[0-9a-z]{1,40}")  # Booth DJ's ids, checked before they go into a path
 BREAK_ID = re.compile(r"b[0-9]{1,3}")
+PAIR_ASK_S = 600  # how long the page's question about another account's pairing code stays open
 ROSTER_S = 600  # the DJs and voices change only with a new Booth DJ, so the page asks for them now and then
 
 
@@ -144,6 +145,8 @@ class App:
         # Plex shows removed from this page, so the list can say so (kept in the config across restarts)
         self._removed: set[str] = set(config.load().get("plex_removed") or [])
         self._copy_lock = threading.Lock()
+        self._pending: dict | None = None  # a pairing code from another account, waiting on `pair_choice`
+        self._pair_lock = threading.Lock()
         self.open_folder = lambda path: open_folder(path, self.platform)
 
     def server(self) -> str:
@@ -543,23 +546,65 @@ class App:
                 " add someone else, get the code on their phone while they're signed in to their own account."
                 " (Booth tells accounts apart by name, so two with the same name can't share it.)"
             )
-        unpaired = self.engine.unpaired
+        self._add(token, name, main.server)
+        return {"name": name}
+
+    def _add(self, token: str, name: str, server: str) -> None:
+        """Make shows for `name` too, with the device token their pairing code was traded for."""
 
         def change(people: list[dict]) -> list[dict]:
-            again = next((p for p in people if p["name"] == name and p["id"] in unpaired), None)
-            if again:  # them again, after their Booth account forgot this computer: their history carries on
+            again = next((p for p in people if p["name"] == name), None)
+            if again:  # them again (their account forgot this computer, say): their history carries on
                 return [p | {"device_token": token} if p is again else p for p in people]
             person = {
                 "id": config.new_person_id(),
                 "device_token": token,
                 "name": name,
-                "server": main.server,
+                "server": server,
             }
             return [*people, person]
 
         config.change_people(change)
         self.engine.start()
-        return {"name": name}
+
+    def pair(self, code: str) -> dict:
+        """The pairing code typed in Booth's own setup. Usually this computer's own account again; but when
+        it's still connected to an account and the code is from someone else's, the page asks first (`ask`)
+        whether to add them as another person or switch the computer over, rather than quietly dropping the
+        account that's there (whose shows would then have nowhere to go)."""
+        settings = config.load()
+        server, token = self.setup.redeem(code)
+        old, old_server = settings.get("device_token"), settings.get("server")
+        if old and old_server and Link(old_server).server == Link(server).server:
+            own = self._account_name(Link(server, old, timeout=30))  # None: forgotten, so nothing to keep
+            theirs = self._account_name(Link(server, token, timeout=30))
+            if own and theirs and own != theirs:
+                with self._pair_lock:
+                    self._pending = {"server": server, "token": token, "name": theirs, "at": time.monotonic()}
+                return {"ask": {"own": own, "theirs": theirs}}
+        return {"name": self.setup.save_pairing(server, token)}
+
+    def pair_choice(self, choice: str) -> dict:
+        """The answer to `pair`'s question: "add" them as another person, or "switch" this computer to their
+        account."""
+        if choice not in ("add", "switch"):
+            raise SetupError("Pick one of the two.")
+        with self._pair_lock:
+            pending, self._pending = self._pending, None
+        if not pending or time.monotonic() - pending["at"] > PAIR_ASK_S:
+            raise SetupError("That took a while. Get a new code on the phone and try again.")
+        name = pending["name"]
+        if choice == "add":
+            self._add(pending["token"], name, pending["server"])
+            return {"added": name}
+        # Their account becomes this computer's own: not also another person on it.
+        for p in config.people(config.load()):
+            if p["name"] == name:
+                config.change_people(lambda people, gone=p["id"]: [q for q in people if q["id"] != gone])
+                with contextlib.suppress(OSError):
+                    history.path(p["id"]).unlink(missing_ok=True)
+        config.update({"account_name": name})
+        return {"name": self.setup.save_pairing(pending["server"], pending["token"])}
 
     def _plex(self) -> tuple[str, str]:
         """The owner's Plex sign-in and the breaks library's name."""
@@ -652,7 +697,9 @@ class App:
         elif action == "remove_person":
             self.remove_person(str(body.get("id", "")))
         elif action == "pair":
-            return {"name": self.setup.pair(str(body.get("code", "")))}
+            return self.pair(str(body.get("code", "")))
+        elif action == "pair_choice":
+            return self.pair_choice(str(body.get("choice", "")))
         elif action == "autostart":
             change = autostart.install if body.get("on") else autostart.remove
             try:

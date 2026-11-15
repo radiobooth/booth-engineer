@@ -161,3 +161,45 @@ def test_license_without_a_console_opens_a_file(tmp_path, monkeypatch, capsys):
     assert cli.license_(None, opener=opened.append) == 0
     assert capsys.readouterr().out == ""
     assert "GNU GENERAL PUBLIC LICENSE" in Path(opened[0]).read_text(encoding="utf-8")
+
+
+def test_pair_refuses_to_drop_an_account_that_still_works(monkeypatch, tmp_path, capsys):
+    from radiobooth import config
+    from radiobooth.link import Link, LinkError
+
+    monkeypatch.delenv("BOOTH_SERVER", raising=False)
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    config.save(
+        {"server": "https://booth.example", "device_token": "be_own", "name": "linus", "account_name": "T"}
+    )
+    redeemed, known = [], {"be_own": "Thomas"}
+
+    def get(self, path):
+        assert path == "/v0/me" and self.server == "https://booth.example"
+        if self.token not in known:
+            raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
+        return {"name": known[self.token]}
+
+    monkeypatch.setattr(Link, "get", get)
+    monkeypatch.setattr(Link, "redeem", lambda self, code, name: redeemed.append(code) or "be_jen")
+
+    # Jennifer's code typed here by mistake: refused before the code is spent, pointing at Add another person.
+    assert main(["pair", "JENN-0001"]) == 1
+    err = capsys.readouterr().err
+    assert "already connected to Thomas's Booth account" in err and "Add another person" in err
+    assert redeemed == [] and config.load()["device_token"] == "be_own"
+
+    # --replace does it anyway (and forgets the old account's name).
+    assert main(["pair", "JENN-0001", "--replace"]) == 0
+    assert redeemed == ["JENN-0001"] and config.load()["device_token"] == "be_jen"
+    assert "account_name" not in config.load()
+
+    # A pairing Radio Booth has forgotten is replaced without asking.
+    known.clear()
+    monkeypatch.setattr(Link, "redeem", lambda self, code, name: "be_new")
+    assert main(["pair", "THOM-0001"]) == 0 and config.load()["device_token"] == "be_new"
+
+    # Another Radio Booth: the old token means nothing there, so it isn't asked about.
+    known["be_new"] = "Thomas"
+    monkeypatch.setattr(Link, "redeem", lambda self, code, name: "be_other")
+    assert main(["pair", "THOM-0002", "--server", "https://other.example"]) == 0

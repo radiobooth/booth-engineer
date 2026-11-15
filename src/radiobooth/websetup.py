@@ -283,18 +283,25 @@ class WebSetup:
 
     def pair(self, code: str) -> str:
         """Connect this computer to the Booth account with the code from the phone; returns its name."""
+        return self.save_pairing(*self.redeem(code))
+
+    def redeem(self, code: str) -> tuple[str, str]:
+        """Trade the code from the phone for a device token (saving nothing yet): (server, token)."""
         code = code.strip()
         if not code:
             raise SetupError("Type the code from your phone first.")
         server = self._booth()
         try:
-            token = Link(server).redeem(code, self._name)
+            return server, Link(server).redeem(code, self._name)
         except LinkError as e:
             if e.status == 404:
                 raise SetupError(
                     "That code didn't work. Codes last 10 minutes and work once; get a new one and try again."
                 ) from None
             raise SetupError(str(e)) from None
+
+    def save_pairing(self, server: str, token: str) -> str:
+        """Make `token` (from `redeem`) this computer's own Booth account; returns the computer's name."""
         config.update({"server": server, "device_token": token, "name": self._name})
         self._on_saved()
         return self._name
