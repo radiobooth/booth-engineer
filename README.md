@@ -27,7 +27,8 @@ file below, so nothing needs to be set in the environment.
 Booth's page is served only to this computer (on 127.0.0.1, behind a random key the app hands your
 browser); nothing on your network can reach it.
 
-**Plex on another computer, Linux or Docker?** See
+**Music on a NAS or another computer?** See
+[Music on another computer](docs/getting-started.md#music-on-another-computer). **Linux or Docker?** See
 [docs/other-setups.md](docs/other-setups.md).
 
 ### By hand

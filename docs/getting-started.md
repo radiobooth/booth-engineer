@@ -12,11 +12,24 @@ This takes about 10 minutes, once.
 
 ## What you need
 
-- **Your music**, on a Windows PC or a Mac: either in **Plex Media Server**, or simply as a folder of music
-  files (MP3, FLAC, M4A and the like). With Plex, Booth works best when it runs on the Plex computer. Plex on a
-  NAS, a Linux machine or another computer? See [Other ways to set up Booth](other-setups.md).
+- **Your music**, either in **Plex Media Server** or simply as a folder of music files (MP3, FLAC, M4A and
+  the like). It can be on any computer in your home: a NAS, a media PC, an old computer in a closet, or the
+  one in front of you.
+- **A Windows PC or a Mac to run Booth.** Either the computer your music is on, or any other one at home that
+  can reach it over your home network. It needs to be on and awake when you ask for a show, and doesn't need
+  to stay on otherwise.
 - **Your phone**, with the sign-in link you were sent.
-- That computer switched on and awake when you ask for a show. It doesn't need to stay on otherwise.
+
+### Where should Booth run?
+
+- **On the computer with your music** (it runs Plex, or your music folder is on its own drive): everything
+  is found for you. Follow the steps below as they are.
+- **On another computer on your home network**, when your music lives on a NAS or another machine: this
+  works just as well. You connect that computer to the shared folder once, and paste its path into Booth.
+  Read [Music on another computer](#music-on-another-computer) first, then follow the steps below.
+
+If your NAS can run apps itself (Docker), or the music computer runs Linux, Booth can run there too: see
+[Other ways to set up Booth](other-setups.md).
 
 ## 1. Sign in on your phone
 
@@ -55,11 +68,13 @@ Radio Booth. (Booth never sees your Plex password.) Then come back to Booth's ta
 Plex server or music library, click the one with your music.
 
 Booth then adds a small library to Plex called **Radio Booth**. The DJ's voice clips go there, so they never
-mix into your own music.
+mix into your own music. If Plex runs on another computer, Booth asks where that library's folder is from this
+computer instead: see [Music on another computer](#music-on-another-computer).
 
 **Your music in a folder.** Click **It's in a folder**. Type (or paste) the folder your music is in, and the
 folder for your shows; Booth suggests both. To copy a folder's path, click the address bar in File Explorer,
-or in Finder select the folder, hold **Option** and choose **Copy as Pathname**. Click **Use these folders**,
+or in Finder select the folder, hold **Option** and choose **Copy as Pathname**. A shared folder on a NAS or
+another computer works too ([how](#with-a-folder)). Click **Use these folders**,
 and Booth starts reading your music's tags, with a progress bar. A big collection takes a while the first time
 (tens of minutes for tens of thousands of songs); after that Booth only reads what's new. You can do the next
 step meanwhile. Each show arrives in your shows folder as a playlist: open it in your music player
@@ -101,6 +116,74 @@ stars and, if you like, a note. Below that are the show's breaks (the bits where
 same as in Plex. If the DJ got something wrong, said a name wrong, sounded off, or went on too long, tap
 **Flag this break** and pick what happened. That's the most useful thing you can do for us: every rating and
 flag is read.
+
+## Music on another computer
+
+Your music is on a NAS, a media PC or another computer, and Booth runs on a Windows PC or Mac in the same home.
+Booth reaches your music over your home network; nothing is opened to the internet.
+
+### With Plex
+
+Booth reads your library from Plex over the network by itself. The one thing it needs is a folder for the DJ's
+breaks that **Plex watches and this computer can write to**, so you set that up once.
+
+**On the Plex side:**
+
+1. **Make a folder for the breaks** on the Plex computer, or on a drive it uses. Call it `Radio Booth`.
+   Keep it outside your music folders, so the DJ never shows up among your own songs. For example, on a
+   Synology NAS: a `Radio Booth` folder inside your shared folder for audio.
+2. **Add it to Plex as a music library named exactly `Radio Booth`.** In Plex, click **+** next to your
+   libraries (or **Settings > Manage > Libraries > Add Library**), choose **Music**, name it
+   `Radio Booth`, and add the folder from step 1.
+3. **Make sure your computer can write to it.** On a NAS, the folder is usually already in a shared folder;
+   check that the account you use from your computer can write there. Plex itself only needs to read it. (On
+   a Synology NAS, the Plex package needs read permission on that shared folder: **Control Panel > Shared
+   Folder > Edit > Permissions**, then the user `PlexMediaServer`.)
+
+**On the computer running Booth:**
+
+1. **Connect to the shared folder and copy its path** (see [Copying a shared folder's path](#copying-a-shared-folders-path)).
+2. **Download and open Booth** and click **It's in Plex**, as in steps 2 to 4 above. Booth notices that Plex
+   runs on another computer, shows where the `Radio Booth` folder is there, and asks **where that same folder
+   is from this computer**. Paste the path you copied.
+
+If Booth instead says to make a folder and a library, the `Radio Booth` library isn't in Plex yet (or has a
+different name). Do the Plex side above, then try again.
+
+### With a folder
+
+1. **Connect to the shared folder your music is in, and copy its path** (see below).
+2. **Click It's in a folder** on Booth's page and paste it as your music folder.
+3. **For the shows folder**, either keep the one Booth suggests on this computer, or put it on the NAS too
+   (for example a `Booth shows` folder next to your music), so other computers and players at home can open
+   the shows. Booth writes playlists that work from any computer that sees the same folder.
+
+The first read of a big collection over the network takes longer than from a local drive; Booth shows a
+progress bar, and after that it only reads what's new.
+
+### Copying a shared folder's path
+
+- **Windows:** in File Explorer, go to **Network**, then your NAS or other computer, then the folder. Hold
+  **Shift**, right-click the folder and choose **Copy as path**. It looks like `"\\MyNAS\audio\Radio Booth"`.
+  Use this kind of address rather than a drive letter like `Z:`, which may not be connected yet when Booth
+  starts.
+- **Mac:** in Finder, choose **Go > Connect to Server**, type `smb://` and the NAS or computer's name (for
+  example `smb://mynas.local`), and pick the shared folder. Then find the folder, hold **Option**, right-click
+  it and choose **Copy "…" as Pathname**. It looks like `/Volumes/audio/Radio Booth`.
+
+### Keep the shared folder connected
+
+Booth uses that folder for every show, so it must be connected whenever Booth makes one. If it isn't, the show
+says **Didn't work** on your phone; reconnect the folder and ask again.
+
+- **Windows:** a `\\MyNAS\...` address reconnects by itself once your computer is signed in and on the
+  network. If your NAS asks for a password, tick **Remember my credentials** the first time.
+- **Mac:** shared folders don't reconnect by themselves after a restart. To make them, open
+  **System Settings > General > Login Items**, click **+** under "Open at Login", and choose the shared
+  folder (it's under **Locations** in the Finder sidebar while connected). If your Mac asks whether Radio
+  Booth may access files on a network volume, click **Allow**.
+
+Both computers need to be at home, on the same network. A shared folder across the internet isn't supported.
 
 ## Sharing Booth with someone in your home
 
