@@ -142,10 +142,8 @@ def still_signed_in(url: str, token: str) -> bool:
 
 def remote_breaks_dir(breaks: dict | None, server_name: str | None, ask) -> str:
     """Plex runs on another computer: the breaks folder has to be one both can reach."""
-    say(f"\nYour Plex server {server_name!r} runs on another computer. The easiest way to use Booth is to")
-    say(
-        "run it on that computer instead. To keep going here, Booth needs a shared folder that Plex sees too:"
-    )
+    say(f"\nYour Plex server {server_name!r} runs on another computer, so Booth needs a shared folder")
+    say("for the DJ's breaks that Plex sees too:")
     if breaks is None:
         say("  1. Make a folder on the Plex computer (or a drive it uses), e.g. 'Radio Booth'.")
         say(f"  2. In Plex, add a Music library named {onboard.BREAKS_LIBRARY!r} for that folder.")

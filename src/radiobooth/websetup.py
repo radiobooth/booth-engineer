@@ -208,10 +208,10 @@ class WebSetup:
             self._save_plex(path)
         elif breaks is None:
             raise SetupError(
-                f"Your Plex server {self._server.get('name')!r} runs on another computer. The easiest way to"
-                " use Booth is to run it on that computer instead. To use it here, make a folder on the Plex"
-                f" computer, add a Music library named {ob.BREAKS_LIBRARY!r} for it in Plex, share the folder"
-                " so this computer can open it, then try again."
+                f"Your Plex server {self._server.get('name')!r} runs on another computer, so Booth needs a"
+                " folder for the DJ's breaks that both can reach. Make a folder on the Plex computer, add a"
+                f" Music library named {ob.BREAKS_LIBRARY!r} for it in Plex, share the folder so this"
+                " computer can open it, then try again."
             )
         else:
             self.folder_hint = (
