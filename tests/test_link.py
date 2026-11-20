@@ -586,11 +586,11 @@ def test_a_forgotten_own_account_stops_everything():
 # A show as one file, for the listener's phone
 
 
-def file_station(log, made=None, fail=None, busy=None):
+def file_station(log, made=None, fail=None, busy=None, fresh=False):
     def one_file(show_id, title):
         if fail:
             raise fail
-        return made
+        return made, fresh
 
     return Station(catalog=lambda: {}, deliver=lambda d: "", log=log.append, one_file=one_file, busy=busy)
 
@@ -662,7 +662,7 @@ def test_a_file_already_on_its_way_isnt_sent_twice(dj, tmp_path):
 
     def slow(show_id, title):
         gate.wait(10)
-        return made
+        return made, False
 
     log = []
     st = Station(catalog=lambda: {}, deliver=lambda d: "", log=log.append, one_file=slow)
@@ -714,8 +714,31 @@ def test_the_file_is_held_while_it_uploads(dj, tmp_path):
 
     def one_file(show_id, title):
         held.append(lock.locked())
-        return made
+        return made, False
 
     st = Station(catalog=lambda: {}, deliver=lambda d: "", log=lambda m: None, one_file=one_file, mixing=lock)
     send(dj, st)
     assert held == [True] and not lock.locked() and dj.file_calls[-1][2] == {"ok": True}
+
+
+def test_a_file_made_only_for_the_phone_is_deleted_once_sent(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    made.with_suffix(".cue").write_text("FILE")
+    send(dj, file_station([], made, fresh=True))
+    assert dj.file_calls[-1][2] == {"ok": True}
+    assert not made.exists() and not made.with_suffix(".cue").exists()
+    kept = tmp_path / "Kept.mp3"  # one made on Booth's page stays
+    kept.write_bytes(b"ID3")
+    send(dj, file_station([], kept), {"show_id": "show_k", "action": "send_file", "title": "x"})
+    assert kept.exists()
+
+
+def test_booth_dj_refusing_a_step_fails_the_file_instead_of_retrying(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    dj.file_replies["upload"] = (400, {"error": "bytes must be the file's size"})
+    log = []
+    send(dj, file_station(log, made))
+    assert [step for _, step, *_ in dj.file_calls] == ["making", "upload", "result"]
+    assert dj.file_calls[-1][2] == {"ok": False, "error": FILE_FAILURE}

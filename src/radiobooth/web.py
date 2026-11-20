@@ -270,10 +270,14 @@ class App:
                     "Booth is copying that show or making it into one file. Wait for that to finish, then"
                     " remove it."
                 )
-            if link_sending(show_id):
-                raise SetupError(
-                    "Booth is sending that show to a phone. Wait for that to finish, then remove it."
+            # And holding MIXING, so a file for a phone can't be made or sent from it meanwhile.
+            if not playlist_target.MIXING.acquire(blocking=False):
+                what = (
+                    "sending that show to a phone"
+                    if link_sending(show_id)
+                    else "busy making a show into a file"
                 )
+                raise SetupError(f"Booth is {what}. Wait for that to finish, then remove it.")
             try:
                 if plex is None:
                     shows = engine.folder_settings(settings)[0]["shows"]
@@ -292,6 +296,8 @@ class App:
                 raise SetupError(f"Couldn't remove that show from Plex ({e}).") from None
             except OSError as e:
                 raise SetupError(f"Couldn't remove that show ({e.strerror or e}).") from None
+            finally:
+                playlist_target.MIXING.release()
         if not gone:
             raise SetupError(
                 "That show isn't in your Booth shows folder any more."

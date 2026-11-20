@@ -329,9 +329,11 @@ def run(args: argparse.Namespace) -> int:
         log(f"{people[i - 1]['name']}'s Booth account no longer knows this computer.")
 
     try:
-        run_desks(desks, once=args.once, unpaired=unpaired)
-        if args.once:
-            wait_sending()  # a file for a phone that check-in started finishes before Booth exits
+        try:
+            run_desks(desks, once=args.once, unpaired=unpaired)
+        finally:
+            if args.once:
+                wait_sending()  # a file for a phone that check-in started finishes before Booth exits
     except LinkError as e:
         hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
         print(f"booth run: {e}.{hint}", file=sys.stderr)

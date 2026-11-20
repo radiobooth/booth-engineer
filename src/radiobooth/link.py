@@ -234,9 +234,10 @@ class Station:
     unreported: dict[str, dict] = field(default_factory=dict)
     # The last problem logged for each show, so one that repeats every check-in is logged once.
     problems: dict[str, str] = field(default_factory=dict)
-    # A delivered show mixed into one MP3 (show id, title -> its path), for the listener's phone; None: this
-    # machine can't. It may take minutes, so it runs on a thread of its own (see send_file).
-    one_file: Callable[[str, str], Path] | None = None
+    # A delivered show mixed into one MP3 (show id, title -> its path, and whether it was made just now
+    # rather than found from Booth's page's Make one file), for the listener's phone; None: this machine
+    # can't. It may take minutes, so it runs on a thread of its own (see send_file).
+    one_file: Callable[[str, str], tuple[Path, bool]] | None = None
     busy: Callable[[bool], None] | None = None
     mixing: threading.Lock | None = None  # held while a file is made and uploaded (see send_file)
 
@@ -244,6 +245,9 @@ class Station:
 # Shows being sent as one file, across restarts of the check-in loop (which make new Stations).
 _sending: dict[str, threading.Thread] = {}
 _sending_lock = threading.Lock()
+# Files made only for a phone: deleted once uploaded, so they don't pile up in Copies/ (a file the person
+# made on Booth's page stays). Remembered across a retry, which finds the same file again.
+_phone_only: set[Path] = set()
 
 
 def sending(show_id: str | None = None) -> bool:
@@ -294,7 +298,9 @@ def _send_file(link: Link, station: Station, show_id: str, title: str) -> None:
         with station.mixing or contextlib.nullcontext():
             station.log(f"{show_id}: making {title!r} into one file for your phone...")
             try:
-                path = station.one_file(show_id, title)
+                path, fresh = station.one_file(show_id, title)
+                if fresh:
+                    _phone_only.add(path)
                 station.log(f"{show_id}: sending the file ({path.stat().st_size / 1e6:.0f} MB)...")
                 link.file_upload(show_id, path)
             except LinkError:
@@ -305,9 +311,21 @@ def _send_file(link: Link, station: Station, show_id: str, title: str) -> None:
                 return
         link.file_result(show_id, ok=True)
         station.log(f"{show_id}: the file is on its way to your phone.")
+        if path in _phone_only:
+            _phone_only.discard(path)
+            with contextlib.suppress(OSError):
+                path.unlink()
+                path.with_suffix(".cue").unlink(missing_ok=True)
     except LinkError as e:
         if e.status == 409:  # nobody's waiting for it any more (timed out, or asked again elsewhere)
-            station.log(f"{show_id}: the file isn't wanted any more.")
+            station.log(f"{show_id}: the file isn't wanted any more ({e}).")
+        elif e.status == 422:  # Booth DJ checked the upload and failed it; it says why on the phone
+            station.log(f"{show_id}: {e}")
+        elif e.status is not None and 400 <= e.status < 500 and e.status != 429:
+            # Booth DJ won't take this as it is; trying again would only repeat it.
+            station.log(f"{show_id}: {e}")
+            with contextlib.suppress(LinkError):
+                link.file_result(show_id, ok=False)
         else:
             station.log(f"{show_id}: {e} (Booth tries again shortly)")
     except Exception as e:  # noqa: BLE001 - a thread of its own: say what, and let the DJ ask again

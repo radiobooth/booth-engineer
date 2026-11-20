@@ -191,16 +191,15 @@ def station(
                 " Grant them access to it in Plex Web."
             )
 
-    def one_file(show_id: str, title: str) -> Path:
+    def one_file(show_id: str, title: str) -> tuple[Path, bool]:
         """The show mixed into one MP3 in Copies/, as Booth's page's Make one file does (or the one made
-        already), for the listener's phone. The caller holds MIXING."""
+        already), for the listener's phone, and whether it was made just now. The caller holds MIXING."""
         copies = copies_folder(settings)
         made = playlist_target.made_file(copies, show_id)
-        if made is None:
-            made = signed_in(
-                lambda: plex_target.one_file(plex, dest.expanduser(), copies, show_id, title)
-            ).path
-        return made
+        if made is not None:
+            return made, False
+        mixed = signed_in(lambda: plex_target.one_file(plex, dest.expanduser(), copies, show_id, title))
+        return mixed.path, True
 
     return Station(
         catalog=catalog,
@@ -270,13 +269,13 @@ def folder_station(
         finally:
             mark(False)
 
-    def one_file(show_id: str, title: str) -> Path:
-        """The show mixed into one MP3 in Copies/ (or the one made already), for the listener's phone. The
-        caller holds MIXING."""
+    def one_file(show_id: str, title: str) -> tuple[Path, bool]:
+        """The show mixed into one MP3 in Copies/ (or the one made already), for the listener's phone, and
+        whether it was made just now. The caller holds MIXING."""
         made = playlist_target.made_file(shows.resolve() / playlist_target.COPIES, show_id)
-        if made is None:
-            made = playlist_target.one_file(shows, show_id).path
-        return made
+        if made is not None:
+            return made, False
+        return playlist_target.one_file(shows, show_id).path, True
 
     return Station(
         catalog=catalog,

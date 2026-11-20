@@ -867,7 +867,7 @@ def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypa
     from radiobooth import engine as booth_engine
 
     st = booth_engine.station(config.load(), lambda m: None)
-    assert st.one_file("show_abcdef123456", "") == one
+    assert st.one_file("show_abcdef123456", "") == (one, False)
     with playlist.MIXING:
         status, data = act(port, key, "copy_show", {"show_id": "show_abcdef123456"})
         assert status == 422 and "for a phone" in data["error"]

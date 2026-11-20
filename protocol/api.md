@@ -139,8 +139,11 @@ delivered it, until the file is in. Booth Engineer then, on a thread of its own 
 4. `POST /v0/shows/{show_id}/file/result` `{"ok": true}`, or `{"ok": false, "error": "Making the file failed
    on this machine; ..."}` (a fixed sentence, as for deliveries; the reason stays in Booth's log) → `204`.
 
-Any of these answers `409` once nobody's waiting for the file any more (it timed out, say); Booth Engineer then
-stops. If the network drops, it stops too, and starts over when the next check-in asks again.
+Any of these answers `409` once nobody's waiting for the file any more (it timed out, say), and `result`
+answers `422` when the upload didn't arrive whole (Booth DJ has failed the file); Booth Engineer then stops.
+Another refusal makes it report the file as failed. If the network drops, it stops too, and starts over when
+the next check-in asks again. A file it made only for the phone (not one made on Booth's page) is deleted
+from this computer once it's sent.
 
 Only you can download it, signed in on the phone page, through a link that works for 15 minutes. Radio Booth
 deletes the file an hour after the first download, or after a day if it isn't downloaded. An ask fails if
