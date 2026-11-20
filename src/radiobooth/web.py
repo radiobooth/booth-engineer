@@ -324,11 +324,26 @@ class App:
                 raise SetupError(
                     "Booth is copying a show or making one into a file already. Wait for that one to finish."
                 )
-            self.copy = {"show_id": show_id, "kind": kind, "done": 0, "total": 0, "finished": False}
-        threading.Thread(target=self._copy, args=(run, kind), name="booth-copy", daemon=True).start()
+            if not playlist_target.MIXING.acquire(blocking=False):
+                raise SetupError(
+                    "Booth is making a show into one file for a phone right now. Try again when that's done."
+                )
+            try:
+                self.copy = {"show_id": show_id, "kind": kind, "done": 0, "total": 0, "finished": False}
+                threading.Thread(target=self._copy, args=(run, kind), name="booth-copy", daemon=True).start()
+            except BaseException:
+                playlist_target.MIXING.release()
+                raise
 
     def _copy(self, run: Callable, kind: str) -> None:
-        """`run(progress)` copies the show (`kind` "folder") or makes it into one file."""
+        """`run(progress)` copies the show (`kind` "folder") or makes it into one file. Holds MIXING, taken
+        by copy_show, and lets it go when done."""
+        try:
+            self._copy_holding(run, kind)
+        finally:
+            playlist_target.MIXING.release()
+
+    def _copy_holding(self, run: Callable, kind: str) -> None:
 
         def progress(done: int, total: int) -> None:
             self.copy = self.copy | {"done": done, "total": total}

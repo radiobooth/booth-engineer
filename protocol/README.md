@@ -21,8 +21,11 @@ other person sharing your Booth Engineer, so their shows keep their own history)
 catalog, as each track's `last_in_show_at`, so Booth DJ forgets it along with the catalog. Delete the file
 to start the history over.
 
-What never leaves your machine: audio, file paths, your music server's address or token. Track ids are
-opaque; Booth Engineer maps them back to files locally.
+What never leaves your machine: file paths, your music server's address or token, and audio, with one
+exception: when you ask on your phone to download a show you've had delivered, Booth Engineer mixes that show
+into one MP3 and uploads it for your phone to fetch, and Radio Booth deletes it an hour after you download it
+(or after a day). See [api.md](api.md#downloading-a-show-on-your-phone). Track ids are opaque; Booth
+Engineer maps them back to files locally.
 
 Rules the schemas can't express:
 

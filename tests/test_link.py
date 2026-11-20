@@ -13,7 +13,19 @@ from test_deliver import make_show
 
 from radiobooth import config
 from radiobooth.cli import main
-from radiobooth.link import GENERIC_FAILURE, Link, LinkError, PackageError, Station, handle, run, run_all
+from radiobooth.link import (
+    FILE_FAILURE,
+    GENERIC_FAILURE,
+    Link,
+    LinkError,
+    PackageError,
+    Station,
+    handle,
+    run,
+    run_all,
+    send_file,
+    sending,
+)
 
 
 class FakeDJ:
@@ -22,6 +34,7 @@ class FakeDJ:
     def __init__(self):
         self.calls, self.queue, self.pairs = [], [], []
         self.catalogs, self.results, self.files = [], [], {}
+        self.file_calls, self.uploads, self.file_replies = [], {}, {}
         dj = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -56,6 +69,17 @@ class FakeDJ:
                         return self.reply(401, {"error": "Unknown Booth Engineer"})
                     shows = dj.queue.pop(0) if dj.queue else []
                     return self.reply(200, {"next_checkin_s": 10, "shows": shows})
+                if "/file/" in self.path:
+                    step = self.path.rsplit("/", 1)[1]
+                    show_id = self.path.split("/")[3]
+                    dj.file_calls.append((show_id, step, data, self.headers.get("Authorization")))
+                    status, reply = dj.file_replies.get(step, (200, None))
+                    if step == "upload" and reply is None:
+                        reply = {
+                            "url": f"{dj.url}/upload/{show_id}?sig=1",
+                            "headers": {"Content-Type": "audio/mpeg"},
+                        }
+                    return self.reply(status, reply) if reply is not None else self.reply(204, raw=b"")
                 if self.path.endswith("/result"):
                     dj.results.append((self.path.split("/")[3], data))
                     return self.reply(204, raw=b"")
@@ -63,6 +87,9 @@ class FakeDJ:
 
             def do_PUT(self):
                 dj.calls.append(("PUT", self.path, self.headers.get("Authorization")))
+                if self.path.startswith("/upload/"):
+                    dj.uploads[self.path.split("/")[2].split("?")[0]] = (self.body(), dict(self.headers))
+                    return self.reply(200, raw=b"")
                 assert self.headers.get("Content-Encoding") == "gzip"
                 dj.catalogs.append(json.loads(gzip.decompress(self.body())))
                 self.reply(202, {"status": "making"})
@@ -551,3 +578,103 @@ def test_a_forgotten_own_account_stops_everything():
     with pytest.raises(LinkError):
         run_all([(own, station([])), (theirs, station([]))], sleep=lambda s: None, unpaired=lambda i: None)
     assert seen == ["own"]
+
+
+# A show as one file, for the listener's phone
+
+
+def file_station(log, made=None, fail=None, busy=None):
+    def one_file(show_id, title):
+        if fail:
+            raise fail
+        return made
+
+    return Station(catalog=lambda: {}, deliver=lambda d: "", log=log.append, one_file=one_file, busy=busy)
+
+
+def send(dj, station_, item=None):
+    item = item or {"show_id": "show_f", "status": "delivered", "action": "send_file", "title": "Wipers"}
+    thread = handle(Link(dj.url, "be_secret"), station_, item)
+    from radiobooth import link as link_module
+
+    running = link_module._sending.get(item["show_id"])
+    if running:
+        running.join(10)
+    return thread
+
+
+def test_a_show_goes_to_the_phone_as_one_file(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3" + b"x" * 5000)
+    log, marks = [], []
+    send(dj, file_station(log, made, busy=marks.append))
+    steps = [(show, step, data) for show, step, data, _ in dj.file_calls]
+    assert steps == [
+        ("show_f", "making", {}),
+        ("show_f", "upload", {"bytes": 5003}),
+        ("show_f", "result", {"ok": True}),
+    ]
+    body, headers = dj.uploads["show_f"]
+    assert body == made.read_bytes() and headers["Content-Type"] == "audio/mpeg"
+    # The signed upload link carries no token; the API calls do.
+    assert "Authorization" not in headers
+    assert all(auth == "Bearer be_secret" for *_, auth in dj.file_calls)
+    assert marks == [True, False]
+    assert any("on its way to your phone" in line for line in log)
+
+
+def test_a_file_that_cant_be_made_is_reported_without_details(dj):
+    log = []
+    send(dj, file_station(log, fail=OSError("C:/Users/me/Booth shows is full")))
+    (show, step, data, _), *_ = dj.file_calls[1:]
+    assert step == "result" and data == {"ok": False, "error": FILE_FAILURE}
+    assert any("is full" in line for line in log)  # the reason stays here
+    assert dj.uploads == {}
+
+
+def test_a_file_nobody_wants_any_more_stops_quietly(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    dj.file_replies["making"] = (409, {"error": "Nobody is waiting"})
+    log = []
+    send(dj, file_station(log, made))
+    assert [step for _, step, *_ in dj.file_calls] == ["making"]
+    assert any("isn't wanted any more" in line for line in log)
+
+
+def test_an_upload_link_must_be_https(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    dj.file_replies["upload"] = (200, {"url": "http://storage.example/x?sig=1"})
+    log = []
+    send(dj, file_station(log, made))
+    assert [step for _, step, *_ in dj.file_calls] == ["making", "upload", "result"]
+    assert dj.file_calls[-1][2] == {"ok": False, "error": FILE_FAILURE} and dj.uploads == {}
+
+
+def test_a_file_already_on_its_way_isnt_sent_twice(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    gate = threading.Event()
+
+    def slow(show_id, title):
+        gate.wait(10)
+        return made
+
+    log = []
+    st = Station(catalog=lambda: {}, deliver=lambda d: "", log=log.append, one_file=slow)
+    link = Link(dj.url, "be_secret")
+    item = {"show_id": "show_twice", "action": "send_file", "title": "x"}
+    first = send_file(link, st, item)
+    assert first is not None and sending()
+    assert send_file(link, st, item) is None  # the next check-in asks again: it's under way
+    gate.set()
+    first.join(10)
+    assert not sending()
+    assert [step for _, step, *_ in dj.file_calls].count("making") == 1
+
+
+def test_a_machine_that_cant_make_files_ignores_the_ask(dj):
+    st = Station(catalog=lambda: {}, deliver=lambda d: "", log=lambda m: None)
+    assert send_file(Link(dj.url, "be_secret"), st, {"show_id": "show_x", "action": "send_file"}) is None
+    assert dj.file_calls == []

@@ -21,6 +21,7 @@ import errno
 import os
 import re
 import shutil
+import threading
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -32,6 +33,8 @@ from radiobooth.targets.plex import folder_name, load_package
 MARK = "#BOOTH-SHOW:"  # show id, on its own line in each playlist Booth writes
 BREAKS = "breaks"
 COPIES = "Copies"  # in the shows folder: shows copied whole, to take along
+# One copy or one-file mix at a time, whether Booth's page asked for it or a phone did (they share Copies/).
+MIXING = threading.Lock()
 FILE_MARK = "BOOTH-SHOW"  # the ID3 TXXX tag a one-file show keeps its show id in
 # Names Windows keeps for devices, with or without an extension.
 _RESERVED = {"con", "prn", "aux", "nul", *(f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10))}
@@ -346,6 +349,15 @@ def file_show(path: Path) -> str | None:
     except (OSError, MutagenError, ValueError):  # not tagged, or tagged in a way mutagen doesn't read
         return None
     return str(marks[0].text[0]) if marks and marks[0].text else None
+
+
+def made_file(copies: Path, show_id: str) -> Path | None:
+    """The show's one file, if it's been made already (it's only ever in place once it's whole)."""
+    try:
+        found = [p for p in copies.glob("*.mp3") if not p.name.startswith(".")]
+    except OSError:
+        return None
+    return next((p for p in sorted(found) if p.is_file() and file_show(p) == show_id), None)
 
 
 def one_file_path(copies: Path, title: str, show_id: str) -> Path:

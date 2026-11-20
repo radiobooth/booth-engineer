@@ -203,6 +203,14 @@ breaks won't play for them; Booth tells you if they can't. To stop, click **Remo
 name. If they also run Booth on a computer of their own, shows they ask for on their phone may go to either
 one, so it's simplest to keep just one.
 
+## Listening away from home
+
+If it's switched on for you (testers, for now), each show that reached your computer has **Get the file** on
+the phone page. Booth, on the computer at home, mixes the show into one MP3 and sends it to your phone, which
+takes a minute or two (the computer has to be on). Then tap **Download**. On an iPhone the file goes to
+**Files › Downloads**; on Android, to **Downloads**. Radio Booth deletes its copy an hour after you download
+it, or after a day if you don't.
+
 ## What Booth sends, and what it doesn't
 
 When you ask for a show, and only then, Booth sends the details of your music library: titles, artists,
@@ -215,7 +223,9 @@ let them train on it.
 Radio Booth does keep a short record of each show: what you asked for, its title, whether it reached Plex,
 and what it cost to make.
 
-Your music files never leave your computer. Booth only ever connects out: to Plex, to Radio Booth, and to
+Your music files never leave your computer, unless you ask to download a show on your phone: then that one
+show, mixed into one MP3, goes up to Radio Booth for your phone to fetch, and Radio Booth deletes it an hour
+after you download it (or after a day, if you don't). Booth only ever connects out: to Plex, to Radio Booth, and to
 GitHub to check for updates. Nothing on the internet, or on your home network, can connect in to your
 computer through it. Booth's page is shown only on the computer Booth runs on.
 

@@ -20,6 +20,7 @@ from pathlib import Path
 from radiobooth import config, history, plexshare
 from radiobooth.link import Link, LinkError, Station
 from radiobooth.link import run_all as run_desks
+from radiobooth.link import sending as link_sending
 from radiobooth.sources import folder as folder_source
 from radiobooth.sources import plex as plex_source
 from radiobooth.sources.plex import PlexAuthError, PlexClient
@@ -190,7 +191,27 @@ def station(
                 " Grant them access to it in Plex Web."
             )
 
-    return Station(catalog=catalog, deliver=deliver_show, log=log)
+    def one_file(show_id: str, title: str) -> Path:
+        """The show mixed into one MP3 in Copies/, as Booth's page's Make one file does (or the one made
+        already), for the listener's phone."""
+        copies = copies_folder(settings)
+        with playlist_target.MIXING:
+            made = playlist_target.made_file(copies, show_id)
+            if made is None:
+                made = signed_in(
+                    lambda: plex_target.one_file(plex, dest.expanduser(), copies, show_id, title)
+                ).path
+        return made
+
+    return Station(catalog=catalog, deliver=deliver_show, log=log, one_file=one_file, busy=mark)
+
+
+def copies_folder(settings: dict) -> Path:
+    """Where copies and one-file shows of Plex shows go: Copies/ in the Booth shows folder."""
+    from radiobooth.websetup import default_shows_folder
+
+    shows = setting(settings, "BOOTH_SHOWS_FOLDER", "shows_folder")
+    return (Path(shows) if shows else default_shows_folder()).expanduser() / playlist_target.COPIES
 
 
 class FolderBusy(Exception):
@@ -243,7 +264,15 @@ def folder_station(
         finally:
             mark(False)
 
-    return Station(catalog=catalog, deliver=deliver_show, log=log)
+    def one_file(show_id: str, title: str) -> Path:
+        """The show mixed into one MP3 in Copies/ (or the one made already), for the listener's phone."""
+        with playlist_target.MIXING:
+            made = playlist_target.made_file(shows.resolve() / playlist_target.COPIES, show_id)
+            if made is None:
+                made = playlist_target.one_file(shows, show_id).path
+        return made
+
+    return Station(catalog=catalog, deliver=deliver_show, log=log, one_file=one_file, busy=mark)
 
 
 def desks(
@@ -332,8 +361,9 @@ class Engine:
 
     @property
     def busy(self) -> bool:
-        """Reading the library or delivering a show: not a moment to restart for an update."""
-        return self._busy > 0
+        """Reading the library, delivering a show or sending one to a phone: not a moment to restart for an
+        update."""
+        return self._busy > 0 or link_sending()
 
     def log(self, msg: str) -> None:
         line = f"{time.strftime('%H:%M:%S')} {msg}"

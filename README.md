@@ -10,8 +10,9 @@ talking between songs.
 
 Booth Engineer runs next to your music: in Plex, or in a plain folder of music files. When you ask for a
 show, it reads your library's metadata and sends it to the Booth DJ service, picks up the finished show, puts
-the DJ breaks where your player can see them and builds the playlist. It only makes outbound connections, your music never leaves your machine, and your server is never
-exposed to the internet.
+the DJ breaks where your player can see them and builds the playlist. It only makes outbound connections, your music never leaves your machine (unless you ask to download a show
+on your phone: then that one show goes, as one file, and Radio Booth deletes it soon after), and your server
+is never exposed to the internet.
 
 Status: early development. Exactly what is sent, and when, is in [`protocol/`](protocol/).
 

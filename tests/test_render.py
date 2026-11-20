@@ -179,6 +179,10 @@ def test_one_file_lands_in_copies_and_goes_with_remove(tmp_path):
     assert playlist.file_show(made.path) == "show_abc"
     assert str(MP3(str(made.path)).tags["TPE1"]) == "Penrose"
     assert playlist.one_file(shows, "show_abc").path == made.path  # made again, it replaces itself
+    # Asked for again (for a phone, say), the file made already is found.
+    assert playlist.made_file(shows.resolve() / "Copies", "show_abc") == made.path
+    assert playlist.made_file(shows.resolve() / "Copies", "show_other") is None
+    assert playlist.made_file(tmp_path / "nowhere", "show_abc") is None
 
     assert playlist.remove(shows, "show_abc")
     assert not made.path.exists() and other.exists()
