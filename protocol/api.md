@@ -135,7 +135,7 @@ delivered it, until the file is in. Booth Engineer then, on a thread of its own 
 2. Makes the file, or uses the one already in `Copies/` for that show.
 3. `POST /v0/shows/{show_id}/file/upload` `{"bytes": 123456789}` → `{"url": "https://signed-url",
    "headers": {"Content-Type": "audio/mpeg"}}`, then `PUT`s the file to that signed link with those headers and
-   no token. The link goes straight to Radio Booth's storage and works for an hour.
+   no token. The link goes straight to Radio Booth's storage and works for three hours.
 4. `POST /v0/shows/{show_id}/file/result` `{"ok": true}`, or `{"ok": false, "error": "Making the file failed
    on this machine; ..."}` (a fixed sentence, as for deliveries; the reason stays in Booth's log) → `204`.
 
@@ -143,8 +143,10 @@ Any of these answers `409` once nobody's waiting for the file any more (it timed
 stops. If the network drops, it stops too, and starts over when the next check-in asks again.
 
 Only you can download it, signed in on the phone page, through a link that works for 15 minutes. Radio Booth
-deletes the file an hour after the first download, or after a day if it isn't downloaded, and fails an ask
-that this computer doesn't pick up within 10 minutes or finish within an hour.
+deletes the file an hour after the first download, or after a day if it isn't downloaded. An ask fails if
+this computer doesn't pick it up within 10 minutes, takes more than an hour to make the file, or doesn't finish the
+upload before its link runs out. Booth DJ offers **Get the file** only for shows delivered by Booth Engineer
+0.5.0 or later.
 
 ## What Booth DJ does with the rest
 
