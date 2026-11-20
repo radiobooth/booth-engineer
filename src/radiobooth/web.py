@@ -35,6 +35,7 @@ from pathlib import Path
 
 from radiobooth import __version__, autostart, config, engine, history, onboard, page, plexshare, qr, update
 from radiobooth.link import Link, LinkError
+from radiobooth.link import sending as link_sending
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError
 from radiobooth.targets import playlist as playlist_target
@@ -269,6 +270,10 @@ class App:
                     "Booth is copying that show or making it into one file. Wait for that to finish, then"
                     " remove it."
                 )
+            if link_sending(show_id):
+                raise SetupError(
+                    "Booth is sending that show to a phone. Wait for that to finish, then remove it."
+                )
             try:
                 if plex is None:
                     shows = engine.folder_settings(settings)[0]["shows"]
@@ -339,11 +344,15 @@ class App:
         """`run(progress)` copies the show (`kind` "folder") or makes it into one file. Holds MIXING, taken
         by copy_show, and lets it go when done."""
         try:
-            self._copy_holding(run, kind)
+            outcome, folder = self._copy_holding(run, kind)
         finally:
-            playlist_target.MIXING.release()
+            playlist_target.MIXING.release()  # before it says finished, so a click then finds it free
+        self.copy = self.copy | outcome | {"finished": True}
+        if folder is not None:
+            self.open_folder(folder)
 
-    def _copy_holding(self, run: Callable, kind: str) -> None:
+    def _copy_holding(self, run: Callable, kind: str) -> tuple[dict, Path | None]:
+        """How the copy went, for `self.copy`, and the folder to open."""
 
         def progress(done: int, total: int) -> None:
             self.copy = self.copy | {"done": done, "total": total}
@@ -355,15 +364,11 @@ class App:
             else:
                 folder, done = made.folder, {}
         except (playlist_target.PlaylistError, PlexError) as e:
-            self.copy = self.copy | {"finished": True, "error": str(e)}
-            return
+            return {"error": str(e)}, None
         except Exception as e:  # noqa: BLE001  # a show that can't be copied must never stop the app
             what = "make that show into one file" if kind == "file" else "copy that show"
-            said = f"Couldn't {what} ({getattr(e, 'strerror', None) or e})."
-            self.copy = self.copy | {"finished": True, "error": said}
-            return
-        self.copy = self.copy | done | {"finished": True, "folder": str(folder), "missing": made.missing}
-        self.open_folder(folder)
+            return {"error": f"Couldn't {what} ({getattr(e, 'strerror', None) or e})."}, None
+        return done | {"folder": str(folder), "missing": made.missing}, folder
 
     def _link(self, settings: dict | None = None, who: str | None = None) -> Link:
         """The link for this computer's own account, or (`who`) for another person sharing it."""

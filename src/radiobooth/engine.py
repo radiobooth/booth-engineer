@@ -193,17 +193,23 @@ def station(
 
     def one_file(show_id: str, title: str) -> Path:
         """The show mixed into one MP3 in Copies/, as Booth's page's Make one file does (or the one made
-        already), for the listener's phone."""
+        already), for the listener's phone. The caller holds MIXING."""
         copies = copies_folder(settings)
-        with playlist_target.MIXING:
-            made = playlist_target.made_file(copies, show_id)
-            if made is None:
-                made = signed_in(
-                    lambda: plex_target.one_file(plex, dest.expanduser(), copies, show_id, title)
-                ).path
+        made = playlist_target.made_file(copies, show_id)
+        if made is None:
+            made = signed_in(
+                lambda: plex_target.one_file(plex, dest.expanduser(), copies, show_id, title)
+            ).path
         return made
 
-    return Station(catalog=catalog, deliver=deliver_show, log=log, one_file=one_file, busy=mark)
+    return Station(
+        catalog=catalog,
+        deliver=deliver_show,
+        log=log,
+        one_file=one_file,
+        busy=mark,
+        mixing=playlist_target.MIXING,
+    )
 
 
 def copies_folder(settings: dict) -> Path:
@@ -265,14 +271,21 @@ def folder_station(
             mark(False)
 
     def one_file(show_id: str, title: str) -> Path:
-        """The show mixed into one MP3 in Copies/ (or the one made already), for the listener's phone."""
-        with playlist_target.MIXING:
-            made = playlist_target.made_file(shows.resolve() / playlist_target.COPIES, show_id)
-            if made is None:
-                made = playlist_target.one_file(shows, show_id).path
+        """The show mixed into one MP3 in Copies/ (or the one made already), for the listener's phone. The
+        caller holds MIXING."""
+        made = playlist_target.made_file(shows.resolve() / playlist_target.COPIES, show_id)
+        if made is None:
+            made = playlist_target.one_file(shows, show_id).path
         return made
 
-    return Station(catalog=catalog, deliver=deliver_show, log=log, one_file=one_file, busy=mark)
+    return Station(
+        catalog=catalog,
+        deliver=deliver_show,
+        log=log,
+        one_file=one_file,
+        busy=mark,
+        mixing=playlist_target.MIXING,
+    )
 
 
 def desks(

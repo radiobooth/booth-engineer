@@ -293,7 +293,7 @@ def pair(args: argparse.Namespace) -> int:
 
 def run(args: argparse.Namespace) -> int:
     from radiobooth import config, engine
-    from radiobooth.link import Link, LinkError
+    from radiobooth.link import Link, LinkError, wait_sending
     from radiobooth.link import run_all as run_desks
 
     settings = config.load()
@@ -330,6 +330,8 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         run_desks(desks, once=args.once, unpaired=unpaired)
+        if args.once:
+            wait_sending()  # a file for a phone that check-in started finishes before Booth exits
     except LinkError as e:
         hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
         print(f"booth run: {e}.{hint}", file=sys.stderr)

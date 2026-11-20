@@ -87,6 +87,9 @@ class FakeDJ:
 
             def do_PUT(self):
                 dj.calls.append(("PUT", self.path, self.headers.get("Authorization")))
+                if self.path.startswith("/refuse/"):
+                    self.body()
+                    return self.reply(403, raw=b"<Error>SignatureDoesNotMatch</Error>")
                 if self.path.startswith("/upload/"):
                     dj.uploads[self.path.split("/")[2].split("?")[0]] = (self.body(), dict(self.headers))
                     return self.reply(200, raw=b"")
@@ -678,3 +681,41 @@ def test_a_machine_that_cant_make_files_ignores_the_ask(dj):
     st = Station(catalog=lambda: {}, deliver=lambda d: "", log=lambda m: None)
     assert send_file(Link(dj.url, "be_secret"), st, {"show_id": "show_x", "action": "send_file"}) is None
     assert dj.file_calls == []
+
+
+def test_storage_refusing_the_upload_fails_the_file_once(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    dj.file_replies["upload"] = (200, {"url": f"{dj.url}/refuse/show_f?sig=1"})
+    log = []
+    send(dj, file_station(log, made))
+    assert [step for _, step, *_ in dj.file_calls] == ["making", "upload", "result"]
+    assert dj.file_calls[-1][2] == {"ok": False, "error": FILE_FAILURE}
+    assert any("HTTP 403" in line for line in log)
+
+
+def test_upload_headers_are_read_whatever_their_case(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    dj.file_replies["upload"] = (
+        200,
+        {"url": f"{dj.url}/upload/show_f?sig=1", "headers": {"content-type": "audio/mpeg"}},
+    )
+    send(dj, file_station([], made))
+    assert dj.uploads["show_f"][1]["Content-Type"] == "audio/mpeg"
+    assert dj.file_calls[-1][2] == {"ok": True}
+
+
+def test_the_file_is_held_while_it_uploads(dj, tmp_path):
+    made = tmp_path / "Wipers.mp3"
+    made.write_bytes(b"ID3")
+    lock = threading.Lock()
+    held = []
+
+    def one_file(show_id, title):
+        held.append(lock.locked())
+        return made
+
+    st = Station(catalog=lambda: {}, deliver=lambda d: "", log=lambda m: None, one_file=one_file, mixing=lock)
+    send(dj, st)
+    assert held == [True] and not lock.locked() and dj.file_calls[-1][2] == {"ok": True}

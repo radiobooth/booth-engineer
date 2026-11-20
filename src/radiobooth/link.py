@@ -10,6 +10,7 @@ into one MP3 when its listener asks to download it (only then, and only that sho
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import http.client
 import json
@@ -162,11 +163,14 @@ class Link:
         size = path.stat().st_size
         _, where = self.post(f"/v0/shows/{show_id}/file/upload", {"bytes": size})
         url, headers = where.get("url"), where.get("headers") or {}
-        if not isinstance(url, str) or not secure_url(url):
+        if not isinstance(url, str) or not url:
+            raise PackageError("Booth DJ sent no link to upload the file to.")
+        if not secure_url(url):
             raise PackageError("Refusing to upload the file over an insecure link.")
-        if not isinstance(headers, dict) or set(headers) - {"Content-Type"}:
+        if not isinstance(headers, dict) or {str(k).lower() for k in headers} - {"content-type"}:
             raise PackageError("Booth DJ asked for upload headers this version won't send.")
-        h = {"User-Agent": USER_AGENT, "Content-Length": str(size), **{k: str(v) for k, v in headers.items()}}
+        kind = next((str(v) for k, v in headers.items() if str(k).lower() == "content-type"), "audio/mpeg")
+        h = {"User-Agent": USER_AGENT, "Content-Length": str(size), "Content-Type": kind}
         with path.open("rb") as f:
             req = urllib.request.Request(url, data=f, method="PUT", headers=h)
             try:
@@ -174,7 +178,8 @@ class Link:
                 with urllib.request.urlopen(req, timeout=max(self.timeout, 120)) as resp:
                     resp.read()
             except urllib.error.HTTPError as e:
-                raise LinkError(f"The file upload was refused (HTTP {e.code}).", e.code) from None
+                # Storage said no: sending the same thing again won't change that, so it's a failed file.
+                raise PackageError(f"Storage refused the file upload (HTTP {e.code}).") from None
             except (urllib.error.URLError, http.client.HTTPException, OSError) as e:
                 raise LinkError(
                     f"Couldn't upload the file: {getattr(e, 'reason', e)}", network=True
@@ -233,6 +238,7 @@ class Station:
     # machine can't. It may take minutes, so it runs on a thread of its own (see send_file).
     one_file: Callable[[str, str], Path] | None = None
     busy: Callable[[bool], None] | None = None
+    mixing: threading.Lock | None = None  # held while a file is made and uploaded (see send_file)
 
 
 # Shows being sent as one file, across restarts of the check-in loop (which make new Stations).
@@ -240,10 +246,19 @@ _sending: dict[str, threading.Thread] = {}
 _sending_lock = threading.Lock()
 
 
-def sending() -> bool:
-    """A show is being made into one file or uploaded: not a moment to restart for an update."""
+def sending(show_id: str | None = None) -> bool:
+    """A show (that one, if given) is being made into one file or uploaded: not a moment to restart for an
+    update, or to remove it."""
     with _sending_lock:
-        return any(t.is_alive() for t in _sending.values())
+        return any(t.is_alive() for i, t in _sending.items() if show_id in (None, i))
+
+
+def wait_sending(timeout: float | None = None) -> None:
+    """Wait for files on their way (`booth run --once` would otherwise exit mid-upload)."""
+    with _sending_lock:
+        threads = list(_sending.values())
+    for t in threads:
+        t.join(timeout)
 
 
 def send_file(link: Link, station: Station, item: dict) -> threading.Thread | None:
@@ -275,21 +290,19 @@ def _send_file(link: Link, station: Station, show_id: str, title: str) -> None:
     try quietly: Booth DJ asks again at the next check-in, and the file made already is used then."""
     try:
         link.file_making(show_id)
-        station.log(f"{show_id}: making {title!r} into one file for your phone...")
-        try:
-            path = station.one_file(show_id, title)
-        except Exception as e:
-            station.log(f"{show_id}: couldn't make the file for your phone: {e}")
-            link.file_result(show_id, ok=False)
-            return
-        mb = path.stat().st_size / 1e6
-        station.log(f"{show_id}: sending the file ({mb:.0f} MB)...")
-        try:
-            link.file_upload(show_id, path)
-        except PackageError as e:
-            station.log(f"{show_id}: {e}")
-            link.file_result(show_id, ok=False)
-            return
+        # Held until the upload is done, so Booth's page can't make or replace the file meanwhile.
+        with station.mixing or contextlib.nullcontext():
+            station.log(f"{show_id}: making {title!r} into one file for your phone...")
+            try:
+                path = station.one_file(show_id, title)
+                station.log(f"{show_id}: sending the file ({path.stat().st_size / 1e6:.0f} MB)...")
+                link.file_upload(show_id, path)
+            except LinkError:
+                raise  # network trouble, or Booth DJ said no: below
+            except Exception as e:  # the file couldn't be made or read, or storage refused it
+                station.log(f"{show_id}: couldn't send the file to your phone: {e}")
+                link.file_result(show_id, ok=False)
+                return
         link.file_result(show_id, ok=True)
         station.log(f"{show_id}: the file is on its way to your phone.")
     except LinkError as e:
