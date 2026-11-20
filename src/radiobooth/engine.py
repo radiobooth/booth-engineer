@@ -20,6 +20,7 @@ from pathlib import Path
 from radiobooth import config, history, plexshare
 from radiobooth.link import Link, LinkError, Station
 from radiobooth.link import run_all as run_desks
+from radiobooth.link import sending as link_sending
 from radiobooth.sources import folder as folder_source
 from radiobooth.sources import plex as plex_source
 from radiobooth.sources.plex import PlexAuthError, PlexClient
@@ -190,7 +191,31 @@ def station(
                 " Grant them access to it in Plex Web."
             )
 
-    return Station(catalog=catalog, deliver=deliver_show, log=log)
+    def one_file(show_id: str, title: str, into: Path) -> Path:
+        """The show as one MP3 in `into`, for the listener's phone: the one made on Booth's page (Make one
+        file), or mixed now as that does. The caller holds MIXING."""
+        made = playlist_target.made_file(copies_folder(settings), show_id)
+        if made is not None:
+            return playlist_target.phone_copy(made, into)
+        return signed_in(lambda: plex_target.one_file(plex, dest.expanduser(), into, show_id, title)).path
+
+    return Station(
+        scratch=lambda: copies_folder(settings),
+        catalog=catalog,
+        deliver=deliver_show,
+        log=log,
+        one_file=one_file,
+        busy=mark,
+        mixing=playlist_target.MIXING,
+    )
+
+
+def copies_folder(settings: dict) -> Path:
+    """Where copies and one-file shows of Plex shows go: Copies/ in the Booth shows folder."""
+    from radiobooth.websetup import default_shows_folder
+
+    shows = setting(settings, "BOOTH_SHOWS_FOLDER", "shows_folder")
+    return (Path(shows) if shows else default_shows_folder()).expanduser() / playlist_target.COPIES
 
 
 class FolderBusy(Exception):
@@ -243,7 +268,23 @@ def folder_station(
         finally:
             mark(False)
 
-    return Station(catalog=catalog, deliver=deliver_show, log=log)
+    def one_file(show_id: str, title: str, into: Path) -> Path:
+        """The show as one MP3 in `into`, for the listener's phone: the one made on Booth's page, or mixed
+        now. The caller holds MIXING."""
+        made = playlist_target.made_file(shows.resolve() / playlist_target.COPIES, show_id)
+        if made is not None:
+            return playlist_target.phone_copy(made, into)
+        return playlist_target.one_file(shows, show_id, into=into).path
+
+    return Station(
+        scratch=lambda: shows.resolve() / playlist_target.COPIES,
+        catalog=catalog,
+        deliver=deliver_show,
+        log=log,
+        one_file=one_file,
+        busy=mark,
+        mixing=playlist_target.MIXING,
+    )
 
 
 def desks(
@@ -332,8 +373,9 @@ class Engine:
 
     @property
     def busy(self) -> bool:
-        """Reading the library or delivering a show: not a moment to restart for an update."""
-        return self._busy > 0
+        """Reading the library, delivering a show or sending one to a phone: not a moment to restart for an
+        update."""
+        return self._busy > 0 or link_sending()
 
     def log(self, msg: str) -> None:
         line = f"{time.strftime('%H:%M:%S')} {msg}"

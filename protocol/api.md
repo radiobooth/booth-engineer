@@ -120,6 +120,37 @@ before they go into a path.
 
 Nothing else is sent: no catalog goes with a request or with feedback. It's sent later, on a check-in, as above.
 
+## Downloading a show on your phone
+
+Off unless Radio Booth has switched it on for your account (for testers, for now). For a show delivered to
+this computer, the phone page offers **Get the file**: Booth Engineer mixes the show into one MP3 (what
+**Make one file** on Booth's page makes, in `Copies/`) and uploads it, so you can listen away from home. This
+is the only time audio leaves this computer, and only the show you asked for goes. Nothing is uploaded until
+you ask.
+
+A check-in lists the show with `"action": "send_file"` (and its `title`) on the account's Booth Engineer that
+delivered it, until the file is in. Booth Engineer then, on a thread of its own so check-ins carry on:
+
+1. `POST /v0/shows/{show_id}/file/making` `{}` → `204`: it's on it.
+2. Makes the file, or uses the one already in `Copies/` for that show.
+3. `POST /v0/shows/{show_id}/file/upload` `{"bytes": 123456789}` → `{"url": "https://signed-url",
+   "headers": {"Content-Type": "audio/mpeg"}}`, then `PUT`s the file to that signed link with those headers and
+   no token. The link goes straight to Radio Booth's storage and works for three hours.
+4. `POST /v0/shows/{show_id}/file/result` `{"ok": true}`, or `{"ok": false, "error": "Making the file failed
+   on this machine; ..."}` (a fixed sentence, as for deliveries; the reason stays in Booth's log) → `204`.
+
+Any of these answers `409` once nobody's waiting for the file any more (it timed out, say), and `result`
+answers `422` when the upload didn't arrive whole (Booth DJ has failed the file); Booth Engineer then stops.
+Another refusal makes it report the file as failed. If the network drops, it stops too, and starts over when
+the next check-in asks again. A file it made only for the phone (not one made on Booth's page) is deleted
+from this computer once it's sent.
+
+Only you can download it, signed in on the phone page, through a link that works for 15 minutes. Radio Booth
+deletes the file an hour after the first download, or after a day if it isn't downloaded. An ask fails if
+this computer doesn't pick it up within 10 minutes, takes more than an hour to make the file, or doesn't finish the
+upload before its link runs out. Booth DJ offers **Get the file** only for shows delivered by Booth Engineer
+0.5.0 or later.
+
 ## What Booth DJ does with the rest
 
 A show that gets no catalog within an hour fails, and a package nobody fetches is deleted after 7 days.

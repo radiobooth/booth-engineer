@@ -1,17 +1,22 @@
-"""The link to Booth DJ: pairing, check-ins, sending the catalog for a show, fetching finished shows, and
-asking for shows from Booth's page.
+"""The link to Booth DJ: pairing, check-ins, sending the catalog for a show, fetching finished shows,
+asking for shows from Booth's page, and sending a show as one file when the listener asks for it on their
+phone.
 
 Every connection goes out from this machine; nothing here listens. What is sent is exactly what
 protocol/api.md documents: this machine's name and Booth Engineer version, a catalog when a show asks for
-one, the outcome of each delivery, and the show requests typed into Booth's page.
+one, the outcome of each delivery, the show requests typed into Booth's page, and a delivered show mixed
+into one MP3 when its listener asks to download it (only then, and only that show).
 """
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import http.client
 import json
+import shutil
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -40,6 +45,7 @@ class PackageError(Exception):
 
 
 GENERIC_FAILURE = "Delivery failed on this machine; details are in the booth run log there."
+FILE_FAILURE = "Making the file failed on this machine; details are in Booth's log there."
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -148,6 +154,47 @@ class Link:
         result = {"ok": True, "playlist": playlist} if error is None else {"ok": False, "error": error[:500]}
         self.post(f"/v0/shows/{show_id}/result", result)
 
+    # A show as one file, for the listener's phone
+
+    def file_making(self, show_id: str) -> None:
+        self.post(f"/v0/shows/{show_id}/file/making", {})
+
+    def file_upload(self, show_id: str, path: Path) -> None:
+        """Upload the show's one file to the signed link Booth DJ hands out (it's signed: no token)."""
+        size = path.stat().st_size
+        _, where = self.post(f"/v0/shows/{show_id}/file/upload", {"bytes": size})
+        url, headers = where.get("url"), where.get("headers") or {}
+        if not isinstance(url, str) or not url:
+            raise PackageError("Booth DJ sent no link to upload the file to.")
+        if not secure_url(url):
+            raise PackageError("Refusing to upload the file over an insecure link.")
+        if not isinstance(headers, dict) or {str(k).lower() for k in headers} - {"content-type"}:
+            raise PackageError("Booth DJ asked for upload headers this version won't send.")
+        kind = next((str(v) for k, v in headers.items() if str(k).lower() == "content-type"), "audio/mpeg")
+        h = {"User-Agent": USER_AGENT, "Content-Length": str(size), "Content-Type": kind}
+        with path.open("rb") as f:
+            req = urllib.request.Request(url, data=f, method="PUT", headers=h)
+            try:
+                # A slow home upload of a long show takes minutes; this is a quiet-connection limit.
+                with urllib.request.urlopen(req, timeout=max(self.timeout, 120)) as resp:
+                    resp.read()
+            except urllib.error.HTTPError as e:
+                if e.code >= 500 or e.code in (408, 429):  # storage's own trouble: try again later
+                    raise LinkError(
+                        f"Storage couldn't take the file (HTTP {e.code}).", network=True
+                    ) from None
+                # Storage said no: sending the same thing again won't change that, so it's a failed file.
+                raise PackageError(f"Storage refused the file upload (HTTP {e.code}).") from None
+            except (urllib.error.URLError, http.client.HTTPException, OSError) as e:
+                raise LinkError(
+                    f"Couldn't upload the file: {getattr(e, 'reason', e)}", network=True
+                ) from None
+
+    def file_result(self, show_id: str, *, ok: bool) -> None:
+        self.post(
+            f"/v0/shows/{show_id}/file/result", {"ok": True} if ok else {"ok": False, "error": FILE_FAILURE}
+        )
+
     def download(self, files: dict[str, str], into: Path) -> None:
         """Fetch a show package from its signed URLs (no token: they're signed already)."""
         for name, url in files.items():
@@ -192,6 +239,103 @@ class Station:
     unreported: dict[str, dict] = field(default_factory=dict)
     # The last problem logged for each show, so one that repeats every check-in is logged once.
     problems: dict[str, str] = field(default_factory=dict)
+    # A delivered show as one MP3 for the listener's phone, (show id, title, folder) -> its path in that
+    # folder: the one made on Booth's page, copied there, or mixed there now. None: this machine can't. It may
+    # take minutes, so it runs on a thread of its own (see send_file).
+    one_file: Callable[[str, str, Path], Path] | None = None
+    # Where to keep a file while it's sent (a hidden folder per show is made in it, and removed after).
+    scratch: Callable[[], Path] | None = None
+    busy: Callable[[bool], None] | None = None
+    mixing: threading.Lock | None = None  # held while a file is made and uploaded (see send_file)
+
+
+# Shows being sent as one file, across restarts of the check-in loop (which make new Stations).
+_sending: dict[str, threading.Thread] = {}
+_sending_lock = threading.Lock()
+
+
+def sending(show_id: str | None = None) -> bool:
+    """A show (that one, if given) is being made into one file or uploaded: not a moment to restart for an
+    update, or to remove it."""
+    with _sending_lock:
+        return any(t.is_alive() for i, t in _sending.items() if show_id in (None, i))
+
+
+def wait_sending(timeout: float | None = None) -> None:
+    """Wait for files on their way (`booth run --once` would otherwise exit mid-upload)."""
+    with _sending_lock:
+        threads = list(_sending.values())
+    for t in threads:
+        t.join(timeout)
+
+
+def send_file(link: Link, station: Station, item: dict) -> threading.Thread | None:
+    """Start sending a show as one file, unless that's under way already. Returns the thread, if started."""
+    show_id = item["show_id"]
+    if station.one_file is None:
+        return None
+    with _sending_lock:
+        running = _sending.get(show_id)
+        if running is not None and running.is_alive():
+            return None
+        thread = threading.Thread(
+            target=_send_file, args=(link, station, show_id, str(item.get("title") or "")), daemon=True
+        )
+        _sending[show_id] = thread
+        if station.busy:
+            station.busy(True)
+        try:
+            thread.start()
+        except BaseException:
+            if station.busy:
+                station.busy(False)
+            raise
+    return thread
+
+
+def _send_file(link: Link, station: Station, show_id: str, title: str) -> None:
+    """Make the show into one file (or take the one made on Booth's page) and upload it. The file is a
+    private one in a hidden folder, deleted when this try ends, so the page can make, replace or remove its
+    own meanwhile, and nothing piles up. Network trouble ends this try quietly: Booth DJ asks again at the
+    next check-in."""
+    base = station.scratch() if station.scratch else Path(tempfile.gettempdir())
+    into = base / f".phone-{show_id}"
+    try:
+        link.file_making(show_id)
+        try:
+            shutil.rmtree(into, ignore_errors=True)  # left by a try Booth was closed during
+            # Only while the file is made: the page's own copies and mixes wait meanwhile.
+            with station.mixing or contextlib.nullcontext():
+                station.log(f"{show_id}: making {title!r} into one file for your phone...")
+                path = station.one_file(show_id, title, into)
+            station.log(f"{show_id}: sending the file ({path.stat().st_size / 1e6:.0f} MB)...")
+            link.file_upload(show_id, path)
+        except LinkError:
+            raise  # network trouble, or Booth DJ said no: below
+        except Exception as e:  # the file couldn't be made or read, or storage refused it
+            station.log(f"{show_id}: couldn't send the file to your phone: {e}")
+            link.file_result(show_id, ok=False)
+            return
+        link.file_result(show_id, ok=True)
+        station.log(f"{show_id}: the file is on its way to your phone.")
+    except LinkError as e:
+        if e.status == 409:  # nobody's waiting for it any more (timed out, or asked again elsewhere)
+            station.log(f"{show_id}: the file isn't wanted any more ({e}).")
+        elif e.status == 422:  # Booth DJ checked the upload and failed it; it says why on the phone
+            station.log(f"{show_id}: {e}")
+        elif e.status is not None and 400 <= e.status < 500 and e.status not in (408, 429):
+            # Booth DJ won't take this as it is; trying again would only repeat it.
+            station.log(f"{show_id}: {e}")
+            with contextlib.suppress(LinkError):
+                link.file_result(show_id, ok=False)
+        else:
+            station.log(f"{show_id}: {e} (Booth tries again shortly)")
+    except Exception as e:  # noqa: BLE001 - a thread of its own: say what, and let the DJ ask again
+        station.log(f"{show_id}: sending the file failed: {e}")
+    finally:
+        shutil.rmtree(into, ignore_errors=True)
+        if station.busy:
+            station.busy(False)
 
 
 def handle(link: Link, station: Station, item: dict) -> None:
@@ -209,6 +353,8 @@ def handle(link: Link, station: Station, item: dict) -> None:
             if e.status != 409:  # 409: already sent (another check-in got there first)
                 raise
         station.log(f"{show_id}: sent {len(catalog['tracks'])} tracks; the DJ is on it.")
+    elif action == "send_file":
+        send_file(link, station, item)
     elif action == "deliver":
         if show_id not in station.unreported:
             station.unreported[show_id] = deliver(link, station, item)

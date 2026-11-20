@@ -6,7 +6,9 @@ Home client for Radio Booth. Python package `radiobooth`, command `booth`, manag
 - Outbound connections only: nothing may require the user to open a port on their router or firewall, and
   nothing on the network may reach Booth. The one exception is Booth's own page, served on 127.0.0.1 only
   (never 0.0.0.0 or a LAN address), locked with the page key and Host/Origin checks (see `web.py`).
-- Only metadata leaves the user's machine, and only what `protocol/` documents. Never upload audio.
+- Only metadata leaves the user's machine, and only what `protocol/` documents. Never upload audio, with one
+  exception: a delivered show mixed into one MP3, uploaded only when its listener asks to download it on their
+  phone (`link.send_file`; Booth DJ switches it on per account, for testers until legal review).
 - Code is split by music source (`sources/`) and delivery target (`targets/`). Plex is the launch target.
 - Keep dependencies few: this ships via `uv tool install radiobooth` and a GHCR image.
 - Dependency cooldown (supply-chain safety): never adopt a package, GitHub Action, tool or image version published

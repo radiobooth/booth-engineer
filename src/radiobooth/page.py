@@ -230,8 +230,8 @@ HTML = f"""<!doctype html>
     <p class="label">Setup</p>
     <h2 id="setup-title">Let's get Booth ready</h2>
     <p class="muted" id="setup-intro">Booth reads the titles and details of your music, in Plex or in your
-      music files' tags, to plan shows, and makes each finished show a playlist. Your music files never leave
-      this computer.</p>
+      music files' tags, to plan shows, and makes each finished show a playlist. Your music files stay on
+      this computer, unless you ask to download a show on your phone.</p>
 
     <div class="step" id="step-plex">
       <div class="num">1</div>

@@ -21,6 +21,7 @@ import errno
 import os
 import re
 import shutil
+import threading
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -32,6 +33,8 @@ from radiobooth.targets.plex import folder_name, load_package
 MARK = "#BOOTH-SHOW:"  # show id, on its own line in each playlist Booth writes
 BREAKS = "breaks"
 COPIES = "Copies"  # in the shows folder: shows copied whole, to take along
+# One copy or one-file mix at a time, whether Booth's page asked for it or a phone did (they share Copies/).
+MIXING = threading.Lock()
 FILE_MARK = "BOOTH-SHOW"  # the ID3 TXXX tag a one-file show keeps its show id in
 # Names Windows keeps for devices, with or without an extension.
 _RESERVED = {"con", "prn", "aux", "nul", *(f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10))}
@@ -348,6 +351,24 @@ def file_show(path: Path) -> str | None:
     return str(marks[0].text[0]) if marks and marks[0].text else None
 
 
+def made_file(copies: Path, show_id: str) -> Path | None:
+    """The show's one file, if it's been made already (it's only ever in place once it's whole)."""
+    try:
+        found = [p for p in copies.glob("*.mp3") if not p.name.startswith(".")]
+    except OSError:
+        return None
+    return next((p for p in sorted(found) if p.is_file() and file_show(p) == show_id), None)
+
+
+def phone_copy(made: Path, into: Path) -> Path:
+    """A one file made on Booth's page, copied into `into` to send to a phone, so the page can replace or
+    remove its own while this one uploads (a link would keep Windows from deleting it meanwhile)."""
+    into.mkdir(parents=True, exist_ok=True)
+    out = into / made.name
+    shutil.copyfile(made, out)
+    return out
+
+
 def one_file_path(copies: Path, title: str, show_id: str) -> Path:
     """Where a show's one file goes in `copies`: its own from an earlier time, else a free name after its
     title, so it never replaces another show's file."""
@@ -358,9 +379,14 @@ def one_file_path(copies: Path, title: str, show_id: str) -> Path:
     return out
 
 
-def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] | None = None) -> OneFile:
-    """Mix a show into one MP3, `Copies/<title>.mp3` in the shows folder, with a chapter per song and break.
-    Made again, it replaces its own earlier file."""
+def one_file(
+    out_root: Path,
+    show_id: str,
+    progress: Callable[[int, int], None] | None = None,
+    into: Path | None = None,
+) -> OneFile:
+    """Mix a show into one MP3, `Copies/<title>.mp3` in the shows folder (or in `into`), with a chapter per
+    song and break. Made again, it replaces its own earlier file."""
     from radiobooth import render
 
     root = out_root.resolve()
@@ -370,7 +396,7 @@ def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     items = [it for it in items if it.path.is_file()]
     if not items:
         raise PlaylistError("None of this show's files are there to make it from.")
-    made = render_into(root / COPIES, show.title, show_id, items, tags, progress)
+    made = render_into(into or root / COPIES, show.title, show_id, items, tags, progress)
     made.missing += listed - len(items)
     return made
 
