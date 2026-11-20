@@ -87,6 +87,9 @@ class FakeDJ:
 
             def do_PUT(self):
                 dj.calls.append(("PUT", self.path, self.headers.get("Authorization")))
+                if self.path.startswith("/busy/"):
+                    self.body()
+                    return self.reply(503, raw=b"<Error>SlowDown</Error>")
                 if self.path.startswith("/refuse/"):
                     self.body()
                     return self.reply(403, raw=b"<Error>SignatureDoesNotMatch</Error>")
@@ -586,13 +589,29 @@ def test_a_forgotten_own_account_stops_everything():
 # A show as one file, for the listener's phone
 
 
-def file_station(log, made=None, fail=None, busy=None, fresh=False):
-    def one_file(show_id, title):
+def file_station(log, made=None, fail=None, busy=None, scratch=None):
+    """A station whose one file is a copy of `made`, put where it's asked to be (the hidden folder)."""
+    seen = []
+
+    def one_file(show_id, title, into):
         if fail:
             raise fail
-        return made, fresh
+        into.mkdir(parents=True, exist_ok=True)
+        out = into / made.name
+        out.write_bytes(made.read_bytes())
+        seen.append(out)
+        return out
 
-    return Station(catalog=lambda: {}, deliver=lambda d: "", log=log.append, one_file=one_file, busy=busy)
+    st = Station(
+        catalog=lambda: {},
+        deliver=lambda d: "",
+        log=log.append,
+        one_file=one_file,
+        busy=busy,
+        scratch=(lambda: scratch) if scratch else None,
+    )
+    st.seen = seen
+    return st
 
 
 def send(dj, station_, item=None):
@@ -660,9 +679,9 @@ def test_a_file_already_on_its_way_isnt_sent_twice(dj, tmp_path):
     made.write_bytes(b"ID3")
     gate = threading.Event()
 
-    def slow(show_id, title):
+    def slow(show_id, title, into):
         gate.wait(10)
-        return made, False
+        return made
 
     log = []
     st = Station(catalog=lambda: {}, deliver=lambda d: "", log=log.append, one_file=slow)
@@ -712,26 +731,38 @@ def test_the_file_is_held_while_it_uploads(dj, tmp_path):
     lock = threading.Lock()
     held = []
 
-    def one_file(show_id, title):
+    def one_file(show_id, title, into):
         held.append(lock.locked())
-        return made, False
+        return made
 
     st = Station(catalog=lambda: {}, deliver=lambda d: "", log=lambda m: None, one_file=one_file, mixing=lock)
     send(dj, st)
     assert held == [True] and not lock.locked() and dj.file_calls[-1][2] == {"ok": True}
 
 
-def test_a_file_made_only_for_the_phone_is_deleted_once_sent(dj, tmp_path):
+def test_the_file_sent_is_a_private_copy_deleted_after(dj, tmp_path):
+    made = tmp_path / "Copies" / "Wipers.mp3"
+    made.parent.mkdir()
+    made.write_bytes(b"ID3")
+    st = file_station([], made, scratch=made.parent)
+    send(dj, st)
+    (sent,) = st.seen
+    assert sent.parent == made.parent / ".phone-show_f" and dj.file_calls[-1][2] == {"ok": True}
+    assert not sent.parent.exists() and made.exists()  # the page's own stays
+    # Whatever happens, the private copy goes.
+    dj.file_replies["upload"] = (409, {"error": "Nobody is waiting"})
+    send(dj, st)
+    assert not (made.parent / ".phone-show_f").exists()
+
+
+def test_storage_trouble_is_retried_not_failed(dj, tmp_path):
     made = tmp_path / "Wipers.mp3"
     made.write_bytes(b"ID3")
-    made.with_suffix(".cue").write_text("FILE")
-    send(dj, file_station([], made, fresh=True))
-    assert dj.file_calls[-1][2] == {"ok": True}
-    assert not made.exists() and not made.with_suffix(".cue").exists()
-    kept = tmp_path / "Kept.mp3"  # one made on Booth's page stays
-    kept.write_bytes(b"ID3")
-    send(dj, file_station([], kept), {"show_id": "show_k", "action": "send_file", "title": "x"})
-    assert kept.exists()
+    dj.file_replies["upload"] = (200, {"url": f"{dj.url}/busy/show_f?sig=1"})
+    log = []
+    send(dj, file_station(log, made))
+    assert [step for _, step, *_ in dj.file_calls] == ["making", "upload"]  # no result: tried again later
+    assert any("HTTP 503" in line and "tries again" in line for line in log)
 
 
 def test_booth_dj_refusing_a_step_fails_the_file_instead_of_retrying(dj, tmp_path):

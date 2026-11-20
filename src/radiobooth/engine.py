@@ -191,17 +191,16 @@ def station(
                 " Grant them access to it in Plex Web."
             )
 
-    def one_file(show_id: str, title: str) -> tuple[Path, bool]:
-        """The show mixed into one MP3 in Copies/, as Booth's page's Make one file does (or the one made
-        already), for the listener's phone, and whether it was made just now. The caller holds MIXING."""
-        copies = copies_folder(settings)
-        made = playlist_target.made_file(copies, show_id)
+    def one_file(show_id: str, title: str, into: Path) -> Path:
+        """The show as one MP3 in `into`, for the listener's phone: the one made on Booth's page (Make one
+        file), or mixed now as that does. The caller holds MIXING."""
+        made = playlist_target.made_file(copies_folder(settings), show_id)
         if made is not None:
-            return made, False
-        mixed = signed_in(lambda: plex_target.one_file(plex, dest.expanduser(), copies, show_id, title))
-        return mixed.path, True
+            return playlist_target.phone_copy(made, into)
+        return signed_in(lambda: plex_target.one_file(plex, dest.expanduser(), into, show_id, title)).path
 
     return Station(
+        scratch=lambda: copies_folder(settings),
         catalog=catalog,
         deliver=deliver_show,
         log=log,
@@ -269,15 +268,16 @@ def folder_station(
         finally:
             mark(False)
 
-    def one_file(show_id: str, title: str) -> tuple[Path, bool]:
-        """The show mixed into one MP3 in Copies/ (or the one made already), for the listener's phone, and
-        whether it was made just now. The caller holds MIXING."""
+    def one_file(show_id: str, title: str, into: Path) -> Path:
+        """The show as one MP3 in `into`, for the listener's phone: the one made on Booth's page, or mixed
+        now. The caller holds MIXING."""
         made = playlist_target.made_file(shows.resolve() / playlist_target.COPIES, show_id)
         if made is not None:
-            return made, False
-        return playlist_target.one_file(shows, show_id).path, True
+            return playlist_target.phone_copy(made, into)
+        return playlist_target.one_file(shows, show_id, into=into).path
 
     return Station(
+        scratch=lambda: shows.resolve() / playlist_target.COPIES,
         catalog=catalog,
         deliver=deliver_show,
         log=log,

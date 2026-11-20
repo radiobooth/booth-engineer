@@ -360,6 +360,15 @@ def made_file(copies: Path, show_id: str) -> Path | None:
     return next((p for p in sorted(found) if p.is_file() and file_show(p) == show_id), None)
 
 
+def phone_copy(made: Path, into: Path) -> Path:
+    """A one file made on Booth's page, copied into `into` to send to a phone, so the page can replace or
+    remove its own while this one uploads (a link would keep Windows from deleting it meanwhile)."""
+    into.mkdir(parents=True, exist_ok=True)
+    out = into / made.name
+    shutil.copyfile(made, out)
+    return out
+
+
 def one_file_path(copies: Path, title: str, show_id: str) -> Path:
     """Where a show's one file goes in `copies`: its own from an earlier time, else a free name after its
     title, so it never replaces another show's file."""
@@ -370,9 +379,14 @@ def one_file_path(copies: Path, title: str, show_id: str) -> Path:
     return out
 
 
-def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] | None = None) -> OneFile:
-    """Mix a show into one MP3, `Copies/<title>.mp3` in the shows folder, with a chapter per song and break.
-    Made again, it replaces its own earlier file."""
+def one_file(
+    out_root: Path,
+    show_id: str,
+    progress: Callable[[int, int], None] | None = None,
+    into: Path | None = None,
+) -> OneFile:
+    """Mix a show into one MP3, `Copies/<title>.mp3` in the shows folder (or in `into`), with a chapter per
+    song and break. Made again, it replaces its own earlier file."""
     from radiobooth import render
 
     root = out_root.resolve()
@@ -382,7 +396,7 @@ def one_file(out_root: Path, show_id: str, progress: Callable[[int, int], None] 
     items = [it for it in items if it.path.is_file()]
     if not items:
         raise PlaylistError("None of this show's files are there to make it from.")
-    made = render_into(root / COPIES, show.title, show_id, items, tags, progress)
+    made = render_into(into or root / COPIES, show.title, show_id, items, tags, progress)
     made.missing += listed - len(items)
     return made
 
