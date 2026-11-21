@@ -35,6 +35,13 @@ class PlexUnreachable(PlexError):
     """The server didn't answer at all (not a refusal of one request)."""
 
 
+class PlexUnreadable(PlexError):
+    """Plex answered, but with a reply Booth can't read. Asking again gets the same reply, so a show waiting
+    on the library fails instead of holding later shows back (see link.check_in)."""
+
+    lasting = True
+
+
 SIGN_IN_AGAIN = (
     "Plex no longer accepts Booth's sign-in (HTTP 401). Sign in to Plex again: open Radio Booth and choose to"
     " change its settings, or run `booth setup`."
@@ -50,6 +57,23 @@ class PlexAuthError(PlexError):
 
 class Getter(Protocol):
     def get(self, path: str, params: dict | None = None) -> dict: ...
+
+
+def parse_reply(body: bytes, ctype: str, base_url: str, path: str) -> dict:
+    """Plex's JSON reply, read leniently. In a big library a few tags carry bytes that aren't UTF-8, or raw
+    control characters (a tab in a title, say), and Plex passes them through as they are: strict JSON
+    refuses the whole page over one tag. Those characters become \ufffd or stay as they are instead."""
+    text = body.decode("utf-8", errors="replace")
+    try:
+        return json.loads(text, strict=False)
+    except ValueError as e:
+        if "json" in ctype.lower():
+            # Plex itself answered, but with JSON Booth can't read: the address is right.
+            raise PlexUnreadable(f"Plex sent a reply Booth couldn't read for {path} ({e}).") from None
+        raise PlexError(
+            f"{base_url} answered with {ctype or 'something'} instead of Plex JSON."
+            " Check PLEX_URL, including the port (Plex usually listens on 32400)."
+        ) from None
 
 
 class PlexClient:
@@ -77,13 +101,7 @@ class PlexClient:
             raise PlexUnreachable(f"Could not reach Plex at {self.base_url}: {e.reason}") from None
         if not body.strip():
             return {}
-        try:
-            return json.loads(body)
-        except ValueError:
-            raise PlexError(
-                f"{self.base_url} answered with {ctype or 'something'} instead of Plex JSON."
-                " Check PLEX_URL, including the port (Plex usually listens on 32400)."
-            ) from None
+        return parse_reply(body, ctype, self.base_url, path)
 
     def download(self, part_key: str, dest: Path) -> None:
         """Save one of the server's media files (a Part's key, as /library/parts/...) to `dest`, on this

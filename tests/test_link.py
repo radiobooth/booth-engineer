@@ -14,6 +14,7 @@ from test_deliver import make_show
 from radiobooth import config
 from radiobooth.cli import main
 from radiobooth.link import (
+    CATALOG_FAILURE,
     FILE_FAILURE,
     GENERIC_FAILURE,
     Link,
@@ -461,6 +462,52 @@ def test_a_problem_that_repeats_every_checkin_is_logged_once(dj):
         "show_1: sent 0 tracks; the DJ is on it.",
     ]
     assert st.problems == {} and len(dj.catalogs) == 1
+
+
+class Unreadable(Exception):
+    lasting = True
+
+
+def test_a_lasting_catalog_problem_fails_the_show_so_the_next_can_go(dj):
+    ask = {
+        "show_id": "show_1",
+        "status": "queued",
+        "action": "send_catalog",
+        "catalog_url": "/v0/shows/show_1/catalog",
+    }
+    dj.queue = [[ask]] * 4
+    log = []
+
+    def catalog():
+        raise Unreadable("Plex sent a reply Booth couldn't read.")
+
+    st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append)
+    link = Link(dj.url, "be_secret")
+    for _ in range(2):
+        run(link, st, once=True)
+    assert dj.results == [] and st.lasting == {"show_1": 2}  # a hiccup gets a few tries first
+    run(link, st, once=True)
+    assert dj.results == [("show_1", {"ok": False, "error": CATALOG_FAILURE})]
+    assert st.lasting == {} and st.problems == {}
+    assert log[-1].startswith("show_1: Plex sent a reply Booth couldn't read. Booth stopped trying")
+
+
+def test_a_passing_catalog_problem_is_never_given_up_on(dj):
+    ask = {
+        "show_id": "show_1",
+        "status": "queued",
+        "action": "send_catalog",
+        "catalog_url": "/v0/shows/show_1/catalog",
+    }
+    dj.queue = [[ask]] * 5
+
+    def catalog():
+        raise RuntimeError("Could not reach Plex")  # Plex restarting, say: it comes back
+
+    st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None)
+    for _ in range(5):
+        run(Link(dj.url, "be_secret"), st, once=True)
+    assert dj.results == []
 
 
 def test_run_picks_up_a_plex_sign_in_saved_while_it_runs(dj, tmp_path, monkeypatch, capsys):

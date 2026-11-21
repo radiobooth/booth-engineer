@@ -219,7 +219,7 @@ wheels = [
 
 [[package]]
 name = "radiobooth"
-version = "0.5.2"
+version = "0.5.4"
 source = { editable = "." }
 dependencies = [
     { name = "av" },
