@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -349,6 +350,43 @@ def test_the_windows_app_keeps_a_copy_of_itself(tmp_path, monkeypatch):
     assert kept == [str(tmp_path / "Local" / "Radio Booth" / "RadioBooth.exe")]
     assert Path(kept[0]).read_bytes() == b"MZ app"
     assert autostart.keep_app(kept, tmp_path, "win32") == kept  # already there: left alone
+
+
+def test_the_windows_app_in_its_folder_stays_put_however_the_path_is_spelled(tmp_path, monkeypatch):
+    home = tmp_path / "Local" / "Radio Booth" / "RadioBooth.exe"
+    home.parent.mkdir(parents=True)
+    home.write_bytes(b"MZ app")
+    link = tmp_path / "Elsewhere"
+    link.symlink_to(home.parent, target_is_directory=True)  # one folder, two spellings (like a short name)
+    monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    replaced = []
+    monkeypatch.setattr(autostart, "put_in_place", lambda *a: replaced.append(a))
+    assert autostart.keep_app([str(link / "RadioBooth.exe")], tmp_path, "win32") == [str(home)]
+    assert replaced == []
+
+
+def test_a_copy_in_use_in_its_folder_is_moved_aside_not_a_dead_end(tmp_path, monkeypatch):
+    exe = tmp_path / "Downloads" / "RadioBooth-Windows.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"MZ new")
+    home = tmp_path / "Local" / "Radio Booth" / "RadioBooth.exe"
+    home.parent.mkdir(parents=True)
+    home.write_bytes(b"MZ running")
+    monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    real_replace = os.replace
+
+    def windows_replace(src, dst):  # Windows: a running program can be renamed, not replaced
+        if Path(dst) == home and home.exists():
+            raise PermissionError(13, "Access is denied")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(autostart.os, "replace", windows_replace)
+    assert autostart.keep_app([str(exe)], tmp_path, "win32") == [str(home)]
+    assert home.read_bytes() == b"MZ new"
+    assert home.with_name("RadioBooth.old.exe").read_bytes() == b"MZ running"
+    assert not home.with_name("RadioBooth.new.exe").exists()
 
 
 def test_the_mac_app_runs_from_its_own_folder_not_downloads(tmp_path, monkeypatch):
