@@ -169,6 +169,38 @@ def test_non_json_answer_explains_the_port(monkeypatch):
         plex.PlexClient("http://nas.local", "t").get("/library/sections")
 
 
+def answering(monkeypatch, ctype, body):
+    class Resp:
+        headers = {"Content-Type": ctype}
+
+        def read(self):
+            return body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(plex.urllib.request, "urlopen", lambda req, timeout: Resp())
+
+
+def test_damaged_tags_in_a_big_library_dont_spoil_the_page(monkeypatch):
+    """Plex passes a tag's raw tab or a byte that isn't UTF-8 straight into its JSON; strict JSON would refuse
+    the whole page of 500 tracks over it."""
+    raw = b'{"MediaContainer": {"Metadata": [{"title": "Tab\there", "parentTitle": "Caf\xe9"}]}}'
+    answering(monkeypatch, "application/json", raw)
+    got = plex.PlexClient("http://127.0.0.1:32400", "t").get("/library/sections/1/all")
+    assert got["MediaContainer"]["Metadata"] == [{"title": "Tab\there", "parentTitle": "Caf\ufffd"}]
+
+
+def test_unreadable_json_from_plex_doesnt_blame_the_address(monkeypatch):
+    answering(monkeypatch, "application/json; charset=utf-8", b'{"MediaContainer": {"size": 5')
+    with pytest.raises(plex.PlexUnreadable, match="couldn't read for /library/sections") as e:
+        plex.PlexClient("http://127.0.0.1:32400", "t").get("/library/sections")
+    assert "PLEX_URL" not in str(e.value) and e.value.lasting
+
+
 def test_index_can_skip_the_breaks_library():
     two = [
         {"key": "4", "type": "artist", "title": "Music"},

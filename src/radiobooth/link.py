@@ -46,6 +46,11 @@ class PackageError(Exception):
 
 GENERIC_FAILURE = "Delivery failed on this machine; details are in the booth run log there."
 FILE_FAILURE = "Making the file failed on this machine; details are in Booth's log there."
+CATALOG_FAILURE = "Booth couldn't read the music library on this machine; details are in Booth's log there."
+# A problem that says it's `lasting` (asking again gets the same answer) fails the show after this many tries
+# in a row, so the listener's later shows don't wait an hour behind it. Anything else is tried until Booth DJ
+# gives up on the show.
+LASTING_TRIES = 3
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -147,7 +152,8 @@ class Link:
         return {**reply, "shows": shows, "next_checkin_s": min(max(float(wait), 5.0), 3600.0)}
 
     def send_catalog(self, url: str, catalog: dict) -> None:
-        body = gzip.compress(json.dumps(catalog, ensure_ascii=False).encode())
+        # "replace": a lone surrogate (Plex can send one, escaped, in a damaged tag) has no UTF-8 form.
+        body = gzip.compress(json.dumps(catalog, ensure_ascii=False).encode("utf-8", "replace"))
         self._call("PUT", url, body, {"Content-Type": "application/json", "Content-Encoding": "gzip"})
 
     def report(self, show_id: str, *, playlist: str | None = None, error: str | None = None) -> None:
@@ -239,6 +245,8 @@ class Station:
     unreported: dict[str, dict] = field(default_factory=dict)
     # The last problem logged for each show, so one that repeats every check-in is logged once.
     problems: dict[str, str] = field(default_factory=dict)
+    # How many times in a row each show's catalog failed with a lasting problem (see LASTING_TRIES).
+    lasting: dict[str, int] = field(default_factory=dict)
     # A delivered show as one MP3 for the listener's phone, (show id, title, folder) -> its path in that
     # folder: the one made on Booth's page, copied there, or mixed there now. None: this machine can't. It may
     # take minutes, so it runs on a thread of its own (see send_file).
@@ -380,6 +388,21 @@ def deliver(link: Link, station: Station, item: dict) -> dict:
     return {"playlist": playlist}
 
 
+def give_up(link: Link, station: Station, show_id: str, e: Exception) -> bool:
+    """Tell Booth DJ this show can't be made from this machine's library, so it fails now. False if Booth DJ
+    wouldn't take that (one from before it could, or the show moved on): Booth keeps trying, as before."""
+    try:
+        link.report(show_id, error=CATALOG_FAILURE)
+    except LinkError as refused:
+        if refused.network:
+            raise
+        return False
+    station.problems.pop(show_id, None)
+    station.lasting.pop(show_id, None)
+    station.log(f"{show_id}: {e} Booth stopped trying, so the show failed; the next one can go ahead.")
+    return True
+
+
 def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float, float]:
     """One check-in and whatever it asks for. Returns how long to wait before the next one, and the backoff
     to carry: on network trouble it doubles, 10 s up to 5 minutes. Only a 401 (not paired) raises."""
@@ -392,11 +415,16 @@ def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float,
             except LinkError:
                 raise
             except Exception as e:  # e.g. Plex unreachable while reading the library: try next time
+                if item.get("action") == "send_catalog" and getattr(e, "lasting", False):
+                    tries = station.lasting[show_id] = station.lasting.get(show_id, 0) + 1
+                    if tries >= LASTING_TRIES and give_up(link, station, show_id, e):
+                        continue
                 if station.problems.get(show_id) != str(e):
                     station.problems[show_id] = str(e)
                     station.log(f"{show_id}: {e} (Booth keeps trying; this is logged once)")
             else:
                 station.problems.pop(show_id, None)
+                station.lasting.pop(show_id, None)
         return reply["next_checkin_s"], 0.0
     except LinkError as e:
         if e.status == 401:

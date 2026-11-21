@@ -66,6 +66,13 @@ Booth shows folder, for music in a plain folder), so Booth DJ's pages can say wh
 It is sent only when you have asked for a show, and Booth DJ keeps it in memory just long enough to make
 that one show. It is never stored. → `202`, or `409` if it was already sent.
 
+If this computer can't read its library for the show in a way that asking again won't fix (Plex answers with
+a reply Booth can't read, every time), Booth Engineer gives up after three tries and says so:
+`POST /v0/shows/{show_id}/result` with `{"ok": false, "error": "Booth couldn't read the music library on this
+machine; ..."}` (a fixed sentence; the reason stays in Booth's log) → `204`, and the show fails, so the
+listener's next show can go ahead. `409` if the show isn't waiting on this computer's catalog. Anything that
+may pass (Plex off, or refusing the sign-in) is tried until the show times out, as below.
+
 ## Fetching and delivering a show
 
 Booth Engineer downloads each file in `files` from its signed URL (these requests carry no token), checks
