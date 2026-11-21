@@ -647,8 +647,10 @@ function render(s) {
   ua.replaceChildren();
   if (u.state === "installing" || u.state === "installed") $("update-text").textContent = u.message;
   else if (u.available && u.can_install) {
-    $("update-text").textContent = "Version " + u.latest + " is ready (you have " + u.current + ").";
-    ua.append(button("Update now", () => post("install_update").then(refresh)));
+    // A try that failed says why, and the button tries again.
+    $("update-text").textContent = (u.state === "failed" ? u.message + " " : "") +
+      "Version " + u.latest + " is ready (you have " + u.current + ").";
+    ua.append(button(u.state === "failed" ? "Try again" : "Update now", () => post("install_update").then(refresh)));
   } else if (u.available) {
     $("update-text").textContent = "Version " + u.latest + " is out (you have " + u.current + "). Update it the way you installed it.";
   } else {
