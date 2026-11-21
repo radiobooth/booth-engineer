@@ -1005,3 +1005,20 @@ def test_a_new_pairing_with_someone_elses_code_asks_first(booth, monkeypatch):
     del names["be_jen3"]  # Radio Booth forgot it
     assert act(port, key, "pair", {"code": "THOM-0001"}) == (200, {"name": "Den PC"})
     assert config.load()["device_token"] == "be_own2"
+
+
+def test_page_server_stays_quiet_when_the_page_hangs_up(capsys):
+    server = web.PageServer(("127.0.0.1", 0), web.BaseHTTPRequestHandler, bind_and_activate=False)
+    try:
+        try:
+            raise BrokenPipeError(32, "Broken pipe")
+        except BrokenPipeError:
+            server.handle_error(None, ("127.0.0.1", 1))
+        assert capsys.readouterr().err == ""
+        try:
+            raise ValueError("real trouble")
+        except ValueError:
+            server.handle_error(None, ("127.0.0.1", 1))
+        assert "real trouble" in capsys.readouterr().err
+    finally:
+        server.server_close()
