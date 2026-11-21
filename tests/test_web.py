@@ -230,8 +230,9 @@ def test_plex_on_another_computer_asks_for_the_shared_folder(plex_home, monkeypa
     assert "/srv/booth" in setup.folder_hint
     with pytest.raises(onboard.SetupError, match="isn't reachable"):
         setup.use_folder(str(tmp_path / "not-there"))
-    setup.use_folder(f'"{tmp_path}"')
-    assert setup.step == "done" and config.load()["breaks_dir"] == str(tmp_path)
+    (tmp_path / "share" / "booth").mkdir(parents=True)  # the share above the folder Plex watches
+    setup.use_folder(f'"{tmp_path / "share"}"')
+    assert setup.step == "done" and config.load()["breaks_dir"] == str(tmp_path / "share" / "booth")
 
 
 def test_finishing_setup_starts_booth_and_its_sign_in_item_once(tmp_path, monkeypatch):
@@ -620,9 +621,12 @@ def test_a_shared_booth_checks_in_and_delivers_for_each_person(tmp_path, monkeyp
     assert log == ["Jennifer: sent 3 tracks"]
 
     delivered = []
-    monkeypatch.setattr(
-        engine.plex_target, "deliver", lambda *a, prefix="", **k: delivered.append(prefix) or _Done(prefix)
-    )
+
+    def deliver(*a, prefix="", **_):
+        delivered.append(prefix)
+        return _Done(prefix, a[3])
+
+    monkeypatch.setattr(engine.plex_target, "deliver", deliver)
     remembered = []
     monkeypatch.setattr(engine, "remember", lambda show_dir, log, person=None: remembered.append(person))
     assert found[1][1].deliver(tmp_path) == "Jennifer: x"
@@ -631,8 +635,8 @@ def test_a_shared_booth_checks_in_and_delivers_for_each_person(tmp_path, monkeyp
 
 
 class _Done:
-    def __init__(self, prefix):
-        self.title = f"{prefix}x"
+    def __init__(self, prefix, dest):
+        self.title, self.folder = f"{prefix}x", dest / "show"
 
 
 def test_a_persons_playlists_can_be_shared_with_their_plex_user(booth, monkeypatch, tmp_path):

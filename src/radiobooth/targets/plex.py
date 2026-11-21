@@ -70,6 +70,25 @@ def section_named(client, name: str) -> dict:
     raise PlexError(f"No Plex library named {name!r}.")
 
 
+def _last_name(path: str) -> str:
+    """A folder path's last name, from this computer or the Plex one (either kind of slash)."""
+    return re.split(r"[\\/]", path.rstrip("\\/"))[-1].casefold()
+
+
+def watched_folder(dest_root: Path, locations: list[str]) -> Path:
+    """The folder to put breaks in: `dest_root`, or the folder of the library's own name inside it when
+    `dest_root` is the share above that folder (`\\\\nas\\audio` for `/volume1/audio/radiobooth`), an easy
+    slip when picking the shared folder. Only when `dest_root` itself isn't named like a watched folder."""
+    names = {_last_name(loc) for loc in locations if loc}
+    if not names or dest_root.name.casefold() in names:
+        return dest_root
+    try:
+        inside = [d for d in dest_root.iterdir() if d.name.casefold() in names and d.is_dir()]
+    except OSError:
+        return dest_root
+    return inside[0] if len(inside) == 1 else dest_root
+
+
 def copy_breaks(show_dir: Path, package: dict, dest: Path) -> dict[str, str]:
     """Copy break files to dest; returns break id -> file name."""
     dest.mkdir(parents=True, exist_ok=True)
@@ -103,6 +122,8 @@ def deliver(
     package = load_package(show_dir)
     title = f"{prefix}{package['title']}"
     section = section_named(client, library)
+    locations = [loc["path"] for loc in section.get("Location", []) if loc.get("path")]
+    dest_root = watched_folder(dest_root, locations)
     folder = folder_name(package)
     if not (dest_root / folder).resolve().is_relative_to(dest_root.resolve()):
         raise PlexError(f"Refusing to write outside {dest_root}.")
@@ -110,7 +131,6 @@ def deliver(
 
     # Scan the whole breaks library: Plex (1.43, on a NAS) ignored a scan scoped to the new folder, and this
     # library only holds breaks, so a full scan stays quick.
-    locations = [loc["path"] for loc in section.get("Location", [])]
     client.get(f"/library/sections/{section['key']}/refresh")
 
     deadline, found = time.monotonic() + wait, {}
