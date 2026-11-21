@@ -15,6 +15,7 @@ import contextlib
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -117,13 +118,25 @@ def installed(platform: str = sys.platform, exe: str | None = None) -> Path | No
     return Path(exe)
 
 
+def remove(path: Path) -> None:
+    """Delete a file, even one marked read-only (Windows refuses to delete those: "Access is denied")."""
+    try:
+        path.unlink(missing_ok=True)
+    except PermissionError:
+        try:
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        except OSError:
+            raise PermissionError(f"can't remove {path.name}") from None
+        path.unlink(missing_ok=True)
+
+
 def set_aside(exe: Path) -> Path:
     """A free name to move the running app file to. Usually RadioBooth.old.exe; if that one can't be removed
     (an older Booth still running from it, say), a numbered one, so an update never stops there."""
     old = exe.with_name(exe.stem + ".old" + exe.suffix)
     for n in range(1, 50):
         try:
-            old.unlink(missing_ok=True)
+            remove(old)
             return old
         except OSError:
             old = exe.with_name(f"{exe.stem}.old{n}{exe.suffix}")
@@ -172,7 +185,7 @@ def tidy(platform: str = sys.platform) -> None:
     if target and platform == "win32":
         for old in target.parent.glob(f"{target.stem}.old*{target.suffix}"):
             with contextlib.suppress(OSError):
-                old.unlink()
+                remove(old)
 
 
 def apply(

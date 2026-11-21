@@ -110,6 +110,30 @@ def test_a_windows_update_steps_round_an_old_copy_still_in_use(tmp_path, monkeyp
     assert not stuck.exists() and not exe.with_name("RadioBooth.old1.exe").exists() and exe.exists()
 
 
+def test_a_read_only_old_copy_is_removed_all_the_same(tmp_path, monkeypatch):
+    exe = frozen_windows_app(tmp_path, monkeypatch)
+    stuck = exe.with_name("RadioBooth.old.exe")
+    stuck.write_bytes(b"MZ 0.1, marked read-only")
+    writable = []
+    real_unlink, real_chmod = Path.unlink, update.os.chmod
+
+    def unlink(self, missing_ok=False):
+        if self == stuck and not writable:  # how Windows treats a read-only file
+            raise PermissionError(5, "Access is denied")
+        real_unlink(self, missing_ok=missing_ok)
+
+    def chmod(path, mode):
+        writable.append(Path(path))
+        real_chmod(path, mode)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    monkeypatch.setattr(update.os, "chmod", chmod)
+    new = tmp_path / "new.exe"
+    new.write_bytes(b"MZ new")
+    update.swap_windows(new, exe, sleep=lambda s: None)
+    assert writable == [stuck] and exe.read_bytes() == b"MZ new" and stuck.read_bytes() == b"MZ old"
+
+
 def test_a_release_without_a_checksum_is_not_installed(tmp_path, monkeypatch):
     exe = frozen_windows_app(tmp_path, monkeypatch)
     release = update.latest_release(lambda url: release_json())

@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from radiobooth import macapp
+from radiobooth import macapp, update
 
 NAME = "radiobooth"
 
@@ -86,7 +86,7 @@ def put_in_place(new: Path, target: Path, platform: str) -> None:
             raise
         old = target.with_name(target.stem + ".old" + target.suffix)
         with contextlib.suppress(OSError):  # an even older one, still running, keeps its name: try anyway
-            old.unlink(missing_ok=True)
+            update.remove(old)
         os.replace(target, old)
         try:
             os.replace(new, target)
