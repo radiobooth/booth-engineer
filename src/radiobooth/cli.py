@@ -450,7 +450,7 @@ def windows_home(platform: str = sys.platform, popen=None) -> int | None:
     from radiobooth import autostart, config, web
 
     home = autostart.app_home(platform, Path.home())
-    if Path(sys.executable).resolve() == home.resolve():
+    if autostart.same_file(sys.executable, home):
         return None
     lock = single_instance(config.path().parent / "run.lock")
     if lock is None:  # Booth's already running: just open its page

@@ -11,6 +11,7 @@ service running `booth run`. Each runs as you, with your settings; nothing is in
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -50,18 +51,48 @@ def keep_app(cmd: list[str], home: Path, platform: str) -> list[str]:
     if platform == "darwin" and (app := macapp.bundle(cmd[0])):
         return [str(macapp.launcher(macapp.install(app, home)))]
     target = app_home(platform, home)
-    if Path(cmd[0]).resolve() != target.resolve():
+    if not same_file(cmd[0], target):
         target.parent.mkdir(parents=True, exist_ok=True)
         staged = target.with_name(target.stem + ".new" + target.suffix)
         shutil.copy2(cmd[0], staged)  # a full copy first, so a failure never leaves a broken app behind
         try:
-            os.replace(staged, target)
-        except OSError:
+            put_in_place(staged, target, platform)
+        except OSError as e:
             staged.unlink(missing_ok=True)
             raise OSError(
-                "Booth is running from its own folder. Close the Booth window, then try again."
+                f"Booth couldn't copy itself to its own folder ({e.strerror or e}). Restart the computer,"
+                " then try again."
             ) from None
     return [str(target)]
+
+
+def same_file(path: str | Path, other: Path) -> bool:
+    """Whether two paths name one file. Windows can spell one path several ways (short 8.3 names, letter
+    case, a folder moved elsewhere by a link), so the file itself is asked, not just the spelling."""
+    try:
+        return os.path.samefile(path, other)
+    except OSError:  # one of them isn't there (yet)
+        return os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(other))
+
+
+def put_in_place(new: Path, target: Path, platform: str) -> None:
+    """Move `new` over `target`. On Windows a program that is running can't be replaced, only renamed, so if
+    the copy in its own folder is still in use (an older Booth on its way out, say), it is moved aside first,
+    the way an update does it; the next start of the app tidies it away."""
+    try:
+        os.replace(new, target)
+    except OSError:
+        if platform != "win32" or not target.exists():
+            raise
+        old = target.with_name(target.stem + ".old" + target.suffix)
+        with contextlib.suppress(OSError):  # an even older one, still running, keeps its name: try anyway
+            old.unlink(missing_ok=True)
+        os.replace(target, old)
+        try:
+            os.replace(new, target)
+        except OSError:
+            os.replace(old, target)
+            raise
 
 
 def _com_shortcut(link: Path, target: str, args: str, workdir: str) -> None:
