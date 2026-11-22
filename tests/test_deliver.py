@@ -207,9 +207,10 @@ def test_booth_remembers_the_folder_plex_watches_once_it_finds_it(tmp_path, monk
     config.save(settings)
     seen = []
 
-    def deliver(client, show_dir, library, dest_root, prefix=""):
-        seen.append(dest_root)
-        return target.Delivery("1", "Show", 1, 1, target.watched_folder(dest_root, ["/v/radiobooth"]) / "x")
+    def deliver(client, show_dir, library, dest_root, prefix="", find_watched=True):
+        seen.append((dest_root, find_watched))
+        found = target.watched_folder(dest_root, ["/v/radiobooth"]) if find_watched else dest_root
+        return target.Delivery("1", "Show", 1, 1, found / "x")
 
     monkeypatch.setattr(target, "deliver", deliver)
     monkeypatch.setattr(engine, "remember", lambda *a, **k: None)
@@ -217,6 +218,23 @@ def test_booth_remembers_the_folder_plex_watches_once_it_finds_it(tmp_path, monk
     st = engine.station(settings, logs.append)
     st.deliver(tmp_path)
     st.deliver(tmp_path)
-    assert seen == [share, share / "radiobooth"]
+    assert seen == [(share, True), (share / "radiobooth", True)]
     assert config.load()["breaks_dir"] == str(share / "radiobooth")
     assert len([m for m in logs if "from now on" in m]) == 1
+
+    # A folder set in the environment is used as it is: Booth's page reads it as it is too.
+    monkeypatch.setenv("BOOTH_BREAKS_DIR", str(share))
+    seen.clear()
+    engine.station(settings | {"breaks_dir": str(share)}, logs.append).deliver(tmp_path)
+    assert seen == [(share, False)]
+
+
+def test_a_breaks_folder_plex_already_reads_stays_put(tmp_path):
+    # R:\ is the share Plex watches as /volume1/radiobooth, and happens to hold a folder named radiobooth.
+    root = tmp_path / "r"
+    (root / "radiobooth").mkdir(parents=True)
+    assert target.watched_folder(root, ["/volume1/radiobooth"]) == root / "radiobooth"
+    # Once Plex has picked up a show from it (its note is there), it's the right folder: no moving.
+    (root / "2026-11-20-road-trip-abc123").mkdir()
+    (root / "2026-11-20-road-trip-abc123" / target.NOTE).write_text("{}")
+    assert target.watched_folder(root, ["/volume1/radiobooth"]) == root

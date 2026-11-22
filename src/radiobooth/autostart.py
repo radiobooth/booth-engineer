@@ -11,7 +11,6 @@ service running `booth run`. Each runs as you, with your settings; nothing is in
 
 from __future__ import annotations
 
-import contextlib
 import os
 import shutil
 import subprocess
@@ -84,15 +83,7 @@ def put_in_place(new: Path, target: Path, platform: str) -> None:
     except OSError:
         if platform != "win32" or not target.exists():
             raise
-        old = target.with_name(target.stem + ".old" + target.suffix)
-        with contextlib.suppress(OSError):  # an even older one, still running, keeps its name: try anyway
-            update.remove(old)
-        os.replace(target, old)
-        try:
-            os.replace(new, target)
-        except OSError:
-            os.replace(old, target)
-            raise
+        update.swap_windows(new, target)
 
 
 def _com_shortcut(link: Path, target: str, args: str, workdir: str) -> None:

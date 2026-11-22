@@ -266,3 +266,40 @@ def test_the_updater_offers_whats_new_only_for_a_newer_version(monkeypatch):
     monkeypatch.setattr(update, "latest_release", lambda: got | {"version": "0.0.1"})
     up.check()
     assert up.status()["notes"] == []
+
+
+def test_a_long_whats_new_line_is_cut_without_a_dangling_bold():
+    cut = update.notes("- " + "x" * (update.MAX_NOTE_CHARS - 2) + " **Bold part** after\n---\n")[0]
+    assert "**" not in cut and len(cut) == update.MAX_NOTE_CHARS
+
+
+def test_checks_leave_an_install_alone(monkeypatch):
+    up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: False)
+    first = {"version": "99.0", "assets": {}, "notes": []}
+    monkeypatch.setattr(update, "latest_release", lambda: first)
+    up.check()
+    # "Update now" is waiting for a show: a check meanwhile changes nothing.
+    up._lock.acquire()
+    up.state = "installing"
+    monkeypatch.setattr(update, "latest_release", lambda: first | {"version": "100.0"})
+    up.check()
+    assert up.state == "installing" and up._release is first
+    up._lock.release()
+
+    # A check that fails while a version is ready to install isn't a failed install.
+    def offline():
+        raise update.UpdateError("couldn't reach GitHub")
+
+    monkeypatch.setattr(update, "latest_release", offline)
+    up.check()
+    assert up.state == "available" and up.message == ""
+
+
+def test_leftover_downloads_are_tidied(tmp_path, monkeypatch):
+    exe = tmp_path / "RadioBooth.exe"
+    exe.write_bytes(b"app")
+    (tmp_path / ".booth-download-abc").mkdir()
+    (tmp_path / ".booth-download-abc" / "RadioBooth-Windows.exe").write_bytes(b"new")
+    monkeypatch.setattr(update, "installed", lambda platform=None: exe)
+    update.tidy("win32")
+    assert not (tmp_path / ".booth-download-abc").exists() and exe.exists()

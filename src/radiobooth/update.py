@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -104,7 +105,9 @@ def notes(body: str) -> list[str]:
         elif items and line.startswith(" ") and line.strip():  # a bullet wrapped onto the next line
             items[-1] += " " + line.strip()
     items = [re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", i) for i in items]
-    return [i[:MAX_NOTE_CHARS] for i in items[:MAX_NOTES]]
+    # A cut line loses its bold: a cut can fall inside a **pair**, and the page would bold the rest of it.
+    cut = [i if len(i) <= MAX_NOTE_CHARS else i.replace("**", "")[:MAX_NOTE_CHARS] for i in items]
+    return cut[:MAX_NOTES]
 
 
 def parse_sums(text: str) -> dict[str, str]:
@@ -205,12 +208,16 @@ def swap_mac(zip_file: Path, app: Path, run=subprocess.run) -> None:
 
 
 def tidy(platform: str = sys.platform) -> None:
-    """Remove what the last update moved aside (Windows can't delete a running program's file)."""
+    """Remove what the last update moved aside (Windows can't delete a running program's file), and any
+    download an update couldn't clean up after itself (Windows still held it)."""
     target = installed(platform)
     if target and platform == "win32":
         for old in target.parent.glob(f"{target.stem}.old*{target.suffix}"):
             with contextlib.suppress(OSError):
                 remove(old)
+    if target:
+        for left in target.parent.glob(".booth-download-*"):
+            shutil.rmtree(left, ignore_errors=True)
 
 
 def apply(
@@ -232,7 +239,7 @@ def apply(
     expected = parse_sums(get(sums_url).decode("utf-8", "replace")).get(name)
     if not expected:
         raise UpdateError(f"version {release['version']} has no checksum for {name}")
-    # A download Windows still holds when this ends is left for the next one, not a failed update.
+    # A download Windows still holds when this ends is left for tidy() at the next start, not a failed update.
     with tempfile.TemporaryDirectory(
         dir=target.parent, prefix=".booth-download-", ignore_cleanup_errors=True
     ) as tmp:
@@ -322,11 +329,21 @@ class Updater:
         threading.Thread(target=self.check, name="booth-update-check", daemon=True).start()
 
     def check(self) -> None:
+        """Ask GitHub what's out. Skipped while an install is under way or waiting for a show: it would change
+        what the page says, and which version gets installed, under the install's feet."""
+        if self._lock.locked():
+            return
+        self._check()
+
+    def _check(self) -> None:
         self.state, self.message = "checking", ""
         try:
             release = latest_release()
         except Exception as e:  # noqa: BLE001 - a cut-short reply too: say so, and try again later
-            self.state, self.message = "failed", f"Couldn't check for updates: {e}."
+            if self._release is not None and newer(self._release["version"]):
+                self.state = "available"  # still ready to install: a failed check isn't a failed update
+            else:
+                self.state, self.message = "failed", f"Couldn't check for updates: {e}."
             return
         self.checked_at = time.time()
         self.latest = release["version"]
@@ -346,10 +363,11 @@ class Updater:
             return
         try:
             if self._release is None:
-                self.check()
-            if self._release is None or not newer(self._release["version"]):
+                self._check()
+            release = self._release  # this one is installed, whatever a later check finds meanwhile
+            if release is None or not newer(release["version"]):
                 return
-            version = self._release["version"]
+            version = release["version"]
             self.state, self.message = "installing", f"Installing version {version}..."
             if self._busy():
                 if not wait:  # the background checks come back for it in a minute
@@ -358,10 +376,10 @@ class Updater:
                 self.message = "The update installs once the show on its way is in Plex."
                 while self._busy():
                     time.sleep(pause)
-                self.message = f"Installing version {version}..."
+                self.state, self.message = "installing", f"Installing version {version}..."
             self._log(f"Installing Booth {version}...")
             try:
-                apply(self._release)
+                apply(release)
             except Exception as e:  # noqa: BLE001 - say what; the old version keeps running
                 self.state, self.message = "failed", f"Couldn't install the update: {e}."
                 self._log(f"Couldn't install Booth {version}: {e!r}")

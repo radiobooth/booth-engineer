@@ -23,6 +23,7 @@ from radiobooth.sources.plex import TRACK, PlexAuthError, PlexError, PlexUnreach
 
 SCAN_TIMEOUT = 180  # seconds to wait for Plex to pick up new breaks
 NOTE = ".booth-show.json"  # beside a show's breaks: its id, title and playlist, to find it again
+SHOW_FOLDER = re.compile(r"^(\d{4}-\d{2}-\d{2}|undated)-")  # how folder_name() starts
 
 
 @dataclass
@@ -78,15 +79,23 @@ def _last_name(path: str) -> str:
 def watched_folder(dest_root: Path, locations: list[str]) -> Path:
     """The folder to put breaks in: `dest_root`, or the folder of the library's own name inside it when
     `dest_root` is the share above that folder (`\\\\nas\\audio` for `/volume1/audio/radiobooth`), an easy
-    slip when picking the shared folder. Only when `dest_root` itself isn't named like a watched folder."""
+    slip when picking the shared folder. Only when `dest_root` itself isn't named like a watched folder, and
+    Plex has never picked up a show from it (a show's note is written only once Plex has its breaks): a
+    folder that already works stays, even if it happens to hold one named like the library's."""
     names = {_last_name(loc) for loc in locations if loc}
     if not names or dest_root.name.casefold() in names:
         return dest_root
     try:
-        inside = [d for d in dest_root.iterdir() if d.name.casefold() in names and d.is_dir()]
+        listed = list(dest_root.iterdir())
     except OSError:
         return dest_root
-    return inside[0] if len(inside) == 1 else dest_root
+    inside = [d for d in listed if d.name.casefold() in names and d.is_dir()]
+    if len(inside) != 1:
+        return dest_root
+    shows = [d for d in listed if SHOW_FOLDER.match(d.name)]  # a share's other folders aren't opened
+    if any((d / NOTE).is_file() for d in shows):
+        return dest_root
+    return inside[0]
 
 
 def copy_breaks(show_dir: Path, package: dict, dest: Path) -> dict[str, str]:
@@ -116,14 +125,25 @@ def find_breaks(client, section_key: str, folder: str, names: dict[str, str]) ->
 
 
 def deliver(
-    client, show_dir: Path, library: str, dest_root: Path, *, wait=SCAN_TIMEOUT, sleep=time.sleep, prefix=""
+    client,
+    show_dir: Path,
+    library: str,
+    dest_root: Path,
+    *,
+    wait=SCAN_TIMEOUT,
+    sleep=time.sleep,
+    prefix="",
+    find_watched=True,
 ):
-    """`prefix` goes before the playlist's title: whose show it is, when people share this Booth."""
+    """`prefix` goes before the playlist's title: whose show it is, when people share this Booth.
+    `find_watched`: look for the library's own folder inside `dest_root` (see watched_folder). Off for a
+    folder set with BOOTH_BREAKS_DIR: that's set on purpose, and Booth's page reads it as it is."""
     package = load_package(show_dir)
     title = f"{prefix}{package['title']}"
     section = section_named(client, library)
     locations = [loc["path"] for loc in section.get("Location", []) if loc.get("path")]
-    dest_root = watched_folder(dest_root, locations)
+    if find_watched:
+        dest_root = watched_folder(dest_root, locations)
     folder = folder_name(package)
     if not (dest_root / folder).resolve().is_relative_to(dest_root.resolve()):
         raise PlexError(f"Refusing to write outside {dest_root}.")

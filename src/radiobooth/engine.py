@@ -166,13 +166,15 @@ def station(
         mark(True)
         try:
             nonlocal dest
-            done = signed_in(lambda: plex_target.deliver(plex, show_dir, library, dest, prefix=prefix))
+            chosen = not os.environ.get("BOOTH_BREAKS_DIR")  # an environment setting is used as it is
+            done = signed_in(
+                lambda: plex_target.deliver(plex, show_dir, library, dest, prefix=prefix, find_watched=chosen)
+            )
             title = done.title
             if done.folder.parent != dest:  # the saved folder was the share above the library's own
                 log(f"Saving breaks in {done.folder.parent} from now on: that's the folder Plex watches.")
                 dest = done.folder.parent
-                if not os.environ.get("BOOTH_BREAKS_DIR"):
-                    config.update({"breaks_dir": str(dest)})
+                config.update({"breaks_dir": str(dest)})
             remember(show_dir, log, who)
             if share_with:
                 share(done, share_with)
