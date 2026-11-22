@@ -1,0 +1,34 @@
+# What's new in Booth
+
+Each release's notes come from its section here (the release workflow refuses a version without one). Write
+for listeners: what they'll notice, in plain words. Newest first.
+
+## 0.5.4 (2026-11-22)
+
+- **Updates on Windows tell you when they fail.** If "Update now" can't finish, Booth's page now says why and
+  offers "Try again", instead of quietly staying on the old version. It also gets past a leftover old copy of
+  Booth that Windows had marked read-only, which stopped some updates altogether.
+- **"Update now" during a show** waits for the show to finish, then installs.
+- **Plex on another computer:** if setup was given the shared folder one level above the one Plex watches,
+  Booth now finds the right folder for its breaks by itself.
+- **Help is on Discord.** The setup guides now link to the Radio Booth Discord.
+- Booth's log no longer fills with error text when its page gives up waiting on a slow answer.
+
+## 0.5.3 (2026-11-21)
+
+- **Big Plex libraries:** Booth now reads a library even when a few song tags are damaged (odd characters in a
+  title, say). Before, one bad tag could stop a show at "Waiting for Booth".
+- If a library really can't be read, the show now fails after three tries with a clear message, so your next
+  show isn't held up behind it.
+
+## 0.5.1 (2026-11-20)
+
+- **Windows:** turning on "Start when I log in" works again. It had stopped with "Close the Booth window", when
+  there was no window to close.
+
+## 0.5.0 (2026-11-19)
+
+- **Download a show to your phone.** On your phone's Booth page, "Get the file" asks Booth at home to make the
+  show into one MP3 with chapters and send it to your phone, for listening offline or in the car. Only the
+  show you asked for is sent, only when you ask, and it's deleted from our side soon after you download it.
+  Your Booth DJ account needs this switched on.
