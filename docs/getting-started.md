@@ -117,6 +117,9 @@ same as in Plex. If the DJ got something wrong, said a name wrong, sounded off, 
 **Flag this break** and pick what happened. That's the most useful thing you can do for us: every rating and
 flag is read.
 
+For anything bigger, questions, or ideas, come say hi in the [Radio Booth Discord](https://discord.gg/aN2bNKB74y), where testers and
+the people making Booth talk.
+
 ## Music on another computer
 
 Your music is on a NAS, a media PC or another computer, and Booth runs on a Windows PC or Mac in the same home.
@@ -238,8 +241,8 @@ Booth is doing and, if something needs you, what to do.
 
 - **The show stays at "Waiting for your Booth Engineer".** Booth isn't running, or the computer is asleep.
   Open **Radio Booth**; that starts it. Booth's page should then say **On air**.
-- **"Didn't work".** The reason is shown under the show. Try again; if it keeps happening, tell us what it
-  says, and what Booth's page shows under **What Booth has been doing**.
+- **"Didn't work".** The reason is shown under the show. Try again; if it keeps happening, tell us in the
+  [Discord](https://discord.gg/aN2bNKB74y) what it says, and what Booth's page shows under **What Booth has been doing**.
 - **You changed your Plex setup, or moved your music.** On Booth's page, click **Change** next to
   **Change Booth's setup**, then **Sign in to Plex again** (or **Change folders**).
 - **Booth's page says "Booth isn't running".** Open **Radio Booth** again.
@@ -249,4 +252,5 @@ Booth is doing and, if something needs you, what to do.
 You don't need to: Booth updates itself. Every few hours it checks for a new version, and installs it when
 no show is on its way to Plex. Booth's page shows which version you have, under **Settings**.
 
-Anything else: get in touch with the person who invited you.
+Anything else: ask in the [Radio Booth Discord](https://discord.gg/aN2bNKB74y), or get in touch with the person
+who invited you.
