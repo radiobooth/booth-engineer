@@ -168,3 +168,73 @@ def test_a_shared_booth_puts_whose_show_it_is_first(tmp_path):
     result = target.deliver(plex, show, "Radio Booth", dest, sleep=lambda s: None, prefix="Jennifer: ")
     assert plex.calls[-1][2]["title"] == "Jennifer: Wipers On, Long Way Home"
     assert result.title == "Jennifer: Wipers On, Long Way Home"
+
+
+def test_deliver_finds_the_library_folder_inside_a_share_above_it(tmp_path):
+    """Setup was given the share (\\\\nas\\audio) instead of the folder Plex watches inside it."""
+    show, share, plex = make_show(tmp_path), tmp_path / "audio", FakePlex()
+    (share / "RadioBooth").mkdir(parents=True)
+    (share / "collection").mkdir()
+    result = target.deliver(plex, show, "Radio Booth", share, sleep=lambda s: None)
+    assert result.folder.parent == share / "RadioBooth"
+    assert (share / "RadioBooth" / "2026-11-03-wipers-on-long-way-home-123456" / "01.mp3").is_file()
+
+
+def test_watched_folder_leaves_a_right_or_unknown_folder_alone(tmp_path):
+    (tmp_path / "radiobooth" / "radiobooth").mkdir(parents=True)
+    right = tmp_path / "radiobooth"
+    assert target.watched_folder(right, ["/volume1/audio/radiobooth"]) == right
+    assert target.watched_folder(tmp_path / "other", ["/volume1/audio/radiobooth"]) == tmp_path / "other"
+    assert target.watched_folder(tmp_path, ["D:\\Music\\radiobooth\\"]) == right
+    assert target.watched_folder(tmp_path, []) == tmp_path
+
+
+def test_booth_remembers_the_folder_plex_watches_once_it_finds_it(tmp_path, monkeypatch):
+    from radiobooth import config, engine
+
+    monkeypatch.setenv("BOOTH_CONFIG", str(tmp_path / "config.json"))
+    for var in ("PLEX_URL", "PLEX_TOKEN", "BOOTH_BREAKS_LIBRARY", "BOOTH_BREAKS_DIR"):
+        monkeypatch.delenv(var, raising=False)
+    share = tmp_path / "audio"
+    (share / "radiobooth").mkdir(parents=True)
+    settings = {
+        "plex_url": "http://plex",
+        "plex_token": "t",
+        "breaks_library": "Radio Booth",
+        "breaks_dir": str(share),
+        "music_library": "Music",
+    }
+    config.save(settings)
+    seen = []
+
+    def deliver(client, show_dir, library, dest_root, prefix="", find_watched=True):
+        seen.append((dest_root, find_watched))
+        found = target.watched_folder(dest_root, ["/v/radiobooth"]) if find_watched else dest_root
+        return target.Delivery("1", "Show", 1, 1, found / "x")
+
+    monkeypatch.setattr(target, "deliver", deliver)
+    monkeypatch.setattr(engine, "remember", lambda *a, **k: None)
+    logs = []
+    st = engine.station(settings, logs.append)
+    st.deliver(tmp_path)
+    st.deliver(tmp_path)
+    assert seen == [(share, True), (share / "radiobooth", True)]
+    assert config.load()["breaks_dir"] == str(share / "radiobooth")
+    assert len([m for m in logs if "from now on" in m]) == 1
+
+    # A folder set in the environment is used as it is: Booth's page reads it as it is too.
+    monkeypatch.setenv("BOOTH_BREAKS_DIR", str(share))
+    seen.clear()
+    engine.station(settings | {"breaks_dir": str(share)}, logs.append).deliver(tmp_path)
+    assert seen == [(share, False)]
+
+
+def test_a_breaks_folder_plex_already_reads_stays_put(tmp_path):
+    # R:\ is the share Plex watches as /volume1/radiobooth, and happens to hold a folder named radiobooth.
+    root = tmp_path / "r"
+    (root / "radiobooth").mkdir(parents=True)
+    assert target.watched_folder(root, ["/volume1/radiobooth"]) == root / "radiobooth"
+    # Once Plex has picked up a show from it (its note is there), it's the right folder: no moving.
+    (root / "2026-11-20-road-trip-abc123").mkdir()
+    (root / "2026-11-20-road-trip-abc123" / target.NOTE).write_text("{}")
+    assert target.watched_folder(root, ["/volume1/radiobooth"]) == root

@@ -3,6 +3,8 @@
 Home client for Radio Booth. Python package `radiobooth`, command `booth`, managed with uv.
 
 - Run checks before pushing: `uv run ruff check && uv run ruff format --check && uv run pytest`.
+- Every version bump adds its section to `CHANGELOG.md`, in plain words for listeners: it becomes the release
+  notes, and the release workflow (and a test) refuse a version without one.
 - Outbound connections only: nothing may require the user to open a port on their router or firewall, and
   nothing on the network may reach Booth. The one exception is Booth's own page, served on 127.0.0.1 only
   (never 0.0.0.0 or a LAN address), locked with the page key and Host/Origin checks (see `web.py`).

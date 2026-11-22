@@ -16,6 +16,7 @@ from radiobooth import config, engine, onboard
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexClient, PlexError, music_sections
+from radiobooth.targets.plex import watched_folder
 
 
 class _Superseded(Exception):
@@ -230,7 +231,7 @@ class WebSetup:
                 "That folder isn't reachable from here. Check it's shared and connected, then try again."
             )
         self._here_run.id = self._run_id  # asked for on the page, for the run that's showing
-        self._save_plex(path)
+        self._save_plex(str(watched_folder(Path(path), [self._ob.section_path(self._breaks) or ""])))
 
     def _save_plex(self, breaks_dir: str) -> None:
         with self._lock:  # a cancel or a new sign-in can't slip in between the check and the save

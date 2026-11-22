@@ -10,6 +10,7 @@ from radiobooth import autostart, config, onboard
 from radiobooth.link import Link, LinkError
 from radiobooth.onboard import SetupError
 from radiobooth.sources.plex import PlexAuthError, PlexClient, PlexError, music_sections
+from radiobooth.targets.plex import watched_folder
 
 
 def say(msg: str = "") -> None:
@@ -156,7 +157,7 @@ def remote_breaks_dir(breaks: dict | None, server_name: str | None, ask) -> str:
     while True:
         path = ask("Where is that same folder from this computer? ").strip().strip('"')
         if path and Path(path).is_dir():
-            return path
+            return str(watched_folder(Path(path), [onboard.section_path(breaks) or ""]))
         say("That folder isn't reachable from here. Check that it's shared and connected, then try again.")
 
 

@@ -123,4 +123,5 @@ Setup is the same as the app's, and saying yes to starting automatically works t
 - **A download for Linux, and a published Docker image.** For now these install from this
   repository, as above.
 
-Stuck? Get in touch with the person who invited you, and say which of these setups you're trying.
+Stuck? Ask in the [Radio Booth Discord](https://discord.gg/aN2bNKB74y), or get in touch with the person who
+invited you, and say which of these setups you're trying.

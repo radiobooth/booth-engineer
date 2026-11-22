@@ -137,6 +137,7 @@ class App:
             busy=lambda: self.engine.busy,
             restart=self.restart,
             auto=lambda: config.load().get("auto_update", True),
+            log=self.engine.log,
         )
         self.quit = threading.Event()
         self.restarting = False
@@ -855,11 +856,19 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
     return Handler
 
 
+class PageServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # The page gave up on a slow answer (say, while the computer is offline): nothing to report.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
+
 def serve(app: App, sock: socket.socket, key: str) -> tuple[ThreadingHTTPServer, str]:
     """Start the page on `sock`; returns the server and the link (with the key) that opens it."""
     port = sock.getsockname()[1]
     origins = {f"http://{HOST}:{port}", f"http://localhost:{port}"}
-    httpd = ThreadingHTTPServer((HOST, port), handler(app, key, origins), bind_and_activate=False)
+    httpd = PageServer((HOST, port), handler(app, key, origins), bind_and_activate=False)
     httpd.socket.close()
     httpd.socket = sock
     httpd.daemon_threads = True

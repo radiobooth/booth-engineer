@@ -46,6 +46,10 @@ jobs:
           if [ -n "$tag" ] && [ "$tag" != "v$version" ]; then
             echo "::error::$tag doesn't match pyproject.toml's version $version"; exit 1
           fi
+          # Every release says what changed: refuse one whose version has no section in CHANGELOG.md.
+          if [ -n "$tag" ] && ! python3 packaging/release_notes.py "$version" >/dev/null; then
+            echo "::error::CHANGELOG.md has no notes for $version"; exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Release: ${tag:-none (build only)}"
 
@@ -178,6 +182,9 @@ jobs:
     permissions:
       contents: write  # only this job publishes the release
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          path: src  # only for CHANGELOG.md and the script that reads it
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           pattern: RadioBooth-*  # the downloads, not the per-chip programs inside the Mac app
@@ -198,15 +205,22 @@ jobs:
           cp notices/macos/NOTICES.txt dist/NOTICES-macOS.txt
       # The apps update themselves only to files that match these checksums.
       - run: cd dist && sha256sum RadioBooth-* > SHA256SUMS && cat SHA256SUMS
+      # The notes: what's new in this version (from CHANGELOG.md), then where to get it and the license.
+      - run: |
+          python3 src/packaging/release_notes.py "$TAG" > notes.md
+          printf '\n\n---\n\n%s\n' "$FOOTER" >> notes.md  # Booth's page shows what's above the ---
+          cat notes.md
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+          FOOTER: |
+            Download the file for your computer. [Setup steps](https://github.com/${{ github.repository }}/blob/main/docs/getting-started.md)
+
+            Booth is free software under the GNU GPL, version 3 or later, with no warranty (LICENSE.txt). The apps also contain Python, the PyInstaller bootloader, mutagen, and PyAV with FFmpeg, under their own licenses (NOTICES-Windows.txt, NOTICES-macOS.txt). [Source code for this release](https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }})
       # On a run started by hand this also makes the tag, on the commit that was built. (A tag made with
       # this token doesn't start the workflow again.)
       - run: >-
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
-          --title "Radio Booth $TAG" --notes "$NOTES"
+          --title "Radio Booth $TAG" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
-          NOTES: |
-            Download the file for your computer. [Setup steps](https://github.com/${{ github.repository }}/blob/main/docs/getting-started.md)
-
-            Booth is free software under the GNU GPL, version 3 or later, with no warranty (LICENSE.txt). The apps also contain Python, the PyInstaller bootloader, mutagen, and PyAV with FFmpeg, under their own licenses (NOTICES-Windows.txt, NOTICES-macOS.txt). [Source code for this release](https://github.com/${{ github.repository }}/tree/${{ needs.version.outputs.tag }})

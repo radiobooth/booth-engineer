@@ -71,6 +71,69 @@ def test_a_windows_update_swaps_the_app_file(tmp_path, monkeypatch):
     assert not old.exists()
 
 
+def test_a_windows_update_waits_while_windows_holds_the_new_file(tmp_path, monkeypatch):
+    exe = frozen_windows_app(tmp_path, monkeypatch)
+    new = tmp_path / "new.exe"
+    new.write_bytes(b"MZ new")
+    real, refused = update.os.replace, []
+
+    def replace(src, dst):
+        if Path(src) == new and len(refused) < 3:  # the virus scan is still reading it
+            refused.append(src)
+            raise PermissionError(32, "The process cannot access the file")
+        real(src, dst)
+
+    monkeypatch.setattr(update.os, "replace", replace)
+    update.swap_windows(new, exe, sleep=lambda s: None)
+    assert exe.read_bytes() == b"MZ new" and len(refused) == 3
+
+
+def test_a_windows_update_steps_round_an_old_copy_still_in_use(tmp_path, monkeypatch):
+    exe = frozen_windows_app(tmp_path, monkeypatch)
+    stuck = exe.with_name("RadioBooth.old.exe")
+    stuck.write_bytes(b"MZ older, still running")
+    real = Path.unlink
+
+    def unlink(self, missing_ok=False):
+        if self == stuck:
+            raise PermissionError(5, "Access is denied")
+        real(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    new = tmp_path / "new.exe"
+    new.write_bytes(b"MZ new")
+    update.swap_windows(new, exe, sleep=lambda s: None)
+    assert exe.read_bytes() == b"MZ new"
+    assert exe.with_name("RadioBooth.old1.exe").read_bytes() == b"MZ old"
+    monkeypatch.setattr(Path, "unlink", real)
+    update.tidy("win32")
+    assert not stuck.exists() and not exe.with_name("RadioBooth.old1.exe").exists() and exe.exists()
+
+
+def test_a_read_only_old_copy_is_removed_all_the_same(tmp_path, monkeypatch):
+    exe = frozen_windows_app(tmp_path, monkeypatch)
+    stuck = exe.with_name("RadioBooth.old.exe")
+    stuck.write_bytes(b"MZ 0.1, marked read-only")
+    writable = []
+    real_unlink, real_chmod = Path.unlink, update.os.chmod
+
+    def unlink(self, missing_ok=False):
+        if self == stuck and not writable:  # how Windows treats a read-only file
+            raise PermissionError(5, "Access is denied")
+        real_unlink(self, missing_ok=missing_ok)
+
+    def chmod(path, mode):
+        writable.append(Path(path))
+        real_chmod(path, mode)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    monkeypatch.setattr(update.os, "chmod", chmod)
+    new = tmp_path / "new.exe"
+    new.write_bytes(b"MZ new")
+    update.swap_windows(new, exe, sleep=lambda s: None)
+    assert writable == [stuck] and exe.read_bytes() == b"MZ new" and stuck.read_bytes() == b"MZ old"
+
+
 def test_a_release_without_a_checksum_is_not_installed(tmp_path, monkeypatch):
     exe = frozen_windows_app(tmp_path, monkeypatch)
     release = update.latest_release(lambda url: release_json())
@@ -165,3 +228,78 @@ def test_a_version_started_by_an_older_update_starts_again_afresh(monkeypatch):
     assert cli.app(cli.build_parser().parse_args(argv[1:])) == 0 and relaunched == [1]
     monkeypatch.setenv(update.FRESH, "1")  # started by relaunch() from now on: carries on
     assert not update.started_by_old_update(argv)
+
+
+RELEASE_BODY = """- **Updates tell you when they fail.** If "Update now" can't finish, the page says why and
+  offers "Try again".
+- Help is on [Discord](https://discord.gg/example).
+
+---
+
+Download the file for your computer. [Setup steps](https://example.com)
+
+- not a change
+"""
+
+
+def test_whats_new_comes_from_the_release_notes():
+    assert update.notes(RELEASE_BODY) == [
+        '**Updates tell you when they fail.** If "Update now" can\'t finish, the page says why and '
+        'offers "Try again".',
+        "Help is on Discord.",
+    ]
+    # Releases from before CHANGELOG.md have only the download footer: nothing to show.
+    assert update.notes("Download the file for your computer. [Setup steps](https://example.com)") == []
+    assert update.notes("- " + "x" * 5000 + "\n---\n")[0] == "x" * update.MAX_NOTE_CHARS
+
+
+def test_the_updater_offers_whats_new_only_for_a_newer_version(monkeypatch):
+    data = json.loads(release_json(tag="v99.0"))
+    got = update.latest_release(lambda url: json.dumps(data | {"body": RELEASE_BODY}).encode())
+    assert got["notes"][1] == "Help is on Discord."
+    assert update.latest_release(lambda url: release_json())["notes"] == []  # no body at all
+
+    up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: False)
+    monkeypatch.setattr(update, "latest_release", lambda: got)
+    up.check()
+    assert up.status()["notes"] == got["notes"]
+    monkeypatch.setattr(update, "latest_release", lambda: got | {"version": "0.0.1"})
+    up.check()
+    assert up.status()["notes"] == []
+
+
+def test_a_long_whats_new_line_is_cut_without_a_dangling_bold():
+    cut = update.notes("- " + "x" * (update.MAX_NOTE_CHARS - 2) + " **Bold part** after\n---\n")[0]
+    assert "**" not in cut and len(cut) == update.MAX_NOTE_CHARS
+
+
+def test_checks_leave_an_install_alone(monkeypatch):
+    up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: False)
+    first = {"version": "99.0", "assets": {}, "notes": []}
+    monkeypatch.setattr(update, "latest_release", lambda: first)
+    up.check()
+    # "Update now" is waiting for a show: a check meanwhile changes nothing.
+    up._lock.acquire()
+    up.state = "installing"
+    monkeypatch.setattr(update, "latest_release", lambda: first | {"version": "100.0"})
+    up.check()
+    assert up.state == "installing" and up._release is first
+    up._lock.release()
+
+    # A check that fails while a version is ready to install isn't a failed install.
+    def offline():
+        raise update.UpdateError("couldn't reach GitHub")
+
+    monkeypatch.setattr(update, "latest_release", offline)
+    up.check()
+    assert up.state == "available" and up.message == ""
+
+
+def test_leftover_downloads_are_tidied(tmp_path, monkeypatch):
+    exe = tmp_path / "RadioBooth.exe"
+    exe.write_bytes(b"app")
+    (tmp_path / ".booth-download-abc").mkdir()
+    (tmp_path / ".booth-download-abc" / "RadioBooth-Windows.exe").write_bytes(b"new")
+    monkeypatch.setattr(update, "installed", lambda platform=None: exe)
+    update.tidy("win32")
+    assert not (tmp_path / ".booth-download-abc").exists() and exe.exists()

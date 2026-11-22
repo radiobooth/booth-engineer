@@ -230,8 +230,9 @@ def test_plex_on_another_computer_asks_for_the_shared_folder(plex_home, monkeypa
     assert "/srv/booth" in setup.folder_hint
     with pytest.raises(onboard.SetupError, match="isn't reachable"):
         setup.use_folder(str(tmp_path / "not-there"))
-    setup.use_folder(f'"{tmp_path}"')
-    assert setup.step == "done" and config.load()["breaks_dir"] == str(tmp_path)
+    (tmp_path / "share" / "booth").mkdir(parents=True)  # the share above the folder Plex watches
+    setup.use_folder(f'"{tmp_path / "share"}"')
+    assert setup.step == "done" and config.load()["breaks_dir"] == str(tmp_path / "share" / "booth")
 
 
 def test_finishing_setup_starts_booth_and_its_sign_in_item_once(tmp_path, monkeypatch):
@@ -401,13 +402,55 @@ def test_settings_saved_at_once_are_all_kept(tmp_path, monkeypatch):
     assert config.load() == {f"k{i}": i for i in range(20)}
 
 
-def test_update_now_waits_for_a_show_in_hand(monkeypatch):
+def test_update_now_waits_for_a_show_in_hand_then_installs(monkeypatch):
+    monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
+    busy = [True]
+    restarted, logged = [], []
+    up = update.Updater(
+        busy=lambda: busy[0], restart=lambda: restarted.append(1), auto=lambda: True, log=logged.append
+    )
+    up._release = {"version": "99.0", "assets": {}}
+
+    def apply(release):
+        assert not busy[0], "installed while busy"
+        return release["version"]
+
+    monkeypatch.setattr(update, "apply", apply)
+
+    def sleep(seconds):
+        assert "once the show" in up.message and up.state == "installing"
+        busy[0] = False  # the show is in Plex
+
+    monkeypatch.setattr(update.time, "sleep", sleep)
+    up._install(wait=True)
+    assert restarted and up.state == "installed"
+    assert any("installed" in line for line in logged)
+
+
+def test_the_background_check_leaves_an_update_for_later_while_busy(monkeypatch):
     monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
     up = update.Updater(busy=lambda: True, restart=lambda: pytest.fail("restarted"), auto=lambda: True)
     up._release = {"version": "99.0", "assets": {}}
     monkeypatch.setattr(update, "apply", lambda release: pytest.fail("installed while busy"))
     up._install()
-    assert "once the show" in up.message
+    assert up.state == "available"  # still on offer, and the checks try again in a minute
+
+
+def test_a_failed_update_is_logged_and_can_be_tried_again(monkeypatch):
+    monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
+    logged = []
+    up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: True, log=logged.append)
+    up._release = {"version": "99.0", "assets": {}}
+    up.latest = "99.0"
+
+    def apply(release):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(update, "apply", apply)
+    up._install(wait=True)
+    status = up.status()
+    assert status["state"] == "failed" and status["available"] and "Access is denied" in status["message"]
+    assert any("Access is denied" in line for line in logged)
 
 
 def test_a_broken_reply_from_github_doesnt_stop_update_checks(monkeypatch):
@@ -620,9 +663,12 @@ def test_a_shared_booth_checks_in_and_delivers_for_each_person(tmp_path, monkeyp
     assert log == ["Jennifer: sent 3 tracks"]
 
     delivered = []
-    monkeypatch.setattr(
-        engine.plex_target, "deliver", lambda *a, prefix="", **k: delivered.append(prefix) or _Done(prefix)
-    )
+
+    def deliver(*a, prefix="", **_):
+        delivered.append(prefix)
+        return _Done(prefix, a[3])
+
+    monkeypatch.setattr(engine.plex_target, "deliver", deliver)
     remembered = []
     monkeypatch.setattr(engine, "remember", lambda show_dir, log, person=None: remembered.append(person))
     assert found[1][1].deliver(tmp_path) == "Jennifer: x"
@@ -631,8 +677,8 @@ def test_a_shared_booth_checks_in_and_delivers_for_each_person(tmp_path, monkeyp
 
 
 class _Done:
-    def __init__(self, prefix):
-        self.title = f"{prefix}x"
+    def __init__(self, prefix, dest):
+        self.title, self.folder = f"{prefix}x", dest / "show"
 
 
 def test_a_persons_playlists_can_be_shared_with_their_plex_user(booth, monkeypatch, tmp_path):
@@ -1005,3 +1051,20 @@ def test_a_new_pairing_with_someone_elses_code_asks_first(booth, monkeypatch):
     del names["be_jen3"]  # Radio Booth forgot it
     assert act(port, key, "pair", {"code": "THOM-0001"}) == (200, {"name": "Den PC"})
     assert config.load()["device_token"] == "be_own2"
+
+
+def test_page_server_stays_quiet_when_the_page_hangs_up(capsys):
+    server = web.PageServer(("127.0.0.1", 0), web.BaseHTTPRequestHandler, bind_and_activate=False)
+    try:
+        try:
+            raise BrokenPipeError(32, "Broken pipe")
+        except BrokenPipeError:
+            server.handle_error(None, ("127.0.0.1", 1))
+        assert capsys.readouterr().err == ""
+        try:
+            raise ValueError("real trouble")
+        except ValueError:
+            server.handle_error(None, ("127.0.0.1", 1))
+        assert "real trouble" in capsys.readouterr().err
+    finally:
+        server.server_close()
