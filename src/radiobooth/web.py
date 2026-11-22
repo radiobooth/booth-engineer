@@ -137,6 +137,7 @@ class App:
             busy=lambda: self.engine.busy,
             restart=self.restart,
             auto=lambda: config.load().get("auto_update", True),
+            log=self.engine.log,
         )
         self.quit = threading.Event()
         self.restarting = False

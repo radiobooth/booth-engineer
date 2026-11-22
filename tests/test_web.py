@@ -402,13 +402,55 @@ def test_settings_saved_at_once_are_all_kept(tmp_path, monkeypatch):
     assert config.load() == {f"k{i}": i for i in range(20)}
 
 
-def test_update_now_waits_for_a_show_in_hand(monkeypatch):
+def test_update_now_waits_for_a_show_in_hand_then_installs(monkeypatch):
+    monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
+    busy = [True]
+    restarted, logged = [], []
+    up = update.Updater(
+        busy=lambda: busy[0], restart=lambda: restarted.append(1), auto=lambda: True, log=logged.append
+    )
+    up._release = {"version": "99.0", "assets": {}}
+
+    def apply(release):
+        assert not busy[0], "installed while busy"
+        return release["version"]
+
+    monkeypatch.setattr(update, "apply", apply)
+
+    def sleep(seconds):
+        assert "once the show" in up.message and up.state == "installing"
+        busy[0] = False  # the show is in Plex
+
+    monkeypatch.setattr(update.time, "sleep", sleep)
+    up._install(wait=True)
+    assert restarted and up.state == "installed"
+    assert any("installed" in line for line in logged)
+
+
+def test_the_background_check_leaves_an_update_for_later_while_busy(monkeypatch):
     monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
     up = update.Updater(busy=lambda: True, restart=lambda: pytest.fail("restarted"), auto=lambda: True)
     up._release = {"version": "99.0", "assets": {}}
     monkeypatch.setattr(update, "apply", lambda release: pytest.fail("installed while busy"))
     up._install()
-    assert "once the show" in up.message
+    assert up.state == "available"  # still on offer, and the checks try again in a minute
+
+
+def test_a_failed_update_is_logged_and_can_be_tried_again(monkeypatch):
+    monkeypatch.setattr(update, "installed", lambda *a, **k: "app")
+    logged = []
+    up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: True, log=logged.append)
+    up._release = {"version": "99.0", "assets": {}}
+    up.latest = "99.0"
+
+    def apply(release):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(update, "apply", apply)
+    up._install(wait=True)
+    status = up.status()
+    assert status["state"] == "failed" and status["available"] and "Access is denied" in status["message"]
+    assert any("Access is denied" in line for line in logged)
 
 
 def test_a_broken_reply_from_github_doesnt_stop_update_checks(monkeypatch):

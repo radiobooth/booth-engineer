@@ -15,6 +15,7 @@ import contextlib
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -117,13 +118,52 @@ def installed(platform: str = sys.platform, exe: str | None = None) -> Path | No
     return Path(exe)
 
 
-def swap_windows(new: Path, exe: Path) -> None:
-    """Windows lets a running program's file be renamed, not replaced: move it aside, put the new one in."""
-    old = exe.with_name(exe.stem + ".old" + exe.suffix)
-    old.unlink(missing_ok=True)
-    os.replace(exe, old)
+def remove(path: Path) -> None:
+    """Delete a file, even one marked read-only (Windows refuses to delete those: "Access is denied")."""
     try:
-        os.replace(new, exe)
+        path.unlink(missing_ok=True)
+    except PermissionError:
+        try:
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        except OSError:
+            raise PermissionError(f"can't remove {path.name}") from None
+        path.unlink(missing_ok=True)
+
+
+def set_aside(exe: Path) -> Path:
+    """A free name to move the running app file to. Usually RadioBooth.old.exe; if that one can't be removed
+    (an older Booth still running from it, say), a numbered one, so an update never stops there."""
+    old = exe.with_name(exe.stem + ".old" + exe.suffix)
+    for n in range(1, 50):
+        try:
+            remove(old)
+            return old
+        except OSError:
+            old = exe.with_name(f"{exe.stem}.old{n}{exe.suffix}")
+    raise UpdateError(
+        "Booth's folder is full of old copies still in use; restart the computer, then try again"
+    )
+
+
+def patiently(step: Callable[[], None], tries: int = 20, pause: float = 0.5, sleep=time.sleep) -> None:
+    """Windows often holds a file it has just seen written for a moment (the virus scan, the search index),
+    and refuses to move it meanwhile ("Access is denied", "used by another process"): try again a while."""
+    for attempt in range(tries):
+        try:
+            step()
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            sleep(pause)
+
+
+def swap_windows(new: Path, exe: Path, sleep=time.sleep) -> None:
+    """Windows lets a running program's file be renamed, not replaced: move it aside, put the new one in."""
+    old = set_aside(exe)
+    patiently(lambda: os.replace(exe, old), sleep=sleep)
+    try:
+        patiently(lambda: os.replace(new, exe), sleep=sleep)
     except OSError:
         os.replace(old, exe)
         raise
@@ -143,12 +183,18 @@ def tidy(platform: str = sys.platform) -> None:
     """Remove what the last update moved aside (Windows can't delete a running program's file)."""
     target = installed(platform)
     if target and platform == "win32":
-        with contextlib.suppress(OSError):
-            target.with_name(target.stem + ".old" + target.suffix).unlink(missing_ok=True)
+        for old in target.parent.glob(f"{target.stem}.old*{target.suffix}"):
+            with contextlib.suppress(OSError):
+                remove(old)
 
 
 def apply(
-    release: dict, platform: str = sys.platform, get=fetch, fetch_file=download, run=subprocess.run
+    release: dict,
+    platform: str = sys.platform,
+    get=fetch,
+    fetch_file=download,
+    run=subprocess.run,
+    sleep=time.sleep,
 ) -> str:
     """Download, check and install `release`; returns the new version. Raises UpdateError."""
     target = installed(platform)
@@ -161,11 +207,14 @@ def apply(
     expected = parse_sums(get(sums_url).decode("utf-8", "replace")).get(name)
     if not expected:
         raise UpdateError(f"version {release['version']} has no checksum for {name}")
-    with tempfile.TemporaryDirectory(dir=target.parent, prefix=".booth-download-") as tmp:
+    # A download Windows still holds when this ends is left for the next one, not a failed update.
+    with tempfile.TemporaryDirectory(
+        dir=target.parent, prefix=".booth-download-", ignore_cleanup_errors=True
+    ) as tmp:
         dest = Path(tmp) / name
         fetch_file(url, dest, expected)
         if platform == "win32":
-            swap_windows(dest, target)
+            swap_windows(dest, target, sleep)
         else:
             swap_mac(dest, target, run)
     return release["version"]
@@ -211,8 +260,14 @@ def relaunch(platform: str = sys.platform, popen=subprocess.Popen, run=subproces
 class Updater:
     """Checks now and then; installs when Booth is idle. What it's doing is in `status()` for the page."""
 
-    def __init__(self, busy: Callable[[], bool], restart: Callable[[], None], auto: Callable[[], bool]):
-        self._busy, self._restart, self._auto = busy, restart, auto
+    def __init__(
+        self,
+        busy: Callable[[], bool],
+        restart: Callable[[], None],
+        auto: Callable[[], bool],
+        log: Callable[[str], None] = lambda msg: None,
+    ):
+        self._busy, self._restart, self._auto, self._log = busy, restart, auto, log
         self._lock = threading.Lock()
         self.can_install = installed() is not None
         self.latest: str | None = None
@@ -239,9 +294,6 @@ class Updater:
         """The page's "Check now". Works without the background checks too (the `booth` command)."""
         threading.Thread(target=self.check, name="booth-update-check", daemon=True).start()
 
-    def install_now(self) -> None:
-        threading.Thread(target=self._install, name="booth-update-now", daemon=True).start()
-
     def check(self) -> None:
         self.state, self.message = "checking", ""
         try:
@@ -257,7 +309,11 @@ class Updater:
         else:
             self.state = "idle"
 
-    def _install(self) -> None:
+    def install_now(self) -> None:
+        """The page's "Update now": installs as soon as Booth is free, however long that takes."""
+        threading.Thread(target=self._install, args=(True,), name="booth-update-now", daemon=True).start()
+
+    def _install(self, wait: bool = False, pause: float = 5) -> None:
         if not self._lock.acquire(blocking=False):
             return
         try:
@@ -265,17 +321,26 @@ class Updater:
                 self.check()
             if self._release is None or not newer(self._release["version"]):
                 return
-            self.state, self.message = "installing", f"Installing version {self._release['version']}..."
+            version = self._release["version"]
+            self.state, self.message = "installing", f"Installing version {version}..."
             if self._busy():
+                if not wait:  # the background checks come back for it in a minute
+                    self.state, self.message = "available", ""
+                    return
                 self.message = "The update installs once the show on its way is in Plex."
-                return
+                while self._busy():
+                    time.sleep(pause)
+                self.message = f"Installing version {version}..."
+            self._log(f"Installing Booth {version}...")
             try:
                 apply(self._release)
             except Exception as e:  # noqa: BLE001 - say what; the old version keeps running
                 self.state, self.message = "failed", f"Couldn't install the update: {e}."
+                self._log(f"Couldn't install Booth {version}: {e!r}")
                 return
             self.state = "installed"
-            self.message = f"Version {self._release['version']} installed; Booth is starting again."
+            self.message = f"Version {version} installed; Booth is starting again."
+            self._log(f"Booth {version} installed; starting again.")
             self._restart()
         finally:
             self._lock.release()
