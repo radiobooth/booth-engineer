@@ -208,7 +208,7 @@ jobs:
       # The notes: what's new in this version (from CHANGELOG.md), then where to get it and the license.
       - run: |
           python3 src/packaging/release_notes.py "$TAG" > notes.md
-          printf '\n\n%s\n' "$FOOTER" >> notes.md
+          printf '\n\n---\n\n%s\n' "$FOOTER" >> notes.md  # Booth's page shows what's above the ---
           cat notes.md
         env:
           TAG: ${{ needs.version.outputs.tag }}

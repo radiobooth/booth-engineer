@@ -15,6 +15,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -33,6 +34,10 @@ LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 DOWNLOADS = f"https://github.com/{REPO}/releases/download/"
 SUMS = "SHA256SUMS"
 ASSETS = {"win32": "RadioBooth-Windows.exe", "darwin": "RadioBooth-macOS.zip"}
+# The release workflow writes CHANGELOG.md's notes, then this line, then where to download and the license.
+NOTES_END = "\n---"
+MAX_NOTES = 12
+MAX_NOTE_CHARS = 400
 CHECK_EVERY_S = 6 * 3600
 FIRST_CHECK_S = 60
 USER_AGENT = f"radiobooth/{__version__}"
@@ -79,7 +84,27 @@ def latest_release(get: Callable[[str], bytes] = fetch) -> dict:
         # Only files on this project's own release pages, over https.
         if isinstance(url, str) and url.startswith(DOWNLOADS) and isinstance(a.get("name"), str):
             assets[a["name"]] = url
-    return {"version": data["tag_name"].removeprefix("v"), "assets": assets}
+    body = data.get("body")
+    return {
+        "version": data["tag_name"].removeprefix("v"),
+        "assets": assets,
+        "notes": notes(body) if isinstance(body, str) else [],
+    }
+
+
+def notes(body: str) -> list[str]:
+    """What's new, from a release's notes: one string per bullet, **bold** kept, links reduced to their text.
+    [] for a release made before notes came from CHANGELOG.md (no `---` line), or one with no bullets."""
+    if NOTES_END not in body:
+        return []
+    items: list[str] = []
+    for line in body.split(NOTES_END, 1)[0].splitlines():
+        if line.startswith(("- ", "* ")):
+            items.append(line[2:].strip())
+        elif items and line.startswith(" ") and line.strip():  # a bullet wrapped onto the next line
+            items[-1] += " " + line.strip()
+    items = [re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", i) for i in items]
+    return [i[:MAX_NOTE_CHARS] for i in items[:MAX_NOTES]]
 
 
 def parse_sums(text: str) -> dict[str, str]:
@@ -271,6 +296,7 @@ class Updater:
         self._lock = threading.Lock()
         self.can_install = installed() is not None
         self.latest: str | None = None
+        self.notes: list[str] = []
         self.checked_at: float | None = None
         self.state = "idle"  # idle | checking | available | installing | installed | failed
         self.message = ""
@@ -280,6 +306,7 @@ class Updater:
         return {
             "current": __version__,
             "latest": self.latest,
+            "notes": self.notes if self.latest and newer(self.latest) else [],
             "available": bool(self.latest and newer(self.latest)),
             "can_install": self.can_install,
             "state": self.state,
@@ -303,6 +330,7 @@ class Updater:
             return
         self.checked_at = time.time()
         self.latest = release["version"]
+        self.notes = release.get("notes", [])
         if newer(self.latest):
             self._release = release
             self.state = "available"

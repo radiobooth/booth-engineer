@@ -84,6 +84,9 @@ input.path { text-transform: none; letter-spacing: 0; font: 15px var(--text); wi
 .switch input:checked + span::after { transform: translateX(20px); }
 .switch input:focus-visible + span { outline: 2px solid var(--brass); outline-offset: 2px; }
 details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+#update-actions { flex-shrink: 0; }  /* a long "What's new" beside it mustn't squeeze the button away */
+#whats-new ul { margin: 8px 0 0; padding-left: 20px; font-size: 14px; }
+#whats-new li { margin: 4px 0; }
 pre { font: 12px/1.5 var(--label); white-space: pre-wrap; word-break: break-word; color: var(--muted);
   max-height: 320px; overflow: auto; margin: 10px 0 0; }
 .hidden { display: none !important; }
@@ -312,7 +315,9 @@ HTML = f"""<!doctype html>
       <label class="switch"><input type="checkbox" id="autostart"><span></span></label>
     </div>
     <div class="row">
-      <div><b>Updates</b><p class="muted" id="update-text"></p></div>
+      <div><b>Updates</b><p class="muted" id="update-text"></p>
+        <details class="hidden" id="whats-new"><summary id="whats-new-title"></summary>
+          <ul id="whats-new-list"></ul></details></div>
       <div class="actions" id="update-actions"></div>
     </div>
     <div class="row" id="row-auto-update">
@@ -412,6 +417,21 @@ function button(text, onclick, quiet = false) {
   if (quiet) b.className = "quiet";
   b.onclick = onclick;
   return b;
+}
+
+// What's new in the version that's out: one line per change, **bold** as in CHANGELOG.md. Built from text
+// nodes only, and rebuilt only when the notes change, so an open list stays open between refreshes.
+let whatsNewShown = "";
+function whatsNew(u) {
+  const items = (u && u.notes) || [];
+  const key = items.length ? u.latest + "\n" + items.join("\n") : "";
+  if (key === whatsNewShown) return;
+  whatsNewShown = key;
+  show($("whats-new"), items.length > 0);
+  if (!items.length) return;
+  $("whats-new-title").textContent = "What's new in " + u.latest;
+  $("whats-new-list").replaceChildren(...items.map((text) =>
+    el("li", {}, ...text.split("**").map((part, i) => (i % 2 ? el("b", {textContent: part}) : part)))));
 }
 
 function error(id, message) {
@@ -658,6 +678,7 @@ function render(s) {
       (u.checked_at ? ", up to date (checked " + ago(u.checked_at) + ")." : ".");
     ua.append(button("Check now", () => post("check_update").then(refresh), true));
   }
+  whatsNew(u.available ? u : null);
   show($("row-auto-update"), u.can_install);
   $("auto-update").checked = u.auto;
   $("quit-text").textContent = s.autostart.on

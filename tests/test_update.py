@@ -228,3 +228,41 @@ def test_a_version_started_by_an_older_update_starts_again_afresh(monkeypatch):
     assert cli.app(cli.build_parser().parse_args(argv[1:])) == 0 and relaunched == [1]
     monkeypatch.setenv(update.FRESH, "1")  # started by relaunch() from now on: carries on
     assert not update.started_by_old_update(argv)
+
+
+RELEASE_BODY = """- **Updates tell you when they fail.** If "Update now" can't finish, the page says why and
+  offers "Try again".
+- Help is on [Discord](https://discord.gg/example).
+
+---
+
+Download the file for your computer. [Setup steps](https://example.com)
+
+- not a change
+"""
+
+
+def test_whats_new_comes_from_the_release_notes():
+    assert update.notes(RELEASE_BODY) == [
+        '**Updates tell you when they fail.** If "Update now" can\'t finish, the page says why and '
+        'offers "Try again".',
+        "Help is on Discord.",
+    ]
+    # Releases from before CHANGELOG.md have only the download footer: nothing to show.
+    assert update.notes("Download the file for your computer. [Setup steps](https://example.com)") == []
+    assert update.notes("- " + "x" * 5000 + "\n---\n")[0] == "x" * update.MAX_NOTE_CHARS
+
+
+def test_the_updater_offers_whats_new_only_for_a_newer_version(monkeypatch):
+    data = json.loads(release_json(tag="v99.0"))
+    got = update.latest_release(lambda url: json.dumps(data | {"body": RELEASE_BODY}).encode())
+    assert got["notes"][1] == "Help is on Discord."
+    assert update.latest_release(lambda url: release_json())["notes"] == []  # no body at all
+
+    up = update.Updater(busy=lambda: False, restart=lambda: None, auto=lambda: False)
+    monkeypatch.setattr(update, "latest_release", lambda: got)
+    up.check()
+    assert up.status()["notes"] == got["notes"]
+    monkeypatch.setattr(update, "latest_release", lambda: got | {"version": "0.0.1"})
+    up.check()
+    assert up.status()["notes"] == []
