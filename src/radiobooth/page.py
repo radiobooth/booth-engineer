@@ -100,15 +100,12 @@ a { color: var(--brass); }
 body.off #off { display: block; }
 body.off main > section:not(#off) { display: none; }
 body.off .light { color: var(--chalk); border-color: var(--chalk); }
-#show-form { display: grid; gap: 12px; margin-top: 10px; }
-#show-form label, .people-share { display: grid; gap: 6px; font: 12px/1.3 var(--label); letter-spacing: .1em;
+.people-share { display: grid; gap: 6px; font: 12px/1.3 var(--label); letter-spacing: .1em;
   text-transform: uppercase; color: var(--muted); }
-#show-form textarea, #show-form select, #show-form input, .people-share select { font: 16px/1.4 var(--text); padding: 10px 12px;
-  border-radius: 9px; border: 1px solid var(--line); background: var(--studio); color: var(--chalk);
-  width: 100%; min-width: 0; text-transform: none; letter-spacing: normal; }
-#show-form textarea { min-height: 76px; resize: vertical; }
-.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 420px) { .pair { grid-template-columns: 1fr; } }
+.people-share select { font: 16px/1.4 var(--text); padding: 10px 12px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--studio); color: var(--chalk); width: 100%; min-width: 0;
+  text-transform: none; letter-spacing: normal; }
+#who-row { margin-bottom: 4px; }
 .ok { color: #b9dccf; margin: 0; }
 .shows { list-style: none; padding: 0; margin: 14px 0 0; }
 .shows li { padding: 10px 0; border-top: 1px solid var(--line); display: grid; gap: 2px; }
@@ -116,39 +113,14 @@ body.off .light { color: var(--chalk); border-color: var(--chalk); }
 .shows .st { font-size: 14px; }
 .shows .st.delivered { color: #b9dccf; }
 .shows .st.failed, .shows .st.expired { color: #ffb4a3; }
-.fb-open { justify-self: start; margin-top: 6px; padding: 6px 12px; font-size: 14px; }
-.fb { display: grid; gap: 14px; margin-top: 10px; padding: 14px; border: 1px solid var(--line);
-  border-radius: 12px; background: var(--studio); }
-.fb > div { display: grid; gap: 8px; }
-.flag-form { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
-.fb h3 { font: 12px/1.3 var(--label); letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
-  margin: 0; }
-.fb textarea { font: 15px/1.4 var(--text); padding: 10px 12px; border-radius: 9px; border: 1px solid var(--line);
-  background: var(--panel); color: var(--chalk); width: 100%; min-height: 64px; resize: vertical; }
-.fb .actions { margin-top: 0; align-items: center; display: flex; }
-.stars { display: flex; gap: 2px; }
-.stars button { background: none; border: 0; color: var(--line); font-size: 30px; line-height: 1;
-  padding: 2px 4px; margin: 0; }
-.stars button.on { color: var(--tally); }
-.brk { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
-.brk-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.brk-head .flagged { color: #ffb4a3; font-size: 14px; }
-.said { margin: 0; font-size: 14px; color: var(--muted); cursor: pointer; display: -webkit-box;
-  -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.said.full { display: block; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chips button { background: none; color: var(--chalk); border: 1px solid var(--line); border-radius: 999px;
-  padding: 6px 12px; font-size: 14px; font-weight: 500; margin: 0; }
-.chips button[aria-pressed="true"] { background: var(--tally); border-color: var(--tally); color: var(--studio); }
-.fb .said-ok { color: #b9dccf; font-size: 14px; margin: 0; }
-.fb .said-bad { color: #ffb4a3; font-size: 14px; margin: 0; }
-.phone { position: relative; display: inline-block; }
-.phone .qr { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); z-index: 2;
-  width: 172px; padding: 10px; border-radius: 12px; background: var(--chalk); color: var(--studio);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .45); text-align: center; font: 12px/1.3 var(--text);
-  opacity: 0; visibility: hidden; transition: opacity .15s, visibility .15s; }
-.phone .qr img { display: block; width: 152px; height: 152px; margin-bottom: 6px; image-rendering: pixelated; }
-.phone:hover .qr, .phone:focus-within .qr, .phone.open .qr { opacity: 1; visibility: visible; }
+.phone-card { display: flex; gap: 20px; align-items: center; }
+.phone-card img { flex: none; width: 168px; height: 168px; padding: 10px; border-radius: 12px;
+  background: var(--chalk); image-rendering: pixelated; }
+.phone-card > div { min-width: 0; }
+.phone-card h2 { font-size: 26px; }
+a.button { display: inline-block; font: 600 15px var(--text); border-radius: 9px; padding: 10px 16px;
+  border: 1px solid var(--chalk); background: var(--chalk); color: var(--studio); text-decoration: none; }
+@media (max-width: 520px) { .phone-card { flex-direction: column; align-items: flex-start; } }
 footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
 #files-form { display: grid; gap: 6px; margin-top: 10px; }
 #files-form label { font: 12px/1.3 var(--label); letter-spacing: .1em; text-transform: uppercase;
@@ -194,37 +166,25 @@ HTML = f"""<!doctype html>
     <p class="note" id="keeps-running"></p>
   </section>
 
-  <section id="new-show" class="hidden">
+  <section id="phone" class="hidden">
     <p class="label">New show</p>
-    <h2>What's the show?</h2>
-    <form id="show-form">
-      <label for="who" class="hidden" id="who-row">Who's it for <select id="who"></select></label>
-      <p class="muted hidden" id="allowance"></p>
-      <label for="prompt">Describe it
-        <textarea id="prompt" required maxlength="2000" placeholder="Rainy drive home, something warm"></textarea>
-      </label>
-      <div class="pair">
-        <label for="minutes">Length
-          <select id="minutes">
-            <option value="20">20 min</option><option value="30">30 min</option>
-            <option value="40" selected>40 min</option><option value="60">1 hour</option>
-            <option value="90">90 min</option><option value="120">2 hours</option>
-            <option value="180">3 hours</option><option value="240">4 hours</option>
-          </select>
-        </label>
-        <label for="dj">DJ <select id="dj"></select></label>
+    <div class="phone-card">
+      <img id="phone-qr" class="hidden" alt="QR code for your Booth page">
+      <div>
+        <h2>Make a show on your phone</h2>
+        <p>Your Booth page is where you ask for shows, hear the DJs, rate a show and flag a break.</p>
+        <p id="phone-go"><span id="phone-scan"></span><a id="phone-link" target="_blank" rel="noopener"></a>.</p>
+        <div class="actions"><a class="button" id="phone-open" target="_blank" rel="noopener">Open it here</a>
+        </div>
       </div>
-      <div class="pair">
-        <label for="voice">Voice <select id="voice"></select></label>
-        <label for="dj-name">DJ's name <input id="dj-name" maxlength="40" placeholder="Default"></label>
-      </div>
-      <label for="station">Station name <input id="station" maxlength="80" placeholder="Optional"></label>
-      <div class="actions"><button type="submit" id="make">Make the show</button></div>
-      <p class="ok hidden" id="show-ok"></p>
-      <div class="error hidden" id="show-error"></div>
-    </form>
+    </div>
+  </section>
+
+  <section id="your-shows" class="hidden">
+    <p class="label">Your shows</p>
+    <label for="who" class="people-share hidden" id="who-row">Whose shows <select id="who"></select></label>
+    <p class="muted" id="shows-text"></p>
     <div class="error hidden" id="shows-error"></div>
-    <div class="error hidden" id="feedback-error"></div>
     <ul class="shows hidden" id="shows"></ul>
     <p class="muted hidden" id="copy-status"></p>
   </section>
@@ -352,6 +312,7 @@ HTML = f"""<!doctype html>
         <p class="muted" id="quit-text">Until you open Radio Booth again.</p></div>
       <button class="quiet" id="quit">Turn off</button>
     </div>
+    <p class="ok hidden" id="settings-ok"></p>
     <div class="error hidden" id="settings-error"></div>
   </section>
 
@@ -379,12 +340,10 @@ SCRIPT = r"""
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
 let last = null, changing = false, gone = 0, turningOff = false;
-let showsTimer = null, showsWanted = false, rosterShown = "", asking = false, showsAsk = 0;
+let showsTimer = null, showsWanted = false, showsAsk = 0, phoneShown = null;
 const PAGE_VERSION = "__BOOTH_VERSION__";  // the version that served this page
 const edited = new Set();  // fields typed in and not yet sent: a reload would lose them
 let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false, filesOpen = false;
-const panels = new Map();  // show id -> its open feedback panel, kept across list refreshes
-const opening = new Set();  // show ids whose feedback panel is on its way
 const SHOW_STATUS = {
   queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before Booth could deliver it",
@@ -439,53 +398,26 @@ function error(id, message) {
   show($(id), !!message);
 }
 
-// "{phone}" in a status line: "on your phone", linked to the phone page, with its QR code on hover or focus
-// (a tap toggles it too), so it's easy to open there.
-function setText(el, text, s) {
-  const [before, after] = text.split("{phone}");
-  if (after === undefined || !/^https?:\/\//.test(s.server)) {
-    el.textContent = text.replace("{phone}", "on your phone");
-    delete el.dataset.phone;
-    return;
-  }
-  const url = s.server.replace(/\/+$/, "") + "/";
-  const key = url + "|" + (s.phone_qr || "") + "|" + text;
-  if (el.dataset.phone === key) return;  // refreshed every few seconds: keep an open QR code open
-  const wrap = document.createElement("span");
-  wrap.className = "phone";
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener";
-  a.textContent = "on your phone";
-  wrap.append(a);
-  if (s.phone_qr) {
-    const id = "phone-qr";
-    const tip = document.createElement("span");
-    tip.className = "qr";
-    tip.id = id;
-    tip.setAttribute("role", "tooltip");
-    const img = document.createElement("img");
-    img.src = s.phone_qr;
-    img.alt = "QR code for your Booth page";
-    tip.append(img, "Scan with your phone's camera");
-    wrap.append(tip);
-    a.setAttribute("aria-describedby", id);
-    a.addEventListener("touchend", (ev) => {  // first tap shows the code, a second one opens the page
-      if (!wrap.classList.contains("open")) { ev.preventDefault(); wrap.classList.add("open"); }
-    });
-    a.addEventListener("keydown", (ev) => { if (ev.key === "Escape") a.blur(); });
-  }
-  el.replaceChildren(before, wrap, after);
-  el.dataset.phone = key;
+// The New show card: shows are asked for on the phone page (it works in a computer's browser too), so it
+// shows that page's QR code and link. Rebuilt only when they change, so a click on the link isn't lost.
+function renderPhone(s) {
+  const url = /^https?:\/\//.test(s.server) ? s.server.replace(/\/+$/, "") + "/" : "";
+  const key = url + "|" + (s.phone_qr || "");
+  if (key === phoneShown) return;
+  phoneShown = key;
+  const qr = $("phone-qr");
+  if (s.phone_qr) qr.src = s.phone_qr; else qr.removeAttribute("src");
+  show(qr, !!s.phone_qr);
+  show($("phone-link"), !!url);
+  show($("phone-open"), !!url);
+  if (!url) { $("phone-scan").textContent = "On your phone, open your Booth page"; return; }
+  $("phone-scan").textContent = s.phone_qr ? "Scan the code with your phone's camera, or open " : "On your phone, open ";
+  $("phone-link").href = $("phone-open").href = url;
+  $("phone-link").textContent = url.replace(/^https?:\/\//, "").replace(/\/$/, "");
 }
 
-document.addEventListener("touchstart", (ev) => {  // a tap anywhere else puts the QR code away
-  for (const p of document.querySelectorAll(".phone.open")) if (!p.contains(ev.target)) p.classList.remove("open");
-});
-
 const STATUS = {
-  on_air: ["Booth is on the air", "Ask for a show below or {phone}. It shows up {where} as a playlist a few minutes later."],
+  on_air: ["Booth is on the air", "Shows you ask for on your phone show up {where} as a playlist a few minutes later."],
   starting: ["Booth is starting", "Connecting to your Booth account..."],
   offline: ["Booth can't reach Radio Booth", "Is this computer online? Booth keeps trying by itself."],
   needs_plex: ["Plex needs you to sign in again", "Plex stopped accepting Booth's sign-in. Sign in again below."],
@@ -507,7 +439,7 @@ function render(s) {
   show($("status"), ready);
   const [title, text] = STATUS[e.state] || ["Booth", ""];
   $("status-title").textContent = title.replace("{folder}", files ? "your music or shows folder" : "the breaks folder");
-  setText($("status-text"), text.replace("{where}", arrives()), s);
+  $("status-text").textContent = text.replace("{where}", arrives());
   const meta = [];
   if (e.last_checkin) meta.push("Checked in " + ago(e.last_checkin));
   if (e.last_show) meta.push("Last show: " + e.last_show.playlist + ", " + ago(e.last_show.at));
@@ -521,12 +453,12 @@ function render(s) {
   if (["offline", "stopped", "needs_folder"].includes(e.state))
     actions.append(button("Try again now", () => post("restart_engine").then(refresh), true));
 
-  // New show: once Booth is set up
+  // New show (on the phone) and the shows here to copy or remove: once Booth is set up
   const canAsk = ready && e.state !== "needs_pairing";
-  show($("new-show"), canAsk);
+  show($("phone"), canAsk);
+  renderPhone(s);
+  show($("your-shows"), canAsk);
   const wantShows = canAsk && e.state !== "stopped";  // paused: no need to keep asking Radio Booth
-  $("make").disabled = asking || !onAir || !rosterShown;
-  $("make").title = onAir ? "" : "Booth makes shows while it's on the air";
   if (wantShows && !showsWanted) { showsWanted = true; loadShows(); }
   if (!wantShows) { showsWanted = false; clearTimeout(showsTimer); }
 
@@ -583,7 +515,7 @@ function render(s) {
     : "On your phone, open your Booth page and tap “Get a pairing code”. Type the code here.";
   show($("pair-form"), (!pairDone || changing) && $("pair-ask").classList.contains("hidden"));
 
-  // People sharing this Booth, and whose show the form asks for
+  // People sharing this Booth, and whose shows the list shows
   const people = s.account.people || [];
   const own = s.account.account_name || "You";
   $("people-text").textContent = people.length
@@ -711,11 +643,11 @@ async function refresh() {
 }
 
 function unsaved() {
-  // Would a reload lose something? Typing, a half-filled field, or a feedback or setup step left open.
+  // Would a reload lose something? Typing, a half-filled field, or a setup step left open.
   const at = document.activeElement;
   if (at && at.matches("textarea, select, input:not([type=checkbox])") && at.id !== "who") return true;
   for (const f of edited) if (f.isConnected && f.value !== "") return true;
-  return panels.size > 0 || opening.size > 0 || adding || changing || asking || filesOpen;
+  return adding || changing || filesOpen;
 }
 
 function newVersion(version) {
@@ -744,52 +676,11 @@ function showOff() {
   $("footer").classList.add("hidden");
 }
 
-function fillRoster(roster, saved) {
-  // Keeps what's picked now, else what was used last time, as long as it's still offered.
-  const dj = $("dj"), voice = $("voice"), minutes = $("minutes");
-  if (rosterShown) saved = {dj: dj.value, voice: voice.value, minutes: minutes.value};
-  dj.replaceChildren(...(roster.djs || []).map((d) => new Option(d.name + ", " + d.role, d.id)));
-  voice.replaceChildren(...(roster.voices || []).map((v) => new Option("Voice " + v, v)));
-  if (Array.isArray(roster.lengths) && roster.lengths.length) {  // the lengths Radio Booth offers now
-    minutes.replaceChildren(...roster.lengths.map((l) => new Option(l.label, String(l.minutes))));
-    minutes.value = "40";
-    if (minutes.selectedIndex < 0) minutes.selectedIndex = 0;
-  }
-  const ids = {minutes: "minutes", dj: "dj", voice: "voice", dj_name: "dj-name", station: "station"};
-  for (const [k, id] of Object.entries(ids)) if (saved[k] !== undefined && saved[k] !== null) {
-    const el = $(id), before = el.value;
-    el.value = String(saved[k]);
-    if (el.tagName === "SELECT" && el.selectedIndex < 0) el.value = before;  // no longer offered
-    if (el.tagName === "SELECT" && el.selectedIndex < 0) el.selectedIndex = 0;
-  }
-}
-
-function renderAllowance(a, pick) {
-  const sel = $("minutes");
-  // The longest show that fits the person's shows and show time (null: any). A Radio Booth from before
-  // plans sends only the day and week show time.
-  let left = Infinity;
-  if (a && "most_minutes" in a) left = a.most_minutes ?? Infinity;
-  else for (const k of ["day", "week"]) if (a && a[k]) left = Math.min(left, a[k].left);
-  $("allowance").textContent = (a && a.text) || "";
-  show($("allowance"), !!(a && a.text));
-  // Lengths that don't fit stay visible but can't be picked; Radio Booth says why if one is sent anyway.
-  for (const opt of sel.options) opt.disabled = Number(opt.value) > left;
-  // Only as the form opens: later, a length the person chose is never changed behind their back.
-  if (pick && sel.selectedOptions[0] && sel.selectedOptions[0].disabled) {  // the longest that fits, if any
-    const fits = [...sel.options].filter((o) => !o.disabled);
-    if (fits.length) sel.value = fits[fits.length - 1].value;
-  }
-}
-
-function renderShows(list) {
-  // Someone typing in an open feedback panel keeps the list as it is: moving the panel would lose their place.
-  if (list.length && [...panels.values()].some((p) => p.contains(document.activeElement))) return;
-  for (const id of [...panels.keys()]) {  // a show that left the list or stopped taking feedback
-    if (!list.some((s) => s.show_id === id && s.feedback)) closePanel(id);
-  }
+function renderShows(list, listed = true) {
   const ul = $("shows");
   show(ul, list.length > 0);
+  $("shows-text").textContent = !listed ? "" : list.length ? "The latest ones. Take one with you, or remove it when you're done."
+    : "No shows yet. Ask for one on your phone.";
   ul.replaceChildren(...list.map((s) => {
     const li = document.createElement("li");
     li.dataset.show = s.show_id;
@@ -813,9 +704,7 @@ function renderShows(list) {
     m.className = "muted";
     m.textContent = s.minutes + " min · " + ago(Date.parse(s.created_at) / 1000);
     li.append(t, st, m);
-    if (s.feedback) li.append(feedbackButton(s));
     if (!s.for_computer && s.status === "delivered" && s.on_disk) li.append(el("div", {className: "show-actions"}, copyButton(s, "file"), copyButton(s), removeButton(s)));
-    if (panels.has(s.show_id)) li.append(panels.get(s.show_id));
     return li;
   }));
   placeCopy();
@@ -934,135 +823,10 @@ function duration(seconds) {
   return h + " h" + (m ? " " + m + " min" : "");
 }
 
-// Feedback, as on the phone page: stars for a show that reached Plex, and flags on breaks that didn't work.
-// It goes to the account of whoever the show was made for (the "Who's it for" picker), through Booth.
-
 function el(tag, props = {}, ...kids) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...kids);
   return node;
-}
-
-function closePanel(id) {
-  panels.get(id)?.remove();
-  panels.delete(id);
-}
-
-function feedbackButton(s) {
-  const said = [];
-  if (s.rating) said.push("★".repeat(s.rating) + "☆".repeat(5 - s.rating));
-  if (s.flags) said.push(s.flags + " break" + (s.flags > 1 ? "s" : "") + " flagged");
-  const b = el("button", {type: "button", className: "quiet fb-open"});
-  b.textContent = panels.has(s.show_id) ? "Close" : said.length ? said.join(" · ") + " · Change" : "How was it?";
-  b.disabled = opening.has(s.show_id);
-  b.onclick = async () => {
-    if (panels.has(s.show_id)) { closePanel(s.show_id); loadShows(); return; }
-    if (opening.has(s.show_id)) return;
-    opening.add(s.show_id);
-    b.disabled = true;
-    const who = $("who").value;
-    try {
-      const r = await fetch("/api/show?id=" + encodeURIComponent(s.show_id) +
-        (who ? "&who=" + encodeURIComponent(who) : ""), {cache: "no-store"});
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
-      if (who === $("who").value) panels.set(s.show_id, feedbackPanel(data, who));  // else: someone else now
-      error("feedback-error", "");
-    } catch (x) { error("feedback-error", x.message); }
-    opening.delete(s.show_id);
-    loadShows();
-  };
-  return b;
-}
-
-function feedbackPanel(sh, who) {
-  const msg = el("p");
-  const say = (text, ok = true) => { msg.className = ok ? "said-ok" : "said-bad"; msg.textContent = text; };
-  let rating = sh.mine.rating;
-  const stars = el("div", {className: "stars", role: "group", ariaLabel: "Rating"});
-  const paint = () => [...stars.children].forEach((b, i) => {
-    b.classList.toggle("on", rating > i);
-    b.setAttribute("aria-pressed", String(rating === i + 1));
-  });
-  for (let n = 1; n <= 5; n++) {
-    const b = el("button", {type: "button", textContent: "★", ariaLabel: n + " star" + (n > 1 ? "s" : "")});
-    b.onclick = () => { rating = rating === n ? null : n; paint(); };
-    stars.append(b);
-  }
-  paint();
-  const note = el("textarea", {maxLength: 1000, value: sh.mine.note,
-    placeholder: "Anything else? What worked, what didn't (optional)"});
-  const save = el("button", {type: "button", textContent: "Save"});
-  save.onclick = async () => {
-    save.disabled = true;
-    try {
-      await post("feedback", {who, show_id: sh.show_id, rating, note: note.value});
-      say("Thanks! Saved.");
-      loadShows();
-    } catch (x) { say(x.message, false); }
-    save.disabled = false;
-  };
-  const whole = el("div", {}, el("h3", {textContent: "The show"}), stars, note,
-    el("div", {className: "actions"}, save), msg);
-  const breaks = el("div", {}, el("h3", {textContent: "Breaks"}), el("p", {className: "muted",
-    textContent: "Something off when the DJ talked? Flag that break. They're numbered the same in the playlist."}));
-  for (const b of sh.breaks) breaks.append(breakRow(sh, b, who));
-  if (!sh.breaks.length) breaks.append(el("p", {className: "muted", textContent: "No breaks to show."}));
-  return el("div", {className: "fb"}, whole, breaks);
-}
-
-function breakRow(sh, b, who) {
-  let mine = sh.mine.breaks[b.id] || null;
-  const flagged = el("span", {className: "flagged"});
-  const flag = el("button", {type: "button", className: "quiet"});
-  const said = el("p", {className: "said", textContent: b.transcript, title: "Click to read it all"});
-  said.onclick = () => said.classList.toggle("full");
-  const form = el("div", {className: "flag-form hidden"});
-  const row = el("div", {className: "brk"},
-    el("div", {className: "brk-head"}, el("strong", {textContent: b.number ? "Break " + b.number : b.id}), flagged),
-    said, form, el("div", {className: "actions"}, flag));
-  const refresh = () => {
-    flagged.textContent = mine ? "Flagged" : "";
-    flag.textContent = mine ? "Change flag" : "Flag this break";
-    show(flag, form.classList.contains("hidden"));
-  };
-  flag.onclick = () => {
-    form.replaceChildren();
-    const picked = new Set(mine?.reasons || []);
-    const chips = el("div", {className: "chips"});
-    for (const r of sh.reasons) {
-      const c = el("button", {type: "button", textContent: r.label});
-      c.setAttribute("aria-pressed", String(picked.has(r.id)));
-      c.onclick = () => {
-        picked.has(r.id) ? picked.delete(r.id) : picked.add(r.id);
-        c.setAttribute("aria-pressed", String(picked.has(r.id)));
-      };
-      chips.append(c);
-    }
-    const note = el("textarea", {maxLength: 1000, value: mine?.note || "",
-      placeholder: "What was off? e.g. said a band's name wrong (optional)"});
-    const msg = el("p", {className: "said-bad"});
-    const send = async (given) => {
-      try {
-        await post("feedback", {who, show_id: sh.show_id, break: b.id, ...given});
-        mine = given.clear ? null : given;
-        show(form, false);
-        refresh();
-        loadShows();
-      } catch (x) { msg.textContent = x.message; }
-    };
-    const save = el("button", {type: "button", textContent: "Save flag"});
-    save.onclick = () => send({reasons: [...picked], note: note.value});
-    const cancel = el("button", {type: "button", className: "quiet", textContent: "Cancel"});
-    cancel.onclick = () => { show(form, false); refresh(); };
-    const actions = el("div", {className: "actions"}, save, cancel);
-    if (mine) actions.append(button("Remove flag", () => send({clear: true}), true));
-    form.append(chips, note, actions, msg);
-    show(form, true);
-    refresh();
-  };
-  refresh();
-  return row;
 }
 
 async function loadShows() {
@@ -1076,10 +840,6 @@ async function loadShows() {
     const data = await r.json().catch(() => ({}));
     if (ask !== showsAsk) return;
     if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
-    const roster = JSON.stringify(data.roster), first = !rosterShown;
-    if (roster !== rosterShown) { fillRoster(data.roster, data.choices || {}); rosterShown = roster; }
-    renderAllowance(data.allowance, first);
-    if (first && last) render(last);  // the button waits for the DJs and voices
     renderShows(data.shows);
     // Quicker while a show asked for in the last hour is on its way, unless another computer makes it.
     const soon = (s) => ["queued", "making", "ready"].includes(s.status) && !s.for_computer &&
@@ -1095,13 +855,9 @@ async function loadShows() {
 }
 
 function whoChanged() {
-  // Someone else's show time and shows: don't leave the last person's on view meanwhile.
+  // Someone else's shows: don't leave the last person's on view meanwhile.
   showsAsk += 1;
-  for (const id of [...panels.keys()]) closePanel(id);
-  error("feedback-error", "");
-  renderShows([]);
-  $("allowance").textContent = "";
-  show($("allowance"), false);
+  renderShows([], false);
   loadShows();
 }
 
@@ -1112,7 +868,12 @@ function wire() {
   });
   $("updated-go").onclick = () => location.reload();
   $("who").onchange = whoChanged;
-  $("add-person").onclick = () => { adding = !adding; error("settings-error", ""); if (last) render(last); };
+  $("add-person").onclick = () => {
+    adding = !adding;
+    error("settings-error", "");
+    show($("settings-ok"), false);
+    if (last) render(last);
+  };
   $("person-form").onsubmit = async (ev) => {
     ev.preventDefault();
     error("settings-error", "");
@@ -1121,31 +882,12 @@ function wire() {
       const {name} = await post("add_person", {code: $("person-code").value});
       $("person-code").value = "";
       adding = false;
-      $("show-ok").textContent = "Booth makes shows for " + name + " too now.";
-      show($("show-ok"), true);
+      $("settings-ok").textContent = "Booth makes shows for " + name + " too now.";
+      show($("settings-ok"), true);
+      setTimeout(() => show($("settings-ok"), false), 10000);
     } catch (x) { error("settings-error", x.message); }
     $("person-go").disabled = false;
     refresh();
-  };
-  $("show-form").onsubmit = async (ev) => {
-    ev.preventDefault();
-    error("show-error", "");
-    show($("show-ok"), false);
-    asking = true;
-    $("make").disabled = true;
-    try {
-      await post("new_show", {
-        who: $("who").value, prompt: $("prompt").value, minutes: Number($("minutes").value), dj: $("dj").value,
-        voice: $("voice").value, dj_name: $("dj-name").value, station: $("station").value,
-      });
-      $("prompt").value = "";
-      for (const f of $("show-form").elements) edited.delete(f);  // sent: nothing left to lose
-      $("show-ok").textContent = "Requested. It shows up " + arrives() + " in a few minutes.";
-      show($("show-ok"), true);
-    } catch (x) { error("show-error", x.message); }
-    asking = false;
-    if (last) render(last);
-    loadShows();
   };
   $("plex-go").onclick = async () => {
     error("plex-error", "");
@@ -1212,8 +954,7 @@ function wire() {
   };
   function paired() {
     changing = false;
-    rosterShown = "";  // maybe another account or Radio Booth: start the New show section afresh
-    renderShows([]);
+    renderShows([], false);  // maybe another account now: don't show the last one's shows meanwhile
     loadShows();
   }
   const pairChoice = (choice) => async () => {

@@ -45,11 +45,9 @@ from radiobooth.websetup import WebSetup, default_music_folder, default_shows_fo
 HOST = "127.0.0.1"
 PORT = 48231  # the same address each time when it's free, so a page left open finds Booth again
 COOKIE = "booth_key"
-SHOW_CHOICES = ("minutes", "dj", "voice", "dj_name", "station")  # kept for next time; the prompt isn't
 SHOW_ID = re.compile(r"show_[0-9a-z]{1,40}")  # Booth DJ's ids, checked before they go into a path
-BREAK_ID = re.compile(r"b[0-9]{1,3}")
 PAIR_ASK_S = 600  # how long the page's question about another account's pairing code stays open
-ROSTER_S = 600  # the DJs and voices change only with a new Booth DJ, so the page asks for them now and then
+NAME_S = 600  # how often the shows list also asks Radio Booth for the account's name (renamed on the phone)
 
 
 def page_file() -> Path:
@@ -141,8 +139,8 @@ class App:
         )
         self.quit = threading.Event()
         self.restarting = False
-        self._roster: tuple[float, dict] | None = None
-        self._paired = 0  # counts pairings, so a roster from before the latest one isn't kept
+        self._named = -float("inf")  # when the shows list last asked for the account's name (monotonic)
+        self._paired = 0  # counts pairings, so a name asked for before the latest one isn't kept
         self.copy: dict | None = None  # the latest show copied to a folder: how it's going, or how it went
         # Plex shows removed from this page, so the list can say so (kept in the config across restarts)
         self._removed: set[str] = set(config.load().get("plex_removed") or [])
@@ -157,7 +155,7 @@ class App:
         return os.environ.get("BOOTH_SERVER") or config.load().get("server") or DEFAULT_SERVER
 
     def _saved(self) -> None:
-        self._roster = None  # paired again, maybe with another Radio Booth: ask it for its DJs
+        self._named = -float("inf")  # paired again, maybe with another account: ask for its name
         self._paired += 1
         settings = config.load()
         self.engine.scan_music(again=True)  # a folder of music: read it now, while pairing is still to do
@@ -180,6 +178,8 @@ class App:
     def state(self) -> dict:
         settings = config.load()
         unpaired = self.engine.unpaired
+        # The phone page of the Radio Booth this computer is paired with (as `_link` talks to), for the card.
+        phone = (settings.get("device_token") and settings.get("server")) or self.server()
         return {
             "version": __version__,
             "platform": self.platform,
@@ -204,8 +204,8 @@ class App:
                     for p in config.people(settings)
                 ],
             },
-            "server": self.server(),
-            "phone_qr": phone_qr(self.server()),
+            "server": phone,
+            "phone_qr": phone_qr(phone),
             "setup": self.setup.state(),
             "engine": self.engine.status(),
             "update": self.updater.status() | {"auto": settings.get("auto_update", True)},
@@ -394,67 +394,43 @@ class App:
         except LinkError as e:
             raise SetupError(str(e)) from None
 
-    def _said(
-        self, e: LinkError, asked: bool = False, who: str | None = None, rating: bool = False
-    ) -> SetupError:
-        """What the page says when Booth DJ couldn't take or answer a request (`asked`: for a new show; `who`:
-        for another person sharing this Booth; `rating`: feedback on a show)."""
+    def _said(self, e: LinkError, who: str | None = None) -> SetupError:
+        """What the page says when Booth DJ couldn't answer (`who`: for another person sharing this Booth)."""
         said = str(e).removeprefix("Booth DJ: ")
-        if rating and e.status == 401 and self._paired_ok(who):
-            # It still knows this account's token: a Radio Booth that takes ratings only on the phone page.
-            return SetupError("Radio Booth can't take ratings from this page yet. Rate it on your phone.")
         if who and e.status == 401:
             name = next((p["name"] for p in config.people(config.load()) if p["id"] == who), "Their")
             return SetupError(
                 f"{name}'s Booth account no longer knows this computer. Add them again in Settings with a new"
                 " code from their phone."
             )
-        if asked and (e.network or e.status is None or e.status >= 500):
-            # It may have got there and the answer was lost or garbled: don't ask for the same show twice.
-            return SetupError("Radio Booth didn't answer. Check the list below before asking again.")
         if e.network:
             return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
         if e.status is None:
             return SetupError("Radio Booth sent an answer Booth didn't understand. Try again in a moment.")
         if e.status == 401:
-            if self.engine.state != engine.NEEDS_PAIRING:  # check-ins still work, so it's still paired
-                return SetupError("Radio Booth can't take shows from this page yet. Ask on your phone.")
             return SetupError("Your Booth account doesn't know this computer. Connect it again in Settings.")
         if said.startswith("HTTP "):  # no message of its own (a 502 from in front of it, say)
             return SetupError("Radio Booth is having trouble right now. Try again in a moment.")
         return SetupError(said)
 
-    def _paired_ok(self, who: str | None) -> bool:
-        """Booth DJ still knows this account's device token (it answers `/v0/me`)."""
-        try:
-            self._link(who=who).get("/v0/me")
-        except (LinkError, SetupError):
-            return False
-        return True
-
     def shows(self, who: str | None = None) -> dict:
-        """For the page's New show section: the DJs and voices, show time left, and the latest shows, for this
-        computer's own account or (`who`) another person sharing it."""
-        paired = self._paired  # before the settings: a pairing saved after this makes the roster stale
+        """For the page's Your shows list: the latest shows, to copy or remove the ones here, for this
+        computer's own account or (`who`) another person sharing it. Shows are asked for on the phone."""
+        paired = self._paired  # before the settings: a pairing saved after this makes the name stale
         settings = config.load()
         link = self._link(settings, who)
         try:
-            if not self._roster or time.monotonic() - self._roster[0] > ROSTER_S:
-                me = link.get("/v0/me")
-                roster = me.get("roster")
-                if not isinstance(roster, dict) or not roster.get("djs"):
-                    raise LinkError("Booth DJ sent no DJs to pick from.")
-                if paired == self._paired:
-                    self._roster = (time.monotonic(), roster)
-                name = me.get("name")
-                if not who and isinstance(name, str) and name and name != settings.get("account_name"):
-                    with contextlib.suppress(OSError):  # whose Booth this is, for the page's People list
-                        config.update({"account_name": name})
-            else:
-                roster = self._roster[1]
             listed = link.get("/v0/shows")
         except LinkError as e:
             raise self._said(e, who=who) from None
+        if not who and time.monotonic() - self._named > NAME_S:  # whose Booth this is, for People
+            # Only a nicety: asked for after the list, and no more often when it fails.
+            name = self._account_name(link)
+            if paired == self._paired:
+                self._named = time.monotonic()
+                if name and name != settings.get("account_name"):
+                    with contextlib.suppress(OSError):
+                        config.update({"account_name": name})
         shows = listed.get("shows")
         shows = [s for s in shows[:6] if isinstance(s, dict)] if isinstance(shows, list) else []
         if engine.folder_mode(settings):  # which shows are still in the Booth shows folder, to remove
@@ -475,59 +451,7 @@ class App:
                     s["on_disk"] = True
                 elif s.get("show_id") in self._removed:
                     s["on_disk"] = False
-        return {
-            "roster": roster,
-            "allowance": listed.get("allowance"),
-            "shows": shows,
-            "choices": settings.get("show_choices") or {},
-        }
-
-    def new_show(self, body: dict) -> dict:
-        """Ask Booth DJ for a show, as the phone page does. It checks the request and says what's wrong."""
-        prompt = str(body.get("prompt") or "").strip()
-        if not prompt:
-            raise SetupError("Say what the show is about.")
-        who = person(body.get("who"))
-        link = self._link(who=who)
-        if self.engine.state != engine.ON_AIR:
-            # A show asked for here is made from this computer's music and delivered here, so it waits for
-            # this Booth; asked for while it can't make one, it would hold up the shows asked for after it.
-            raise SetupError("Booth isn't on the air right now (see above), so it can't make a show yet.")
-        choices = {k: body[k] for k in SHOW_CHOICES if isinstance(body.get(k), str | int)}
-        try:
-            made = link.ask({"prompt": prompt, **choices})
-        except LinkError as e:
-            raise self._said(e, asked=True, who=who) from None
-        with contextlib.suppress(OSError):  # the show is asked for; not remembering choices is no failure
-            config.update({"show_choices": choices})
-        return {"show_id": made.get("show_id")}
-
-    def show(self, show_id: str, who: str | None = None) -> dict:
-        """One show with its breaks and the feedback given on it, for rating it and flagging breaks here, as
-        on the phone page: for this computer's own account or (`who`) another person sharing it."""
-        if not SHOW_ID.fullmatch(show_id):
-            raise SetupError("No such show.")
-        try:
-            return self._link(who=who).get(f"/v0/shows/{show_id}")
-        except LinkError as e:
-            raise self._said(e, who=who, rating=True) from None
-
-    def feedback(self, body: dict) -> dict:
-        """Rate a show, or flag one of its breaks (`break`), for whoever it was made for; `clear` takes it
-        back. Booth DJ checks the stars, reasons and note, and says what's wrong."""
-        show_id, break_id = str(body.get("show_id") or ""), str(body.get("break") or "")
-        if not SHOW_ID.fullmatch(show_id) or (break_id and not BREAK_ID.fullmatch(break_id)):
-            raise SetupError("No such show.")
-        who = person(body.get("who"))
-        path = f"/v0/shows/{show_id}" + (f"/breaks/{break_id}" if break_id else "") + "/feedback"
-        given = {k: body[k] for k in ("note", "reasons" if break_id else "rating") if k in body}
-        try:
-            self._link(who=who).send(
-                "DELETE" if body.get("clear") else "PUT", path, {} if body.get("clear") else given
-            )
-        except LinkError as e:
-            raise self._said(e, who=who, rating=True) from None
-        return {}
+        return {"shows": shows}
 
     def _account_name(self, link: Link) -> str | None:
         try:
@@ -713,10 +637,6 @@ class App:
                 str(body.get("kind", "folder")),
                 str(body.get("title") or "")[:200],
             )
-        elif action == "new_show":
-            return self.new_show(body)
-        elif action == "feedback":
-            return self.feedback(body)
         elif action == "add_person":
             return self.add_person(str(body.get("code", "")))
         elif action == "person_plex":
@@ -821,13 +741,10 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
                     return self._json(422, {"error": str(e)})
                 except Exception as e:  # noqa: BLE001 - say what on the page
                     return self._json(500, {"error": f"Something went wrong: {e}"})
-            if path in ("/api/shows", "/api/show"):
+            if path == "/api/shows":
                 asked = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
-                who = person(asked.get("who"))
                 try:
-                    if path == "/api/show":
-                        return self._json(200, app.show(asked.get("id", ""), who))
-                    return self._json(200, app.shows(who))
+                    return self._json(200, app.shows(person(asked.get("who"))))
                 except SetupError as e:
                     return self._json(422, {"error": str(e)})
                 except Exception as e:  # noqa: BLE001 - say what on the page

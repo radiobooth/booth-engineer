@@ -85,47 +85,16 @@ sentence: the real reason can name local folders or your Plex address, so it sta
 log. Booth DJ deletes its copy of the package after this. If the report itself doesn't get through, Booth
 Engineer sends it again on the next check-in without delivering the show twice.
 
-## Asking for shows from Booth's page
-
-Shows are asked for on the Booth page on your phone, or on Booth's own page on this computer. Booth's page
-asks through Booth Engineer, with the device token, exactly as the phone page does:
-
-`GET /v0/me` → the DJs and voices to pick from (`roster`), asked for now and then; the reply also names your
-account, which Booth's page shows under **People**, and its show time, which Booth doesn't use.
+## Your shows on Booth's page
 
 `GET /v0/shows` → `{"shows": [...], "allowance": {...}}`: your shows, newest first, with their status
-(`queued`, `making`, `ready`, `delivered`, `failed`, `expired`), and the show time left. Booth's page asks
-every 30 seconds while it's open and Booth is paired and running (every 5 while a show of yours is on its
-way), and not while the page is hidden.
+(`queued`, `making`, `ready`, `delivered`, `failed`, `expired`). Booth's page lists the latest few under **Your
+shows**, so you can copy or remove the ones on this computer. It asks every 30 seconds while it's open and
+Booth is paired and running (every 5 while a show of yours is on its way), and not while the page is hidden.
+Now and then it also reads `GET /v0/me` for the account's name, shown under **People**.
 
-`POST /v0/shows` with what you typed: `{"prompt": "Rainy drive home", "minutes": 40, "dj": "penrose",
-"voice": "A", "dj_name": "", "station": ""}` → `201` with the new show, `400` with what to fix, or `429`
-when it doesn't fit your show time. Booth Engineer remembers the choices (not the prompt) in its local config
-for next time.
-
-A show asked for this way is made from this computer's library and delivered here: Booth DJ asks only this
-Booth Engineer for its catalog. Until a show asked for on another of your computers is finished,
-`GET /v0/shows` lists it with `"for_computer"`, that computer's name. Booth's page only asks for a show (`POST`) while Booth
-is on the air.
-
-### Rating shows and flagging breaks
-
-For a show that reached Plex (`"feedback": true` in the list), Booth's page offers the phone page's **How was
-it?**, for whoever is picked in **Who's it for**, with that person's device token:
-
-`GET /v0/shows/{show_id}` → the show with its `breaks` (`id`, `number`, `transcript`: what the DJ said), the
-feedback already given (`mine`) and the reasons a break can be flagged for. Asked for when you open it.
-
-`PUT /v0/shows/{show_id}/feedback` `{"rating": 4, "note": "..."}` (1 to 5 stars, a note of up to 1,000
-characters), or `DELETE` it with `{}` to take it back.
-
-`PUT /v0/shows/{show_id}/breaks/{break_id}/feedback` `{"reasons": ["said"], "note": "..."}`, or `DELETE` it
-with `{}`.
-
-Only what you pick and type goes: the stars, the reasons and your note. Booth checks the show and break ids
-before they go into a path.
-
-Nothing else is sent: no catalog goes with a request or with feedback. It's sent later, on a check-in, as above.
+Booth's page doesn't ask for shows, rate them or flag breaks: you do that on your phone's Booth page, signed in
+to your account. Booth Engineer's device token can't do any of those.
 
 ## Downloading a show on your phone
 

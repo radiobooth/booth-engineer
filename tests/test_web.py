@@ -465,52 +465,78 @@ def test_a_broken_reply_from_github_doesnt_stop_update_checks(monkeypatch):
     assert up.state == "failed" and "Couldn't check" in up.message
 
 
-def test_shows_are_asked_for_on_the_page(booth, monkeypatch):
+def test_the_page_lists_shows_and_asks_for_none(booth, monkeypatch):
+    """Shows are asked for, rated and flagged on the phone page; Booth's page lists them to copy or remove."""
     app, port, key, _ = booth
-    status, data = act(port, key, "new_show", {"prompt": "rain"})
-    assert status == 422 and "Connect Booth" in data["error"]  # not paired yet
-
     config.update({"device_token": "be_device", "server": "https://booth.example"})
-    status, data = act(port, key, "new_show", {"prompt": "rain"})
-    assert status == 422 and "on the air" in data["error"]  # it would wait for this Booth, so not yet
-    app.engine.state = engine.ON_AIR
-    asked, gets = [], []
-    roster = {"djs": [{"id": "penrose", "name": "Penrose", "role": "night owl"}], "voices": ["A", "B"]}
-    allowance = {"week": {"left": 50}, "text": "50 min of show time left this week."}
+    gets = []
 
     def get(self, path):
         gets.append((self.server, self.token, path))
         if path == "/v0/me":
-            return {"name": "Thomas", "roster": roster, "allowance": allowance}
-        shows = [{"show_id": f"show_{i}", "status": "queued", "prompt": "p", "minutes": 40} for i in range(9)]
-        return {"shows": shows, "allowance": allowance}
-
-    def ask(self, request):
-        asked.append((self.server, self.token, request))
-        if request.get("minutes") == 5:
-            raise LinkError("Booth DJ: Shows run 10 to 240 minutes.", 400)
-        return {"show_id": "show_new", "status": "queued"}
+            return {"name": "Thomas"}
+        return {"shows": [{"show_id": f"show_{i}", "status": "queued"} for i in range(9)], "allowance": {}}
 
     monkeypatch.setattr(web.Link, "get", get)
-    monkeypatch.setattr(web.Link, "ask", ask)
-
-    choices = {"minutes": 30, "dj": "penrose", "voice": "B", "dj_name": "Pen", "station": "Porch FM"}
-    status, data = act(port, key, "new_show", {"prompt": "  Sunday chores ", **choices, "extra": "no"})
-    assert status == 200 and data == {"show_id": "show_new"}
-    assert asked == [("https://booth.example", "be_device", {"prompt": "Sunday chores", **choices})]
-    assert config.load()["show_choices"] == choices  # remembered for next time; the prompt isn't
-
-    status, data = act(port, key, "new_show", {"prompt": "x", "minutes": 5})
-    assert status == 422 and data["error"] == "Shows run 10 to 240 minutes."
-    assert act(port, key, "new_show", {"prompt": " "})[1]["error"] == "Say what the show is about."
-
-    status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
+    cookie = {"Cookie": f"{web.COOKIE}={key}"}
+    status, _, body = call(port, "GET", "/api/shows", headers=cookie)
     listed = json.loads(body)
-    assert status == 200 and listed["roster"] == roster and listed["allowance"] == allowance
-    assert len(listed["shows"]) == 6 and listed["choices"]["voice"] == "B"
-    call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
-    assert [p for *_, p in gets] == ["/v0/me", "/v0/shows", "/v0/shows"]  # the DJs and voices, once
+    assert status == 200 and list(listed) == ["shows"] and len(listed["shows"]) == 6
+    call(port, "GET", "/api/shows", headers=cookie)
+    # The shows each time; the account's name (for People) now and then.
+    assert [p for *_, p in gets] == ["/v0/shows", "/v0/me", "/v0/shows"]
+    assert config.load()["account_name"] == "Thomas"
     assert call(port, "GET", "/api/shows")[0] == 403  # the page key, as for everything else
+
+    app.engine.state = engine.ON_AIR
+    for action in ("new_show", "feedback"):
+        assert act(port, key, action, {"prompt": "rain", "show_id": "show_1", "rating": 3}) == (
+            422,
+            {"error": "Booth doesn't know that button."},
+        )
+    assert call(port, "GET", "/api/show?id=show_1", headers=cookie)[0] == 404
+    assert len(gets) == 3
+    page_html = call(port, "GET", "/", headers=cookie)[2].decode()
+    assert "Make a show on your phone" in page_html and "show-form" not in page_html
+
+
+def test_the_shows_list_doesnt_need_the_account_name(booth, monkeypatch):
+    app, port, key, _ = booth
+    config.update({"device_token": "be_device", "server": "https://booth.example", "account_name": "Jen"})
+
+    def get(self, path):
+        if path == "/v0/me":
+            raise LinkError("Booth DJ: HTTP 503", 503)
+        return {"shows": [{"show_id": "show_1", "status": "queued"}]}
+
+    monkeypatch.setattr(web.Link, "get", get)
+    status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert status == 200 and json.loads(body)["shows"][0]["show_id"] == "show_1"
+    assert app._named > 0  # not asked again on every poll while it fails
+    app._named = -float("inf")
+
+    # A name asked for with the old pairing, answered after a new one, isn't kept.
+    def renamed(self, path):
+        if path == "/v0/me":
+            app._saved()  # paired again meanwhile
+            return {"name": "Thomas"}
+        return {"shows": []}
+
+    monkeypatch.setattr(web.Link, "get", renamed)
+    monkeypatch.setattr(app.engine, "start", lambda: None)
+    monkeypatch.setattr(app.engine, "scan_music", lambda again=False: None)
+    assert call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})[0] == 200
+    assert config.load()["account_name"] == "Jen" and app._named == -float("inf")
+
+
+def test_the_phone_card_opens_the_paired_radio_booth(booth, monkeypatch):
+    _, port, key, _ = booth
+    config.update({"device_token": "be_device", "server": "https://booth.example"})
+    monkeypatch.setenv("BOOTH_SERVER", "https://elsewhere.example")
+    data = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])
+    assert data["server"] == "https://booth.example" and data["phone_qr"] == web.phone_qr(
+        "https://booth.example"
+    )
 
 
 def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
@@ -520,25 +546,13 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
     def offline(self, path):
         raise LinkError("Could not reach Booth DJ at https://booth.example: no route", network=True)
 
-    def unknown(self, request):
-        raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
-
     monkeypatch.setattr(web.Link, "get", offline)
-    monkeypatch.setattr(web.Link, "ask", unknown)
-    app.engine.state = engine.ON_AIR
     status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert status == 422 and "Is this computer online?" in json.loads(body)["error"]
-    status, data = act(port, key, "new_show", {"prompt": "rain"})
-    # Check-ins work, so it's paired: this Radio Booth just doesn't take shows from the page yet.
-    assert status == 422 and "Ask on your phone" in data["error"]
-    app.engine.state = engine.NEEDS_PAIRING
     assert "Connect it again" in app._said(LinkError("Booth DJ: Unknown Booth Engineer", 401)).args[0]
     assert "Try again" in app._said(LinkError("Booth DJ sent a reply that isn't JSON (cut short?).")).args[0]
-    lost = LinkError("Could not reach Booth DJ at https://booth.example: timed out", network=True)
-    assert "before asking again" in app._said(lost, asked=True).args[0]  # it may have arrived
-    assert "Is this computer online?" in app._said(lost).args[0]
     assert "having trouble" in app._said(LinkError("Booth DJ: HTTP 503", 503)).args[0]
-    assert "before asking again" in app._said(LinkError("Booth DJ: HTTP 503", 503), asked=True).args[0]
+    assert app._said(LinkError("Booth DJ: Shows run 10 to 240 minutes.", 400)).args[0].startswith("Shows run")
 
     # It talks to the server it's paired with, whatever BOOTH_SERVER says now.
     monkeypatch.setenv("BOOTH_SERVER", "https://elsewhere.example")
@@ -556,7 +570,7 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
         "be_q": None,
     }
     codes = {"JENN-0001": "be_jen", "THOM-0001": "be_own2", "JENN-0002": "be_jen2", "QUIET-001": "be_q"}
-    redeemed, gets, asked = [], [], []
+    redeemed, gets = [], []
 
     def redeem(self, code, name):
         redeemed.append((self.server, code, name))
@@ -567,16 +581,11 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
     def get(self, path):
         gets.append((self.token, path))
         if path == "/v0/me":
-            return {"name": names[self.token], "roster": {"djs": [{"id": "penrose"}]}}
-        return {"shows": [{"show_id": self.token}], "allowance": {"text": self.token}}
-
-    def ask(self, request):
-        asked.append((self.token, request))
-        return {"show_id": "show_new"}
+            return {"name": names[self.token]}
+        return {"shows": [{"show_id": self.token}]}
 
     monkeypatch.setattr(web.Link, "redeem", redeem)
     monkeypatch.setattr(web.Link, "get", get)
-    monkeypatch.setattr(web.Link, "ask", ask)
     monkeypatch.setattr(app.engine, "start", lambda: None)
 
     status, data = act(port, key, "add_person", {"code": "NOPE-0000"})
@@ -593,16 +602,12 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
     ]
     assert people["people"] == [{"id": jen["id"], "name": "Jennifer", "unpaired": False, "plex_user": None}]
 
-    # The New show form asks and lists as whoever it's for.
+    # The shows list lists as whoever is picked.
     _, _, body = call(port, "GET", f"/api/shows?who={jen['id']}", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert json.loads(body)["shows"] == [{"show_id": "be_jen"}]
     _, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert json.loads(body)["shows"] == [{"show_id": "be_own"}]
     assert config.load()["account_name"] == "Thomas"
-    app.engine.state = engine.ON_AIR
-    assert act(port, key, "new_show", {"prompt": "rain", "who": jen["id"]})[0] == 200
-    assert act(port, key, "new_show", {"prompt": "sun"})[0] == 200
-    assert asked == [("be_jen", {"prompt": "rain"}), ("be_own", {"prompt": "sun"})]
     status, _, body = call(port, "GET", "/api/shows?who=p_gone", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert status == 422 and "any more" in json.loads(body)["error"]
 
@@ -765,87 +770,6 @@ def test_a_persons_new_playlist_is_shared_with_their_plex_user(tmp_path, monkeyp
     assert "Grant them access to it in Plex Web" in log[-1]
 
 
-def test_shows_are_rated_and_breaks_flagged_on_the_page(booth, monkeypatch):
-    """Feedback as on the phone page, sent with the device token of whoever the show was made for."""
-    app, port, key, _ = booth
-    config.update({"device_token": "be_own", "server": "https://booth.example"})
-    jen = {"id": "p_jen", "name": "Jennifer", "device_token": "be_jen", "server": "https://booth.example"}
-    config.update({"people": [jen]})
-    gets, sent = [], []
-    detail = {"show_id": "show_abc", "breaks": [{"id": "b01", "number": 1, "transcript": "Hi"}], "mine": {}}
-
-    def get(self, path):
-        gets.append((self.token, path))
-        return detail
-
-    def send(self, method, path, data):
-        sent.append((self.token, method, path, data))
-        if data.get("rating") == 9:
-            raise LinkError("Booth DJ: A rating is 1 to 5 stars.", 400)
-        return 204, {}
-
-    monkeypatch.setattr(web.Link, "get", get)
-    monkeypatch.setattr(web.Link, "send", send)
-    cookie = {"Cookie": f"{web.COOKIE}={key}"}
-
-    status, _, body = call(port, "GET", "/api/show?id=show_abc", headers=cookie)
-    assert status == 200 and json.loads(body) == detail
-    status, _, body = call(port, "GET", "/api/show?id=show_abc&who=p_jen", headers=cookie)
-    assert status == 200 and gets == [("be_own", "/v0/shows/show_abc"), ("be_jen", "/v0/shows/show_abc")]
-    for bad in ("../me", "show_abc/hide", "show_ABC%3F"):  # only Booth DJ's own ids go into a path
-        status, _, body = call(port, "GET", f"/api/show?id={bad}", headers=cookie)
-        assert status == 422 and json.loads(body)["error"] == "No such show."
-    assert len(gets) == 2
-    assert call(port, "GET", "/api/show?id=show_abc")[0] == 403  # the page key, as for everything else
-
-    rate = {"show_id": "show_abc", "rating": 4, "note": "great", "reasons": ["x"], "extra": 1}
-    assert act(port, key, "feedback", rate) == (200, {})
-    flag = {
-        "who": "p_jen",
-        "show_id": "show_abc",
-        "break": "b01",
-        "reasons": ["said"],
-        "note": "",
-        "rating": 2,
-    }
-    assert act(port, key, "feedback", flag) == (200, {})
-    assert (
-        act(port, key, "feedback", {"who": "p_jen", "show_id": "show_abc", "break": "b01", "clear": True})[0]
-        == 200
-    )
-    assert act(port, key, "feedback", {"show_id": "show_abc", "clear": True, "rating": 3})[0] == 200
-    assert sent == [
-        ("be_own", "PUT", "/v0/shows/show_abc/feedback", {"rating": 4, "note": "great"}),
-        ("be_jen", "PUT", "/v0/shows/show_abc/breaks/b01/feedback", {"note": "", "reasons": ["said"]}),
-        ("be_jen", "DELETE", "/v0/shows/show_abc/breaks/b01/feedback", {}),
-        ("be_own", "DELETE", "/v0/shows/show_abc/feedback", {}),
-    ]
-    assert act(port, key, "feedback", {"show_id": "show_abc", "rating": 9}) == (
-        422,
-        {"error": "A rating is 1 to 5 stars."},
-    )
-    assert act(port, key, "feedback", {"show_id": "show_abc", "break": "b1/../x", "note": "n"})[0] == 422
-    assert act(port, key, "feedback", {"show_id": "show_abc", "who": "p_gone", "rating": 3})[0] == 422
-    assert len(sent) == 5
-
-    # A Radio Booth that takes ratings only on the phone says so, rather than asking to pair again.
-    def old_dj(self, method, path, data):
-        raise LinkError("Booth DJ: Not signed in.", 401)
-
-    monkeypatch.setattr(web.Link, "send", old_dj)
-    status, data = act(port, key, "feedback", {"who": "p_jen", "show_id": "show_abc", "rating": 3})
-    assert status == 422 and data["error"].startswith("Radio Booth can't take ratings from this page yet")
-
-    def forgotten(self, path):  # Jennifer's account no longer knows this computer at all
-        raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
-
-    monkeypatch.setattr(web.Link, "get", forgotten)
-    status, data = act(port, key, "feedback", {"who": "p_jen", "show_id": "show_abc", "rating": 3})
-    assert status == 422 and data["error"].startswith(
-        "Jennifer's Booth account no longer knows this computer"
-    )
-
-
 def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypatch, tmp_path):
     from test_deliver import make_show
     from test_folder import tagged
@@ -872,11 +796,10 @@ def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypa
     show = make_show(tmp_path)
     playlist.deliver(show, shows, music, lambda _: ("a/1.flac", {}))
     config.update({"device_token": "be_device", "server": "https://booth.example"})
-    roster = {"djs": [{"id": "penrose", "name": "Penrose", "role": "night owl"}], "voices": ["A"]}
 
     def get(self, path):
         if path == "/v0/me":
-            return {"name": "Thomas", "roster": roster}
+            return {"name": "Thomas"}
         return {"shows": [{"show_id": i, "status": "delivered"} for i in ("show_abcdef123456", "show_gone")]}
 
     monkeypatch.setattr(web.Link, "get", get)
@@ -965,11 +888,10 @@ def test_plex_shows_can_be_copied_and_removed_on_the_page(booth, monkeypatch, tm
             "server": "https://booth.example",
         }
     )
-    roster = {"djs": [{"id": "penrose", "name": "Penrose", "role": "night owl"}], "voices": ["A"]}
 
     def get(self, path):
         if path == "/v0/me":
-            return {"name": "Thomas", "roster": roster}
+            return {"name": "Thomas"}
         return {
             "shows": [
                 {"show_id": i, "status": "delivered", "title": TITLE} for i in (SHOW, "show_elsewhere1")

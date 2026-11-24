@@ -1,10 +1,10 @@
 """The link to Booth DJ: pairing, check-ins, sending the catalog for a show, fetching finished shows,
-asking for shows from Booth's page, and sending a show as one file when the listener asks for it on their
-phone.
+listing the listener's shows for Booth's page, and sending a show as one file when the listener asks for it
+on their phone.
 
 Every connection goes out from this machine; nothing here listens. What is sent is exactly what
 protocol/api.md documents: this machine's name and Booth Engineer version, a catalog when a show asks for
-one, the outcome of each delivery, the show requests typed into Booth's page, and a delivered show mixed
+one, the outcome of each delivery, and a delivered show mixed
 into one MP3 when its listener asks to download it (only then, and only that show).
 """
 
@@ -136,10 +136,6 @@ class Link:
         return token
 
     # Shows
-
-    def ask(self, request: dict) -> dict:
-        """Ask for a show as the phone page does: prompt, minutes, dj, voice, dj_name and station."""
-        return self.post("/v0/shows", request)[1]
 
     def checkin(self) -> dict:
         """{"next_checkin_s": 5..3600, "shows": [entries with a show_id]}; anything else is a LinkError."""
