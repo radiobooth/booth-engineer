@@ -95,10 +95,11 @@ That's it.
 
 ## 5. Ask for a show
 
-On your phone, or on Booth's page on the computer, describe the show, pick a length and a DJ, and tap **Make
-the show**. The page tells you how it's going. When it says **In Plex**, open Plex and look under
+On your phone's Booth page, describe the show, pick a length and a DJ, and tap **Make the show**. (Booth's page
+on the computer shows that page's QR code under **Make a show on your phone**: scan it with your phone's camera
+to open it. **Open it here** opens it on the computer instead.) The phone page tells you how it's going. When it says **In Plex**, open Plex and look under
 **Playlists**. With your music in a folder, it says **In your Booth shows folder**: open the new playlist
-there in your music player. **Remove** under a show on Booth's page deletes its playlist and DJ breaks
+there in your music player. Booth's page on the computer lists your latest shows too, under **Your shows**. **Remove** under a show there deletes its playlist and DJ breaks
 (in Plex, or in your Booth shows folder). To take a show with you, click **Copy to a folder** under it: Booth copies its songs and breaks into a folder
 of their own, numbered in order, and opens that folder. Drag it onto your phone, a USB stick or your car's
 drive, and it plays in order even in a player that ignores playlists. Or click **Make one file**: Booth mixes
@@ -107,7 +108,7 @@ chapters: open the `.cue` file next to the MP3 instead and they list every song 
 takes a few minutes to make. With Plex, both go into `Copies` in the `Booth shows` folder in your home
 folder (or in `BOOTH_SHOWS_FOLDER`, when that's set), and Booth fetches the songs from your Plex server first.
 
-If your account has a limit, both pages show what's left above the form.
+If your account has a limit, your phone's Booth page shows what's left above the form.
 
 ## 6. Tell us what you think
 
@@ -196,8 +197,9 @@ their own account, they tap **Get a pairing code**; type that code into Booth's 
 
 Their shows are made from the same music and go into the same Plex, with their name at the start of each
 playlist (for example "Jennifer: Rainy drive home"). They count against their own show time, and Booth keeps
-a separate history for them, so their shows don't skip tracks just because they were in yours. On Booth's
-page, **Who's it for** on the New show form picks whose show it is.
+a separate history for them, so their shows don't skip tracks just because they were in yours. They ask for
+shows on their own phone, signed in as themselves. On Booth's page, **Whose shows** under **Your shows** picks
+whose shows are listed there.
 
 To have their shows show up in their own Plex, pick their Plex user under **Share their playlists in Plex
 with** next to their name. Booth then shares each new playlist of theirs with them, and they find it in Plexamp

@@ -137,10 +137,6 @@ class Link:
 
     # Shows
 
-    def ask(self, request: dict) -> dict:
-        """Ask for a show as the phone page does: prompt, minutes, dj, voice, dj_name and station."""
-        return self.post("/v0/shows", request)[1]
-
     def checkin(self) -> dict:
         """{"next_checkin_s": 5..3600, "shows": [entries with a show_id]}; anything else is a LinkError."""
         said = {"version": __version__}

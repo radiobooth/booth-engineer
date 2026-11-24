@@ -4,6 +4,16 @@ Each release's notes come from its section here (the release workflow refuses a 
 for listeners: what they'll notice, in plain words. Newest first. Keep each change one `- ` bullet (wrapped
 lines indented): that's what Booth's page shows under "What's new".
 
+## 0.5.6 (2026-11-24)
+
+- **Shows are made on your phone now, and only there.** Booth's page on the computer no longer has its own New
+  show form, so there's one place to ask for a show. In its place is a big **Make a show on your phone** card
+  with a QR code: scan it with your phone's camera to open your Booth page, or click **Open it here** to use it
+  on the computer.
+- **Rate shows and flag breaks on your phone.** "How was it?" has moved off Booth's page on the computer too.
+- Your latest shows are still listed on Booth's page under **Your shows**, with **Make one file**, **Copy to a
+  folder** and **Remove**.
+
 ## 0.5.5 (2026-11-24)
 
 - **A music library Booth can't use no longer leaves shows waiting.** If Booth finds no songs it can use in your
