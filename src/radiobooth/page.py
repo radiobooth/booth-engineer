@@ -884,6 +884,7 @@ function wire() {
       adding = false;
       $("settings-ok").textContent = "Booth makes shows for " + name + " too now.";
       show($("settings-ok"), true);
+      setTimeout(() => show($("settings-ok"), false), 10000);
     } catch (x) { error("settings-error", x.message); }
     $("person-go").disabled = false;
     refresh();

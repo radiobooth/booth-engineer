@@ -483,8 +483,8 @@ def test_the_page_lists_shows_and_asks_for_none(booth, monkeypatch):
     listed = json.loads(body)
     assert status == 200 and list(listed) == ["shows"] and len(listed["shows"]) == 6
     call(port, "GET", "/api/shows", headers=cookie)
-    # The account's name (for People) now and then; the shows each time.
-    assert [p for *_, p in gets] == ["/v0/me", "/v0/shows", "/v0/shows"]
+    # The shows each time; the account's name (for People) now and then.
+    assert [p for *_, p in gets] == ["/v0/shows", "/v0/me", "/v0/shows"]
     assert config.load()["account_name"] == "Thomas"
     assert call(port, "GET", "/api/shows")[0] == 403  # the page key, as for everything else
 
@@ -512,6 +512,8 @@ def test_the_shows_list_doesnt_need_the_account_name(booth, monkeypatch):
     monkeypatch.setattr(web.Link, "get", get)
     status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert status == 200 and json.loads(body)["shows"][0]["show_id"] == "show_1"
+    assert app._named > 0  # not asked again on every poll while it fails
+    app._named = -float("inf")
 
     # A name asked for with the old pairing, answered after a new one, isn't kept.
     def renamed(self, path):

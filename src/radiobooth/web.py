@@ -419,17 +419,18 @@ class App:
         paired = self._paired  # before the settings: a pairing saved after this makes the name stale
         settings = config.load()
         link = self._link(settings, who)
-        if not who and time.monotonic() - self._named > NAME_S:  # whose Booth this is, for People
-            name = self._account_name(link)  # only a nicety: no name never stops the list
-            if name and paired == self._paired:
-                self._named = time.monotonic()
-                if name != settings.get("account_name"):
-                    with contextlib.suppress(OSError):
-                        config.update({"account_name": name})
         try:
             listed = link.get("/v0/shows")
         except LinkError as e:
             raise self._said(e, who=who) from None
+        if not who and time.monotonic() - self._named > NAME_S:  # whose Booth this is, for People
+            # Only a nicety: asked for after the list, and no more often when it fails.
+            name = self._account_name(link)
+            if paired == self._paired:
+                self._named = time.monotonic()
+                if name and name != settings.get("account_name"):
+                    with contextlib.suppress(OSError):
+                        config.update({"account_name": name})
         shows = listed.get("shows")
         shows = [s for s in shows[:6] if isinstance(s, dict)] if isinstance(shows, list) else []
         if engine.folder_mode(settings):  # which shows are still in the Booth shows folder, to remove
