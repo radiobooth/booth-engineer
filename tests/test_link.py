@@ -279,8 +279,12 @@ def test_api_calls_do_not_follow_redirects(dj):
             pass
 
         def do_POST(self):
+            # Read the request first: closing on an unread body resets the connection on Windows, and the
+            # client then sees a dropped connection instead of the 307.
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.send_response(307)
             self.send_header("Location", f"{dj.url}/v0/checkin")
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
