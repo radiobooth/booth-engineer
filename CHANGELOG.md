@@ -4,6 +4,12 @@ Each release's notes come from its section here (the release workflow refuses a 
 for listeners: what they'll notice, in plain words. Newest first. Keep each change one `- ` bullet (wrapped
 lines indented): that's what Booth's page shows under "What's new".
 
+## 0.5.5 (2026-11-24)
+
+- **A music library Booth can't use no longer leaves shows waiting.** If Booth finds no songs it can use in your
+  library (it's empty, Plex is still adding your music, or the songs lack a title, artist or length), the show
+  now stops after a few tries and says so, instead of waiting an hour. Your next show isn't held up behind it.
+
 ## 0.5.4 (2026-11-22)
 
 - **Updates on Windows tell you when they fail.** If "Update now" can't finish, Booth's page now says why and
