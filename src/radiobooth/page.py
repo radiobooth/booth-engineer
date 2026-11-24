@@ -408,9 +408,9 @@ function renderPhone(s) {
   const qr = $("phone-qr");
   if (s.phone_qr) qr.src = s.phone_qr; else qr.removeAttribute("src");
   show(qr, !!s.phone_qr);
-  show($("phone-go"), !!url);
+  show($("phone-link"), !!url);
   show($("phone-open"), !!url);
-  if (!url) return;
+  if (!url) { $("phone-scan").textContent = "On your phone, open your Booth page"; return; }
   $("phone-scan").textContent = s.phone_qr ? "Scan the code with your phone's camera, or open " : "On your phone, open ";
   $("phone-link").href = $("phone-open").href = url;
   $("phone-link").textContent = url.replace(/^https?:\/\//, "").replace(/\/$/, "");

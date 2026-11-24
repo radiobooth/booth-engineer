@@ -500,6 +500,43 @@ def test_the_page_lists_shows_and_asks_for_none(booth, monkeypatch):
     assert "Make a show on your phone" in page_html and "show-form" not in page_html
 
 
+def test_the_shows_list_doesnt_need_the_account_name(booth, monkeypatch):
+    app, port, key, _ = booth
+    config.update({"device_token": "be_device", "server": "https://booth.example", "account_name": "Jen"})
+
+    def get(self, path):
+        if path == "/v0/me":
+            raise LinkError("Booth DJ: HTTP 503", 503)
+        return {"shows": [{"show_id": "show_1", "status": "queued"}]}
+
+    monkeypatch.setattr(web.Link, "get", get)
+    status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
+    assert status == 200 and json.loads(body)["shows"][0]["show_id"] == "show_1"
+
+    # A name asked for with the old pairing, answered after a new one, isn't kept.
+    def renamed(self, path):
+        if path == "/v0/me":
+            app._saved()  # paired again meanwhile
+            return {"name": "Thomas"}
+        return {"shows": []}
+
+    monkeypatch.setattr(web.Link, "get", renamed)
+    monkeypatch.setattr(app.engine, "start", lambda: None)
+    monkeypatch.setattr(app.engine, "scan_music", lambda again=False: None)
+    assert call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})[0] == 200
+    assert config.load()["account_name"] == "Jen" and app._named == -float("inf")
+
+
+def test_the_phone_card_opens_the_paired_radio_booth(booth, monkeypatch):
+    _, port, key, _ = booth
+    config.update({"device_token": "be_device", "server": "https://booth.example"})
+    monkeypatch.setenv("BOOTH_SERVER", "https://elsewhere.example")
+    data = json.loads(call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}={key}"})[2])
+    assert data["server"] == "https://booth.example" and data["phone_qr"] == web.phone_qr(
+        "https://booth.example"
+    )
+
+
 def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
     app, port, key, _ = booth
     config.update({"device_token": "be_device", "server": "https://booth.example"})

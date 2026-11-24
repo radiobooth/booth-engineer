@@ -140,6 +140,7 @@ class App:
         self.quit = threading.Event()
         self.restarting = False
         self._named = -float("inf")  # when the shows list last asked for the account's name (monotonic)
+        self._paired = 0  # counts pairings, so a name asked for before the latest one isn't kept
         self.copy: dict | None = None  # the latest show copied to a folder: how it's going, or how it went
         # Plex shows removed from this page, so the list can say so (kept in the config across restarts)
         self._removed: set[str] = set(config.load().get("plex_removed") or [])
@@ -155,6 +156,7 @@ class App:
 
     def _saved(self) -> None:
         self._named = -float("inf")  # paired again, maybe with another account: ask for its name
+        self._paired += 1
         settings = config.load()
         self.engine.scan_music(again=True)  # a folder of music: read it now, while pairing is still to do
         if music_ready(settings) and settings.get("device_token"):
@@ -176,6 +178,8 @@ class App:
     def state(self) -> dict:
         settings = config.load()
         unpaired = self.engine.unpaired
+        # The phone page of the Radio Booth this computer is paired with (as `_link` talks to), for the card.
+        phone = (settings.get("device_token") and settings.get("server")) or self.server()
         return {
             "version": __version__,
             "platform": self.platform,
@@ -200,8 +204,8 @@ class App:
                     for p in config.people(settings)
                 ],
             },
-            "server": self.server(),
-            "phone_qr": phone_qr(self.server()),
+            "server": phone,
+            "phone_qr": phone_qr(phone),
             "setup": self.setup.state(),
             "engine": self.engine.status(),
             "update": self.updater.status() | {"auto": settings.get("auto_update", True)},
@@ -412,15 +416,17 @@ class App:
     def shows(self, who: str | None = None) -> dict:
         """For the page's Your shows list: the latest shows, to copy or remove the ones here, for this
         computer's own account or (`who`) another person sharing it. Shows are asked for on the phone."""
+        paired = self._paired  # before the settings: a pairing saved after this makes the name stale
         settings = config.load()
         link = self._link(settings, who)
-        try:
-            if not who and time.monotonic() - self._named > NAME_S:  # whose Booth this is, for People
-                name = link.get("/v0/me").get("name")
+        if not who and time.monotonic() - self._named > NAME_S:  # whose Booth this is, for People
+            name = self._account_name(link)  # only a nicety: no name never stops the list
+            if name and paired == self._paired:
                 self._named = time.monotonic()
-                if isinstance(name, str) and name and name != settings.get("account_name"):
+                if name != settings.get("account_name"):
                     with contextlib.suppress(OSError):
                         config.update({"account_name": name})
+        try:
             listed = link.get("/v0/shows")
         except LinkError as e:
             raise self._said(e, who=who) from None
