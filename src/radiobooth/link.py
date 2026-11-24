@@ -47,6 +47,9 @@ class PackageError(Exception):
 GENERIC_FAILURE = "Delivery failed on this machine; details are in the booth run log there."
 FILE_FAILURE = "Making the file failed on this machine; details are in Booth's log there."
 CATALOG_FAILURE = "Booth couldn't read the music library on this machine; details are in Booth's log there."
+NO_SONGS_FAILURE = (
+    "Booth found no songs it can use in the music library on this computer; details are in Booth's log there."
+)
 # A problem that says it's `lasting` (asking again gets the same answer) fails the show after this many tries
 # in a row, so the listener's later shows don't wait an hour behind it. Anything else is tried until Booth DJ
 # gives up on the show.
@@ -346,6 +349,20 @@ def _send_file(link: Link, station: Station, show_id: str, title: str) -> None:
             station.busy(False)
 
 
+class NoSongs(Exception):
+    """The library has no song Booth DJ can use (empty, still being scanned, or every track lacks a title,
+    artist or length). Asking again gets the same answer until the listener fixes the library."""
+
+    lasting = True
+    report = NO_SONGS_FAILURE
+
+
+class CatalogRefused(Exception):
+    """Booth DJ looked at the catalog and won't take it. Sending the same library again gets the same."""
+
+    lasting = True
+
+
 def handle(link: Link, station: Station, item: dict) -> None:
     """Do whatever one check-in entry asks for."""
     show_id, action = item["show_id"], item.get("action")
@@ -355,10 +372,18 @@ def handle(link: Link, station: Station, item: dict) -> None:
         catalog, skipped, why = check_catalog(station.catalog())
         if skipped and show_id not in station.problems:
             station.log(f"{show_id}: left out {skipped} tracks the catalog can't hold (the first: {why}).")
+        if not catalog["tracks"]:
+            why = f" ({skipped} left out; the first: {why})" if skipped else ""
+            raise NoSongs(f"Booth found no songs it can use in your music library{why}.")
         try:
             link.send_catalog(item["catalog_url"], catalog)
         except LinkError as e:
-            if e.status != 409:  # 409: already sent (another check-in got there first)
+            if e.status == 409:  # already sent (another check-in got there first)
+                pass
+            elif e.status is not None and 400 <= e.status < 500 and e.status not in (401, 408, 429):
+                # Not network trouble: backing off every check-in for it would hold up other shows too.
+                raise CatalogRefused(f"Booth DJ refused this library: {e}") from None
+            else:
                 raise
         station.log(f"{show_id}: sent {len(catalog['tracks'])} tracks; the DJ is on it.")
     elif action == "send_file":
@@ -392,7 +417,7 @@ def give_up(link: Link, station: Station, show_id: str, e: Exception) -> bool:
     """Tell Booth DJ this show can't be made from this machine's library, so it fails now. False if Booth DJ
     wouldn't take that (one from before it could, or the show moved on): Booth keeps trying, as before."""
     try:
-        link.report(show_id, error=CATALOG_FAILURE)
+        link.report(show_id, error=getattr(e, "report", CATALOG_FAILURE))
     except LinkError as refused:
         if refused.network:
             raise

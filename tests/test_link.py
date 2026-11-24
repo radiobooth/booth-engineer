@@ -17,6 +17,7 @@ from radiobooth.link import (
     CATALOG_FAILURE,
     FILE_FAILURE,
     GENERIC_FAILURE,
+    NO_SONGS_FAILURE,
     Link,
     LinkError,
     PackageError,
@@ -28,6 +29,8 @@ from radiobooth.link import (
     sending,
 )
 
+SONG = {"id": "1", "title": "Song", "artist": "Band", "duration_ms": 200000}
+
 
 class FakeDJ:
     """Answers like Booth DJ and records what it was sent."""
@@ -36,6 +39,7 @@ class FakeDJ:
         self.calls, self.queue, self.pairs = [], [], []
         self.catalogs, self.results, self.files = [], [], {}
         self.file_calls, self.uploads, self.file_replies = [], {}, {}
+        self.catalog_reply = (202, {"status": "making"})
         dj = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -99,7 +103,7 @@ class FakeDJ:
                     return self.reply(200, raw=b"")
                 assert self.headers.get("Content-Encoding") == "gzip"
                 dj.catalogs.append(json.loads(gzip.decompress(self.body())))
-                self.reply(202, {"status": "making"})
+                self.reply(*dj.catalog_reply)
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_port}"
@@ -275,8 +279,12 @@ def test_api_calls_do_not_follow_redirects(dj):
             pass
 
         def do_POST(self):
+            # Read the request first: closing on an unread body resets the connection on Windows, and the
+            # client then sees a dropped connection instead of the 307.
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.send_response(307)
             self.send_header("Location", f"{dj.url}/v0/checkin")
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
@@ -449,7 +457,7 @@ def test_a_problem_that_repeats_every_checkin_is_logged_once(dj):
         tries.append(1)
         if len(tries) < 3:
             raise RuntimeError("Plex no longer accepts Booth's sign-in")
-        return {"protocol": "radiobooth/catalog@0", "tracks": []}
+        return {"protocol": "radiobooth/catalog@0", "tracks": [SONG]}
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append)
     link = Link(dj.url, "be_secret")
@@ -459,7 +467,7 @@ def test_a_problem_that_repeats_every_checkin_is_logged_once(dj):
     assert log == [
         "show_1: reading the library for a new show...",
         "show_1: Plex no longer accepts Booth's sign-in (Booth keeps trying; this is logged once)",
-        "show_1: sent 0 tracks; the DJ is on it.",
+        "show_1: sent 1 tracks; the DJ is on it.",
     ]
     assert st.problems == {} and len(dj.catalogs) == 1
 
@@ -490,6 +498,54 @@ def test_a_lasting_catalog_problem_fails_the_show_so_the_next_can_go(dj):
     assert dj.results == [("show_1", {"ok": False, "error": CATALOG_FAILURE})]
     assert st.lasting == {} and st.problems == {}
     assert log[-1].startswith("show_1: Plex sent a reply Booth couldn't read. Booth stopped trying")
+
+
+def test_a_library_with_no_usable_songs_fails_the_show_with_a_plain_reason(dj):
+    ask = {
+        "show_id": "show_1",
+        "status": "queued",
+        "action": "send_catalog",
+        "catalog_url": "/v0/shows/show_1/catalog",
+    }
+    dj.queue = [[ask]] * 3
+    log = []
+    no_artist = {"id": "2", "title": "Song", "duration_ms": 1000}
+    st = Station(
+        catalog=lambda: {"protocol": "radiobooth/catalog@0", "tracks": [no_artist]},
+        deliver=lambda p: "x",
+        log=log.append,
+    )
+    link = Link(dj.url, "be_secret")
+    for _ in range(3):
+        run(link, st, once=True)
+    assert dj.catalogs == []  # never sent: Booth DJ would only refuse it
+    assert dj.results == [("show_1", {"ok": False, "error": NO_SONGS_FAILURE})]
+    why = "no songs it can use in your music library (1 left out; the first: track 0: no artist)"
+    assert any(why in line for line in log)
+
+
+def test_a_catalog_booth_dj_refuses_fails_the_show_without_backing_off(dj):
+    ask = {
+        "show_id": "show_1",
+        "status": "queued",
+        "action": "send_catalog",
+        "catalog_url": "/v0/shows/show_1/catalog",
+    }
+    dj.queue = [[ask]] * 3
+    dj.catalog_reply = (400, {"error": "Not a radiobooth/catalog@0 document: the catalog has no tracks"})
+    log = []
+    st = Station(
+        catalog=lambda: {"protocol": "radiobooth/catalog@0", "tracks": [SONG]},
+        deliver=lambda p: "x",
+        log=log.append,
+    )
+    link = Link(dj.url, "be_secret")
+    for _ in range(3):
+        run(link, st, once=True)
+    assert len(dj.catalogs) == 3
+    assert dj.results == [("show_1", {"ok": False, "error": CATALOG_FAILURE})]
+    assert not any("trying again in" in line for line in log)  # not mistaken for network trouble
+    assert any("Booth DJ refused this library" in line for line in log)
 
 
 def test_a_passing_catalog_problem_is_never_given_up_on(dj):
@@ -532,7 +588,7 @@ def test_run_picks_up_a_plex_sign_in_saved_while_it_runs(dj, tmp_path, monkeypat
         if client.token == "old":
             config.save(settings | {"plex_token": "new"})  # setup, run again in another window
             raise plex_source.PlexAuthError()
-        return {"protocol": "radiobooth/catalog@0", "tracks": []}, 0
+        return {"protocol": "radiobooth/catalog@0", "tracks": [SONG]}, 0
 
     monkeypatch.setattr(plex_source, "build_catalog", build_catalog)
     dj.queue = [
@@ -567,7 +623,7 @@ def test_a_refused_plex_token_from_the_shell_gives_way_to_setups(dj, tmp_path, m
         seen.append(client.token)
         if client.token != "fresh":
             raise plex_source.PlexAuthError()
-        return {"protocol": "radiobooth/catalog@0", "tracks": []}, 0
+        return {"protocol": "radiobooth/catalog@0", "tracks": [SONG]}, 0
 
     monkeypatch.setattr(plex_source, "build_catalog", build_catalog)
     ask = {"show_id": "s", "status": "queued", "action": "send_catalog", "catalog_url": "/v0/shows/s/catalog"}
