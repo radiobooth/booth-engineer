@@ -400,7 +400,7 @@ class App:
         if who and e.status == 401:
             name = next((p["name"] for p in config.people(config.load()) if p["id"] == who), "Their")
             return SetupError(
-                f"{name}'s Booth account no longer knows this computer. Add them again in Settings with a new"
+                f"This computer was removed from {name}'s Radio Booth. Add them again in Settings with a new"
                 " code from their phone."
             )
         if e.network:
@@ -408,7 +408,7 @@ class App:
         if e.status is None:
             return SetupError("Radio Booth sent an answer Booth didn't understand. Try again in a moment.")
         if e.status == 401:
-            return SetupError("Your Booth account doesn't know this computer. Connect it again in Settings.")
+            return SetupError("This computer was removed from your Radio Booth. Pair it again in Settings.")
         if said.startswith("HTTP "):  # no message of its own (a 502 from in front of it, say)
             return SetupError("Radio Booth is having trouble right now. Try again in a moment.")
         return SetupError(said)

@@ -4,6 +4,18 @@ Each release's notes come from its section here (the release workflow refuses a 
 for listeners: what they'll notice, in plain words. Newest first. Keep each change one `- ` bullet (wrapped
 lines indented): that's what Booth's page shows under "What's new".
 
+## 0.5.7 (2026-11-25)
+
+- **You can remove a computer from your Radio Booth.** On your phone, your Booth page lists your computers
+  with a **Remove** button, for a lost or sold computer or an old install. A removed computer's Booth page says
+  "This computer was removed from your Radio Booth" and asks for a new pairing code, so you can connect it
+  again whenever you like.
+- **Booth waits while Plex is still reading your music.** If you ask for a show while Plex is still adding a new
+  music library, Booth now waits for it instead of giving up after half a minute, and your phone says "Plex
+  is still reading your music library". After 10 minutes it makes the show from the songs Plex has read so
+  far. If Plex has none ready after 45 minutes, the show stops and says why, so you can ask again once Plex
+  is done. Plex checking a library it already knows for new music doesn't hold shows up.
+
 ## 0.5.6 (2026-11-24)
 
 - **Shows are made on your phone now, and only there.** Booth's page on the computer no longer has its own New

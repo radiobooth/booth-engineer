@@ -153,12 +153,13 @@ def station(
             log("Plex refused the sign-in Booth started with; using the one saved by setup.")
             return step()
 
-    def catalog() -> dict:
+    def catalog(during_scan: bool = False) -> dict:
         mark(True)
         try:
-            return history.annotate(
-                signed_in(lambda: plex_source.build_catalog(plex, music, exclude=library)[0]), who
+            read = signed_in(
+                lambda: plex_source.build_catalog(plex, music, exclude=library, during_scan=during_scan)
             )
+            return history.annotate(read[0], who)
         finally:
             mark(False)
 
@@ -227,7 +228,11 @@ def copies_folder(settings: dict) -> Path:
 
 
 class FolderBusy(Exception):
-    """The music folder is being read in the background: ask again later."""
+    """The music folder is being read in the background: ask again later. The show waits for it (however
+    long the first read of a big folder takes, until Booth DJ gives up), and the phone page says so."""
+
+    waiting = "reading_folder"  # what Booth DJ hears at check-in (protocol/api.md)
+    wait_s = None  # no limit of Booth's own
 
 
 def folder_station(
@@ -247,7 +252,7 @@ def folder_station(
     home = config.path().parent
     mark = busy or (lambda on: None)
 
-    def catalog() -> dict:
+    def catalog(during_scan: bool = False) -> dict:
         # A first read of a big folder can take an hour. Waiting for it here would hold up every check-in
         # (and other shows' deliveries); this show is tried again at the next one instead.
         if reading and reading():  # the page shows how far it's got; the message stays the same, logged once
@@ -349,8 +354,8 @@ class _WatchedLink(Link):
         super().__init__(server, token)
         self._on_checkin = on_checkin
 
-    def checkin(self) -> dict:
-        reply = super().checkin()
+    def checkin(self, waiting: dict[str, str] | None = None) -> dict:
+        reply = super().checkin(waiting)
         self._on_checkin()
         return reply
 
@@ -554,7 +559,7 @@ class Engine:
                     person = people[i - 1]
                     self.unpaired.add(person["id"])
                     name = person["name"]
-                    self.log(f"{name}'s Booth account no longer knows this computer: add them again.")
+                    self.log(f"This computer was removed from {name}'s Radio Booth: add them again.")
 
                 self.log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
                 if people:
@@ -565,7 +570,7 @@ class Engine:
                 break
             except LinkError as e:
                 if e.status == 401:
-                    self.log("Booth DJ no longer knows this computer: connect it to your account again.")
+                    self.log("This computer was removed from your Radio Booth: pair it again.")
                     if not stop.is_set():
                         self.state = NEEDS_PAIRING
                     return

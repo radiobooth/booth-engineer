@@ -132,7 +132,7 @@ def remember(show_dir: Path, log) -> None:
 def index(args: argparse.Namespace) -> int:
     from radiobooth import catalog as catalogs
     from radiobooth import history
-    from radiobooth.sources.plex import PlexClient, PlexError, build_catalog
+    from radiobooth.sources.plex import PlexClient, PlexError, build_catalog, music_sections, scanning
 
     url, token = plex_login()
     if not (url and token):
@@ -141,7 +141,13 @@ def index(args: argparse.Namespace) -> int:
     try:
         exclude = setting("BOOTH_BREAKS_LIBRARY", "breaks_library")
         library = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
-        catalog, skipped = build_catalog(PlexClient(url, token), library, exclude=exclude)
+        client = PlexClient(url, token)
+        catalog, skipped = build_catalog(client, library, exclude=exclude, during_scan=True)
+        name = catalog["source"]["library"]
+        if any(s.get("title") == name and scanning(s) for s in music_sections(client)):
+            print(
+                f"booth index: Plex is still scanning {name!r}; these are the songs so far.", file=sys.stderr
+            )
         # Checked as `booth run` checks it, so this file is exactly what would be sent.
         catalog, left_out, _ = catalogs.check(history.annotate(catalog))
         skipped += left_out
@@ -326,14 +332,15 @@ def run(args: argparse.Namespace) -> int:
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
 
     def unpaired(i: int) -> None:
-        log(f"{people[i - 1]['name']}'s Booth account no longer knows this computer.")
+        log(f"This computer was removed from {people[i - 1]['name']}'s Radio Booth.")
 
     try:
         run_desks(desks, once=args.once, unpaired=unpaired)
         if args.once:
             wait_sending()  # a file for a phone that check-in started finishes before Booth exits
     except LinkError as e:
-        hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
+        removed = " This computer was removed from your Radio Booth: run `booth pair` again."
+        hint = removed if e.status == 401 else ""
         print(f"booth run: {e}.{hint}", file=sys.stderr)
         return NEEDS_PAIRING if e.status == 401 else 1
     except KeyboardInterrupt:
