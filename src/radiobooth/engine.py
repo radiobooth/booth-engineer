@@ -554,7 +554,7 @@ class Engine:
                     person = people[i - 1]
                     self.unpaired.add(person["id"])
                     name = person["name"]
-                    self.log(f"{name}'s Booth account no longer knows this computer: add them again.")
+                    self.log(f"This computer was removed from {name}'s Radio Booth: add them again.")
 
                 self.log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
                 if people:
@@ -565,7 +565,7 @@ class Engine:
                 break
             except LinkError as e:
                 if e.status == 401:
-                    self.log("Booth DJ no longer knows this computer: connect it to your account again.")
+                    self.log("This computer was removed from your Radio Booth: pair it again.")
                     if not stop.is_set():
                         self.state = NEEDS_PAIRING
                     return

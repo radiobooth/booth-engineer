@@ -4,6 +4,13 @@ Each release's notes come from its section here (the release workflow refuses a 
 for listeners: what they'll notice, in plain words. Newest first. Keep each change one `- ` bullet (wrapped
 lines indented): that's what Booth's page shows under "What's new".
 
+## 0.5.7 (2026-11-25)
+
+- **You can remove a computer from your Radio Booth.** On your phone, your Booth page lists your computers
+  with a **Remove** button, for a lost or sold computer or an old install. A removed computer's Booth page says
+  "This computer was removed from your Radio Booth" and asks for a new pairing code, so you can connect it
+  again whenever you like.
+
 ## 0.5.6 (2026-11-24)
 
 - **Shows are made on your phone now, and only there.** Booth's page on the computer no longer has its own New

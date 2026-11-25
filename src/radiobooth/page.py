@@ -421,7 +421,7 @@ const STATUS = {
   starting: ["Booth is starting", "Connecting to your Booth account..."],
   offline: ["Booth can't reach Radio Booth", "Is this computer online? Booth keeps trying by itself."],
   needs_plex: ["Plex needs you to sign in again", "Plex stopped accepting Booth's sign-in. Sign in again below."],
-  needs_pairing: ["Connect Booth to your account again", "Your Booth account no longer knows this computer. Get a new pairing code on your phone and type it below."],
+  needs_pairing: ["Connect Booth to your account again", "This computer was removed from your Radio Booth. To use it again, get a new pairing code on your phone and type it below."],
   needs_folder: ["Booth can't find {folder}", "Is the drive or shared folder connected? Booth keeps checking."],
   stopped: ["Booth is paused", ""],
   not_set_up: ["Booth isn't set up yet", ""],
@@ -544,7 +544,7 @@ function render(s) {
       t.textContent = p.name;
       const st = document.createElement("span");
       st.className = "st" + (p.unpaired ? " failed" : "");
-      st.textContent = p.unpaired ? "Their Booth account no longer knows this computer. Add them again with a new code."
+      st.textContent = p.unpaired ? "This computer was removed from their Radio Booth. Add them again with a new code."
         : "Their playlists start with “" + p.name + ":”" + (files ? "." :
           p.plex_user ? ". New ones are shared with " + p.plex_user.title + " in Plex." : ". They stay in your Plex.");
       const share = document.createElement("label");

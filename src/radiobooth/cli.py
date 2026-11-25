@@ -326,14 +326,15 @@ def run(args: argparse.Namespace) -> int:
     log(f"Connected to {settings['server']} as {settings.get('name', 'this machine')!r}.")
 
     def unpaired(i: int) -> None:
-        log(f"{people[i - 1]['name']}'s Booth account no longer knows this computer.")
+        log(f"This computer was removed from {people[i - 1]['name']}'s Radio Booth.")
 
     try:
         run_desks(desks, once=args.once, unpaired=unpaired)
         if args.once:
             wait_sending()  # a file for a phone that check-in started finishes before Booth exits
     except LinkError as e:
-        hint = " Booth DJ no longer knows this machine: run `booth pair` again." if e.status == 401 else ""
+        removed = " This computer was removed from your Radio Booth: run `booth pair` again."
+        hint = removed if e.status == 401 else ""
         print(f"booth run: {e}.{hint}", file=sys.stderr)
         return NEEDS_PAIRING if e.status == 401 else 1
     except KeyboardInterrupt:
