@@ -42,6 +42,20 @@ class PlexUnreadable(PlexError):
     lasting = True
 
 
+SCANNING_FAILURE = (
+    "Plex was still reading the music library on this computer, with no songs Booth could use yet. Ask for"
+    " the show again once Plex has finished."
+)
+
+
+class PlexScanning(PlexError):
+    """Plex is still scanning the music library (a new or big one, say), so its songs aren't all there yet.
+    A show waits for the scan to finish (see link.check_in), and the phone page says so."""
+
+    waiting = "library_scanning"  # what Booth DJ hears at check-in (protocol/api.md)
+    report = SCANNING_FAILURE
+
+
 SIGN_IN_AGAIN = (
     "Plex no longer accepts Booth's sign-in (HTTP 401). Sign in to Plex again: open Radio Booth and choose to"
     " change its settings, or run `booth setup`."
@@ -128,6 +142,11 @@ class PlexClient:
 def music_sections(client: Getter) -> list[dict]:
     sections = client.get("/library/sections")["MediaContainer"].get("Directory", [])
     return [s for s in sections if s.get("type") == "artist"]
+
+
+def scanning(section: dict) -> bool:
+    """Plex is scanning this library now (its sections list says `refreshing`)."""
+    return section.get("refreshing") in (True, 1, "1", "true")
 
 
 def _paged(client: Getter, section_key: str, kind: int) -> Iterator[dict]:
@@ -253,10 +272,14 @@ def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
     return tracks, skipped
 
 
-def build_catalog(client: Getter, library: str | None = None, exclude: str | None = None) -> tuple[dict, int]:
+def build_catalog(
+    client: Getter, library: str | None = None, exclude: str | None = None, during_scan: bool = False
+) -> tuple[dict, int]:
     """The catalog for one music library (by name, or the only one), and the skipped-track count.
 
-    `exclude` names a library to leave out, normally the one that holds Radio Booth's own breaks.
+    `exclude` names a library to leave out, normally the one that holds Radio Booth's own breaks. While Plex
+    is scanning the library this raises PlexScanning, or with `during_scan` reads the songs it has so far
+    (raising PlexScanning still if none of them can be used).
     """
     sections = [s for s in music_sections(client) if not exclude or s.get("title") != exclude]
     if library:
@@ -272,7 +295,12 @@ def build_catalog(client: Getter, library: str | None = None, exclude: str | Non
     elif not sections:
         raise PlexError("This Plex server has no music library.")
     section = sections[0]
+    busy = scanning(section)
+    if busy and not during_scan:
+        raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
     tracks, skipped = read_section(client, section)
+    if busy and not tracks:
+        raise PlexScanning("Plex is still reading your music library and has no songs Booth can use yet.")
     drop_bulk_dates(tracks)
     catalog = {
         "protocol": "radiobooth/catalog@0",

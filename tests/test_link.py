@@ -13,11 +13,14 @@ from test_deliver import make_show
 
 from radiobooth import config
 from radiobooth.cli import main
+from radiobooth.engine import FolderBusy
 from radiobooth.link import (
     CATALOG_FAILURE,
     FILE_FAILURE,
     GENERIC_FAILURE,
     NO_SONGS_FAILURE,
+    SCAN_PATIENCE,
+    WAIT_S,
     Link,
     LinkError,
     PackageError,
@@ -28,6 +31,7 @@ from radiobooth.link import (
     send_file,
     sending,
 )
+from radiobooth.sources.plex import SCANNING_FAILURE, PlexScanning
 
 SONG = {"id": "1", "title": "Song", "artist": "Band", "duration_ms": 200000}
 
@@ -38,6 +42,7 @@ class FakeDJ:
     def __init__(self):
         self.calls, self.queue, self.pairs = [], [], []
         self.catalogs, self.results, self.files = [], [], {}
+        self.checkins = []
         self.file_calls, self.uploads, self.file_replies = [], {}, {}
         self.catalog_reply = (202, {"status": "making"})
         dj = self
@@ -72,6 +77,7 @@ class FakeDJ:
                 if self.path == "/v0/checkin":
                     if self.headers.get("Authorization") != "Bearer be_secret":
                         return self.reply(401, {"error": "Unknown Booth Engineer"})
+                    dj.checkins.append(data)
                     shows = dj.queue.pop(0) if dj.queue else []
                     return self.reply(200, {"next_checkin_s": 10, "shows": shows})
                 if "/file/" in self.path:
@@ -583,7 +589,7 @@ def test_run_picks_up_a_plex_sign_in_saved_while_it_runs(dj, tmp_path, monkeypat
     config.save(settings)
     seen = []
 
-    def build_catalog(client, library, exclude=None):
+    def build_catalog(client, library, exclude=None, during_scan=False):
         seen.append(client.token)
         if client.token == "old":
             config.save(settings | {"plex_token": "new"})  # setup, run again in another window
@@ -619,7 +625,7 @@ def test_a_refused_plex_token_from_the_shell_gives_way_to_setups(dj, tmp_path, m
     )
     seen = []
 
-    def build_catalog(client, library, exclude=None):
+    def build_catalog(client, library, exclude=None, during_scan=False):
         seen.append(client.token)
         if client.token != "fresh":
             raise plex_source.PlexAuthError()
@@ -641,7 +647,7 @@ def test_a_refused_plex_token_from_the_shell_says_to_unset_it(dj, tmp_path, monk
     monkeypatch.setenv("BOOTH_BREAKS_DIR", str(tmp_path))
     config.save({"server": dj.url, "device_token": "be_secret"})
 
-    def build_catalog(client, library, exclude=None):
+    def build_catalog(client, library, exclude=None, during_scan=False):
         raise plex_source.PlexAuthError()
 
     monkeypatch.setattr(plex_source, "build_catalog", build_catalog)
@@ -658,7 +664,7 @@ class ScriptedLink:
     def __init__(self, name, answers, seen):
         self.name, self.answers, self.seen = name, list(answers), seen
 
-    def checkin(self):
+    def checkin(self, waiting=None):
         self.seen.append(self.name)
         answer = self.answers.pop(0) if self.answers else StopIteration()
         if isinstance(answer, BaseException):
@@ -876,3 +882,109 @@ def test_booth_dj_refusing_a_step_fails_the_file_instead_of_retrying(dj, tmp_pat
     send(dj, file_station(log, made))
     assert [step for _, step, *_ in dj.file_calls] == ["making", "upload", "result"]
     assert dj.file_calls[-1][2] == {"ok": False, "error": FILE_FAILURE}
+
+
+ASK = {
+    "show_id": "show_1",
+    "status": "queued",
+    "action": "send_catalog",
+    "catalog_url": "/v0/shows/show_1/catalog",
+}
+
+
+def scanning_station(log, now, songs_after=None):
+    """A Plex library being scanned: no catalog until `during_scan`, and then songs only once the clock
+    passes `songs_after` (never, without it)."""
+    asked = []
+
+    def catalog(during_scan=False):
+        asked.append(during_scan)
+        if during_scan and songs_after is not None and now[0] >= songs_after:
+            return {"protocol": "radiobooth/catalog@0", "tracks": [SONG]}
+        raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
+
+    st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append, clock=lambda: now[0])
+    return st, asked
+
+
+def test_a_show_waits_while_plex_scans_and_booth_dj_hears_why(dj):
+    dj.queue = [[ASK]] * 4
+    log, now = [], [0.0]
+    st, asked = scanning_station(log, now, songs_after=SCAN_PATIENCE)
+    link = Link(dj.url, "be_secret")
+    run(link, st, once=True)
+    now[0] = SCAN_PATIENCE - 1
+    run(link, st, once=True)
+    assert dj.results == [] and dj.catalogs == [] and asked == [False, False]
+    assert "waiting" not in dj.checkins[0]  # nothing known yet at the first check-in
+    assert dj.checkins[1]["waiting"] == {"show_1": "library_scanning"}
+    assert sum("still reading your music library" in line for line in log) == 1  # logged once
+    # Past the patience: the show is made from the songs Plex has read so far.
+    now[0] = SCAN_PATIENCE
+    run(link, st, once=True)
+    assert asked[-1] is True and len(dj.catalogs) == 1 and dj.results == []
+    assert st.waiting == {} and st.waiting_since == {}
+    run(link, st, once=True)
+    assert "waiting" not in dj.checkins[-1]
+
+
+def test_a_scan_with_no_songs_fails_the_show_after_the_wait_with_a_plain_reason(dj):
+    dj.queue = [[ASK]] * 3
+    log, now = [], [0.0]
+    st, _ = scanning_station(log, now)
+    link = Link(dj.url, "be_secret")
+    run(link, st, once=True)
+    now[0] = WAIT_S - 1
+    run(link, st, once=True)
+    assert dj.results == []
+    now[0] = WAIT_S
+    run(link, st, once=True)
+    assert dj.results == [("show_1", {"ok": False, "error": SCANNING_FAILURE})]
+    assert st.waiting == {} and st.waiting_since == {} and st.problems == {}
+
+
+def test_a_waiting_show_made_elsewhere_or_removed_is_forgotten(dj):
+    dj.queue = [[ASK], [], []]
+    log, now = [], [0.0]
+    st, _ = scanning_station(log, now)
+    link = Link(dj.url, "be_secret")
+    run(link, st, once=True)
+    assert st.waiting == {"show_1": "library_scanning"}
+    run(link, st, once=True)  # Booth DJ no longer asks for it (removed on the phone, say)
+    assert st.waiting == {} and st.waiting_since == {}
+    run(link, st, once=True)
+    assert "waiting" not in dj.checkins[-1]
+
+
+def test_a_music_folder_being_read_waits_with_no_limit_of_its_own(dj):
+    dj.queue = [[ASK]] * 2
+    now = [0.0]
+
+    def catalog(during_scan=False):
+        raise FolderBusy("Booth is still reading your music folder; the show starts after that.")
+
+    st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: now[0])
+    link = Link(dj.url, "be_secret")
+    run(link, st, once=True)
+    now[0] = 10 * WAIT_S
+    run(link, st, once=True)
+    assert dj.results == [] and st.waiting == {"show_1": "reading_folder"}
+
+
+def test_another_problem_while_waiting_stops_saying_plex_is_scanning(dj):
+    dj.queue = [[ASK]] * 3
+    calls = []
+
+    def catalog(during_scan=False):
+        calls.append(1)
+        if len(calls) == 1:
+            raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
+        raise RuntimeError("Could not reach Plex")
+
+    st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: 0.0)
+    link = Link(dj.url, "be_secret")
+    run(link, st, once=True)
+    run(link, st, once=True)
+    assert st.waiting == {} and "show_1" in st.waiting_since  # the clock carries on through a blip
+    run(link, st, once=True)
+    assert "waiting" not in dj.checkins[-1]

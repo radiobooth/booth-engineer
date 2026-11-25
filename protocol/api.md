@@ -45,6 +45,12 @@ version, and where it puts finished shows, `"plex"` (a Plex playlist) or `"playl
 Booth shows folder, for music in a plain folder), so Booth DJ's pages can say where a show arrives.
 `delivers_to` is optional; versions before 0.3.0 don't send it.
 
+When a show asked for is held back on this computer, the check-in also says why, by show id:
+`"waiting": {"show_...": "library_scanning"}` while Plex is still scanning the music library, or
+`"reading_folder"` while Booth is still reading the music folder. Those two codes are all it ever says, and
+only about a show Booth DJ asked for the catalog of, so the phone page can say what the show waits for. A show
+missing from `waiting` isn't held back (or the Engineer is older than 0.5.7, which never sends it).
+
 ```json
 {
   "next_checkin_s": 10,
@@ -72,6 +78,11 @@ a reply Booth can't read, every time), Booth Engineer gives up after three tries
 machine; ..."}` (a fixed sentence; the reason stays in Booth's log) → `204`, and the show fails, so the
 listener's next show can go ahead. `409` if the show isn't waiting on this computer's catalog. Anything that
 may pass (Plex off, or refusing the sign-in) is tried until the show times out, as below.
+
+While Plex is still scanning the music library (its sections list says `refreshing`), Booth Engineer waits up
+to 10 minutes for the scan to end, then makes the show from the songs Plex has read so far. If it has none
+Booth can use yet, it keeps waiting, and after 45 minutes in all fails the show the same way, with the fixed
+sentence "Plex was still reading the music library on this computer, with no songs Booth could use yet. ...".
 
 ## Fetching and delivering a show
 

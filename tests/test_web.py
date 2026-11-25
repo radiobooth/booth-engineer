@@ -271,7 +271,7 @@ def test_the_engine_says_how_booth_is_doing(tmp_path, monkeypatch):
         monkeypatch.delenv(k, raising=False)
     checkins = []
 
-    def checkin(self):
+    def checkin(self, waiting=None):
         checkins.append(1)
         if len(checkins) == 1:
             raise LinkError("Could not reach Booth DJ at https://booth.example: offline")
@@ -346,7 +346,7 @@ def test_a_restart_never_runs_two_booths_at_once(tmp_path, monkeypatch):
     inside, most, release = [0], [0], threading.Event()
     lock = threading.Lock()
 
-    def checkin(self):
+    def checkin(self, waiting=None):
         with lock:
             inside[0] += 1
             most[0] = max(most[0], inside[0])
