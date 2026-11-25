@@ -65,8 +65,9 @@ missing from `waiting` isn't held back (or the Engineer is older than 0.5.7, whi
 ```
 
 A `send_catalog` entry may also carry `waited_s`: how long, in seconds, the show has waited for its catalog
-on Booth DJ's clock (Booth DJ gives up on it after an hour). Booth Engineer counts its own waits below from
-it, so they carry on when Booth restarts or the computer sleeps.
+on Booth DJ's clock: since its turn came, leaving out any time the computer was asleep, off or offline (Booth
+DJ gives up on it after an hour of that). Booth Engineer counts its own waits below from it, so they carry on
+when Booth restarts or the computer sleeps.
 
 `next_checkin_s` is 60 when nothing is going on and 10 while a show is in progress. The Engineer keeps it between 5 and 3600 s, and treats a reply whose `shows` isn't a list of objects with a `show_id` as a failed check-in.
 
@@ -85,10 +86,10 @@ may pass (Plex off, or refusing the sign-in) is tried until the show times out, 
 
 While Plex is scanning the music library for the first time (its sections list says `refreshing`, with no
 `scannedAt` yet), Booth Engineer holds the show back until it has waited 10 minutes (counted from `waited_s`
-when Booth DJ sends it, so from when the show's turn came), then makes it from the songs Plex has read so far. A rescan of a library already read holds nothing back. If Plex is scanning and
-has no songs Booth can use yet, Booth Engineer keeps waiting, and after 45 minutes in all fails the show the
-same way, with the fixed sentence "Plex was still reading the music library on this computer, with no songs
-Booth could use yet. ...".
+when Booth DJ sends it), then makes it from the songs Plex has read so far. A rescan of a library already read
+holds nothing back. If Plex is scanning and has no songs Booth can use yet, Booth Engineer keeps waiting, and
+after 45 minutes in all fails the show the same way, with the fixed sentence "Plex was still reading the music
+library on this computer, with no songs Booth could use yet. ...".
 
 ## Fetching and delivering a show
 
