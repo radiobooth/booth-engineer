@@ -152,6 +152,20 @@ def test_a_library_plex_is_still_scanning_waits_then_makes_do():
     assert plex.build_catalog(FakePlex(done))[0]["tracks"]
 
 
+def test_a_scan_with_only_songs_the_catalog_cant_hold_keeps_waiting():
+    class Odd(FakePlex):
+        def get(self, path, params=None):
+            reply = super().get(path, params)
+            if params and params["type"] == plex.TRACK:  # read, but a length the catalog can't hold
+                items = reply["MediaContainer"]["Metadata"]
+                reply["MediaContainer"]["Metadata"] = [m | {"duration": -1} for m in items]
+            return reply
+
+    busy = [{"key": "3", "type": "artist", "title": "Music", "refreshing": True}]
+    with pytest.raises(plex.PlexScanning, match="no songs Booth can use yet"):
+        plex.build_catalog(Odd(busy), during_scan=True)
+
+
 def test_a_rescan_of_a_library_already_read_holds_nothing_back():
     rescan = [{"key": "3", "type": "artist", "title": "Music", "refreshing": True, "scannedAt": 1764000000}]
     assert plex.build_catalog(FakePlex(rescan))[0]["tracks"]

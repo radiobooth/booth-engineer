@@ -64,6 +64,10 @@ missing from `waiting` isn't held back (or the Engineer is older than 0.5.7, whi
 }
 ```
 
+A `send_catalog` entry may also carry `waited_s`: how long, in seconds, the show has waited for its catalog
+on Booth DJ's clock (Booth DJ gives up on it after an hour). Booth Engineer counts its own waits below from
+it, so they carry on when Booth restarts or the computer sleeps.
+
 `next_checkin_s` is 60 when nothing is going on and 10 while a show is in progress. The Engineer keeps it between 5 and 3600 s, and treats a reply whose `shows` isn't a list of objects with a `show_id` as a failed check-in.
 
 ## Sending the catalog for a show

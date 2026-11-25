@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
+from radiobooth.catalog import check
 from radiobooth.sources.added import drop_bulk_dates
 
 PAGE_SIZE = 500
@@ -305,7 +306,7 @@ def build_catalog(
     if busy and first_scan(section) and not during_scan:
         raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
     tracks, skipped = read_section(client, section)
-    if busy and not tracks:
+    if busy and not check({"tracks": tracks})[0]["tracks"]:  # none of them will do (see link.handle)
         raise PlexScanning("Plex is still reading your music library and has no songs Booth can use yet.")
     drop_bulk_dates(tracks)
     catalog = {

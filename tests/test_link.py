@@ -988,3 +988,31 @@ def test_another_problem_while_waiting_stops_saying_plex_is_scanning(dj):
     assert st.waiting == {} and "show_1" in st.waiting_since  # the clock carries on through a blip
     run(link, st, once=True)
     assert "waiting" not in dj.checkins[-1]
+
+
+def test_booth_djs_count_of_the_wait_carries_on_through_a_restart(dj):
+    dj.queue = [[ASK | {"waited_s": SCAN_PATIENCE + 5}], [ASK | {"waited_s": WAIT_S}]]
+    log, now = [], [0.0]
+    st, asked = scanning_station(log, now)  # a new Station, as after Booth restarts
+    link = Link(dj.url, "be_secret")
+    run(link, st, once=True)
+    assert asked == [True] and dj.results == []  # straight to the songs so far: none yet
+    run(link, st, once=True)
+    assert dj.results == [("show_1", {"ok": False, "error": SCANNING_FAILURE})]
+
+
+def test_a_wait_between_lasting_problems_starts_their_count_again(dj):
+    dj.queue = [[ASK]] * 5
+    calls = []
+
+    def catalog(during_scan=False):
+        calls.append(1)
+        if len(calls) == 3:
+            raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
+        raise Unreadable("Plex sent a reply Booth couldn't read.")
+
+    st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: 0.0)
+    link = Link(dj.url, "be_secret")
+    for _ in range(5):
+        run(link, st, once=True)
+    assert dj.results == [] and st.lasting == {"show_1": 2}

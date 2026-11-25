@@ -379,8 +379,8 @@ def handle(link: Link, station: Station, item: dict) -> None:
     if action == "send_catalog":
         if show_id not in station.problems:  # retrying after a logged problem: say nothing new
             station.log(f"{show_id}: reading the library for a new show...")
-        since = station.waiting_since.get(show_id)
-        if since is not None and station.clock() - since >= SCAN_PATIENCE:  # make do with what's there
+        waited = waited_for(station, item)
+        if waited is not None and waited >= SCAN_PATIENCE:  # make do with what's there
             read = station.catalog(during_scan=True)
         else:
             read = station.catalog()
@@ -448,14 +448,26 @@ def forget(station: Station, show_id: str) -> None:
         kept.pop(show_id, None)
 
 
-def held_back(link: Link, station: Station, show_id: str, e: Exception) -> bool:
+def waited_for(station: Station, item: dict) -> float | None:
+    """How long a show has waited for its catalog, in seconds. Booth DJ's count (`waited_s`) where it gives
+    one: it carries on through Booth restarting or the computer sleeping. Otherwise since this Booth first
+    held the show back, or None if it hasn't."""
+    said = item.get("waited_s")
+    if isinstance(said, int | float) and not isinstance(said, bool) and 0 <= said < float("inf"):
+        return float(said)
+    since = station.waiting_since.get(item["show_id"])
+    return None if since is None else station.clock() - since
+
+
+def held_back(link: Link, station: Station, item: dict, e: Exception) -> bool:
     """A `waiting` problem: note the show waits, and why, for the next check-in to tell Booth DJ. True once
     it has waited too long and Booth DJ took the failure (see give_up)."""
-    now = station.clock()
-    since = station.waiting_since.setdefault(show_id, now)
+    show_id = item["show_id"]
+    station.waiting_since.setdefault(show_id, station.clock())
     station.waiting[show_id] = e.waiting
+    station.lasting.pop(show_id, None)  # lasting problems count only in a row
     limit = getattr(e, "wait_s", WAIT_S)
-    return limit is not None and now - since >= limit and give_up(link, station, show_id, e)
+    return limit is not None and waited_for(station, item) >= limit and give_up(link, station, show_id, e)
 
 
 def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float, float]:
@@ -475,7 +487,7 @@ def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float,
             except Exception as e:  # e.g. Plex unreachable while reading the library: try next time
                 if item.get("action") == "send_catalog":
                     if getattr(e, "waiting", None):
-                        if held_back(link, station, show_id, e):
+                        if held_back(link, station, item, e):
                             continue
                     else:
                         station.waiting.pop(show_id, None)  # held back by something else now
