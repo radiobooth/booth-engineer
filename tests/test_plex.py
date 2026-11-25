@@ -141,6 +141,51 @@ def test_no_file_paths_leave():
     assert "/home/someone" not in json.dumps(catalog)
 
 
+def test_a_library_plex_is_still_scanning_waits_then_makes_do():
+    busy = [{"key": "3", "type": "artist", "title": "Music", "refreshing": True}]
+    with pytest.raises(plex.PlexScanning, match="still reading") as e:
+        plex.build_catalog(FakePlex(busy))
+    assert e.value.waiting == "library_scanning" and e.value.report == plex.SCANNING_FAILURE
+    catalog, _ = plex.build_catalog(FakePlex(busy), during_scan=True)  # the songs read so far
+    assert catalog["tracks"]
+    done = [{"key": "3", "type": "artist", "title": "Music", "refreshing": False}]
+    assert plex.build_catalog(FakePlex(done))[0]["tracks"]
+
+
+def test_a_scan_with_only_songs_the_catalog_cant_hold_keeps_waiting():
+    class Odd(FakePlex):
+        def get(self, path, params=None):
+            reply = super().get(path, params)
+            if params and params["type"] == plex.TRACK:  # read, but a length the catalog can't hold
+                items = reply["MediaContainer"]["Metadata"]
+                reply["MediaContainer"]["Metadata"] = [m | {"duration": -1} for m in items]
+            return reply
+
+    busy = [{"key": "3", "type": "artist", "title": "Music", "refreshing": True}]
+    with pytest.raises(plex.PlexScanning, match="no songs Booth can use yet"):
+        plex.build_catalog(Odd(busy), during_scan=True)
+
+
+def test_a_rescan_of_a_library_already_read_holds_nothing_back():
+    rescan = [{"key": "3", "type": "artist", "title": "Music", "refreshing": True, "scannedAt": 1764000000}]
+    assert plex.build_catalog(FakePlex(rescan))[0]["tracks"]
+
+
+def test_a_library_still_scanning_with_no_songs_yet_keeps_waiting():
+    busy = [{"key": "3", "type": "artist", "title": "Music", "refreshing": 1}]
+
+    class Empty(FakePlex):
+        def get(self, path, params=None):
+            if path != "/library/sections" and params["type"] == plex.TRACK:
+                return {"MediaContainer": {"Metadata": [], "totalSize": 0}}
+            return super().get(path, params)
+
+    with pytest.raises(plex.PlexScanning, match="no songs Booth can use yet"):
+        plex.build_catalog(Empty(busy), during_scan=True)
+    # Done scanning and still empty: not a wait any more (link.handle fails it as having no songs).
+    assert plex.build_catalog(Empty([{"key": "3", "type": "artist", "title": "Music"}]))[0]["tracks"] == []
+
+
 def test_library_choice():
     two = [{"key": "3", "type": "artist", "title": "Music"}, {"key": "4", "type": "artist", "title": "Vinyl"}]
     with pytest.raises(plex.PlexError, match="several"):

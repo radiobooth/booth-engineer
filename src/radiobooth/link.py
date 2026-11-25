@@ -4,7 +4,7 @@ on their phone.
 
 Every connection goes out from this machine; nothing here listens. What is sent is exactly what
 protocol/api.md documents: this machine's name and Booth Engineer version, a catalog when a show asks for
-one, the outcome of each delivery, and a delivered show mixed
+one (or which of two reasons is holding it back), the outcome of each delivery, and a delivered show mixed
 into one MP3 when its listener asks to download it (only then, and only that show).
 """
 
@@ -54,6 +54,14 @@ NO_SONGS_FAILURE = (
 # in a row, so the listener's later shows don't wait an hour behind it. Anything else is tried until Booth DJ
 # gives up on the show.
 LASTING_TRIES = 3
+# A problem that says it's `waiting` (Plex still scanning a new library, say) holds the show back while it
+# lasts, and Booth DJ hears why at each check-in so the phone page can say so. After SCAN_PATIENCE the catalog
+# is asked for with `during_scan`: the songs read so far, if there are any. With none, the show fails after
+# the problem's `wait_s` (WAIT_S unless it says otherwise; None: no limit), within Booth DJ's hour for a
+# catalog. The wait counts as Booth DJ counts it (`waited_s`: from when the show's turn came), or, from an
+# older Booth DJ, from when this Booth first held the show back, through any other problem meanwhile.
+SCAN_PATIENCE = 10 * 60
+WAIT_S = 45 * 60
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -137,11 +145,14 @@ class Link:
 
     # Shows
 
-    def checkin(self) -> dict:
-        """{"next_checkin_s": 5..3600, "shows": [entries with a show_id]}; anything else is a LinkError."""
-        said = {"version": __version__}
+    def checkin(self, waiting: dict[str, str] | None = None) -> dict:
+        """{"next_checkin_s": 5..3600, "shows": [entries with a show_id]}; anything else is a LinkError.
+        `waiting`: why shows asked for are held back on this computer, by show id (see check_in)."""
+        said: dict = {"version": __version__}
         if self.delivers_to:
             said["delivers_to"] = self.delivers_to
+        if waiting:
+            said["waiting"] = waiting
         reply = self.post("/v0/checkin", said)[1]
         shows, wait = reply.get("shows", []), reply.get("next_checkin_s", 60)
         if not isinstance(shows, list) or not all(isinstance(s, dict) and s.get("show_id") for s in shows):
@@ -237,7 +248,7 @@ class Link:
 class Station:
     """What `booth run` needs from this machine: how to read the catalog and how to deliver a show."""
 
-    catalog: Callable[[], dict]
+    catalog: Callable[..., dict]  # (during_scan=False): see SCAN_PATIENCE
     deliver: Callable[[Path], str]  # show folder -> playlist title
     log: Callable[[str], None]
     # Outcomes not yet accepted by Booth DJ, so a lost report is retried instead of delivering twice.
@@ -246,6 +257,10 @@ class Station:
     problems: dict[str, str] = field(default_factory=dict)
     # How many times in a row each show's catalog failed with a lasting problem (see LASTING_TRIES).
     lasting: dict[str, int] = field(default_factory=dict)
+    # Shows held back by a `waiting` problem: since when (by `clock`), and what Booth DJ is told about them.
+    waiting_since: dict[str, float] = field(default_factory=dict)
+    waiting: dict[str, str] = field(default_factory=dict)
+    clock: Callable[[], float] = time.monotonic
     # A delivered show as one MP3 for the listener's phone, (show id, title, folder) -> its path in that
     # folder: the one made on Booth's page, copied there, or mixed there now. None: this machine can't. It may
     # take minutes, so it runs on a thread of its own (see send_file).
@@ -365,7 +380,12 @@ def handle(link: Link, station: Station, item: dict) -> None:
     if action == "send_catalog":
         if show_id not in station.problems:  # retrying after a logged problem: say nothing new
             station.log(f"{show_id}: reading the library for a new show...")
-        catalog, skipped, why = check_catalog(station.catalog())
+        waited = waited_for(station, item)
+        if waited is not None and waited >= SCAN_PATIENCE:  # make do with what's there
+            read = station.catalog(during_scan=True)
+        else:
+            read = station.catalog()
+        catalog, skipped, why = check_catalog(read)
         if skipped and show_id not in station.problems:
             station.log(f"{show_id}: left out {skipped} tracks the catalog can't hold (the first: {why}).")
         if not catalog["tracks"]:
@@ -418,17 +438,47 @@ def give_up(link: Link, station: Station, show_id: str, e: Exception) -> bool:
         if refused.network:
             raise
         return False
-    station.problems.pop(show_id, None)
-    station.lasting.pop(show_id, None)
+    forget(station, show_id)
     station.log(f"{show_id}: {e} Booth stopped trying, so the show failed; the next one can go ahead.")
     return True
+
+
+def forget(station: Station, show_id: str) -> None:
+    """Done with this show's catalog, one way or the other: drop what was kept about trying it."""
+    for kept in (station.problems, station.lasting, station.waiting_since, station.waiting):
+        kept.pop(show_id, None)
+
+
+def waited_for(station: Station, item: dict) -> float | None:
+    """How long a show has waited for its catalog, in seconds. Booth DJ's count (`waited_s`) where it gives
+    one: it carries on through Booth restarting or the computer sleeping. Otherwise since this Booth first
+    held the show back, or None if it hasn't."""
+    said = item.get("waited_s")
+    if isinstance(said, int | float) and not isinstance(said, bool) and 0 <= said < float("inf"):
+        return float(said)
+    since = station.waiting_since.get(item["show_id"])
+    return None if since is None else station.clock() - since
+
+
+def held_back(link: Link, station: Station, item: dict, e: Exception) -> bool:
+    """A `waiting` problem: note the show waits, and why, for the next check-in to tell Booth DJ. True once
+    it has waited too long and Booth DJ took the failure (see give_up)."""
+    show_id = item["show_id"]
+    station.waiting_since.setdefault(show_id, station.clock())
+    station.waiting[show_id] = e.waiting
+    station.lasting.pop(show_id, None)  # lasting problems count only in a row
+    limit = getattr(e, "wait_s", WAIT_S)
+    return limit is not None and waited_for(station, item) >= limit and give_up(link, station, show_id, e)
 
 
 def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float, float]:
     """One check-in and whatever it asks for. Returns how long to wait before the next one, and the backoff
     to carry: on network trouble it doubles, 10 s up to 5 minutes. Only a 401 (not paired) raises."""
     try:
-        reply = link.checkin()
+        reply = link.checkin(waiting=dict(station.waiting))
+        asked = {item["show_id"] for item in reply["shows"] if item.get("action") == "send_catalog"}
+        for show_id in set(station.waiting_since) - asked:  # made elsewhere, removed, or timed out
+            forget(station, show_id)
         for item in reply["shows"]:
             show_id = item["show_id"]
             try:
@@ -436,16 +486,24 @@ def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float,
             except LinkError:
                 raise
             except Exception as e:  # e.g. Plex unreachable while reading the library: try next time
-                if item.get("action") == "send_catalog" and getattr(e, "lasting", False):
-                    tries = station.lasting[show_id] = station.lasting.get(show_id, 0) + 1
-                    if tries >= LASTING_TRIES and give_up(link, station, show_id, e):
-                        continue
+                if item.get("action") == "send_catalog":
+                    if getattr(e, "waiting", None):
+                        if held_back(link, station, item, e):
+                            continue
+                    else:
+                        station.waiting.pop(show_id, None)  # held back by something else now
+                        if getattr(e, "lasting", False):
+                            tries = station.lasting[show_id] = station.lasting.get(show_id, 0) + 1
+                            if tries >= LASTING_TRIES and give_up(link, station, show_id, e):
+                                continue
                 if station.problems.get(show_id) != str(e):
                     station.problems[show_id] = str(e)
                     station.log(f"{show_id}: {e} (Booth keeps trying; this is logged once)")
             else:
-                station.problems.pop(show_id, None)
-                station.lasting.pop(show_id, None)
+                if item.get("action") == "send_catalog":
+                    forget(station, show_id)
+                else:
+                    station.problems.pop(show_id, None)
         return reply["next_checkin_s"], 0.0
     except LinkError as e:
         if e.status == 401:
