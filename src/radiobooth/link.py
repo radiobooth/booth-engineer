@@ -58,7 +58,8 @@ LASTING_TRIES = 3
 # lasts, and Booth DJ hears why at each check-in so the phone page can say so. After SCAN_PATIENCE the catalog
 # is asked for with `during_scan`: the songs read so far, if there are any. With none, the show fails after
 # the problem's `wait_s` (WAIT_S unless it says otherwise; None: no limit), within Booth DJ's hour for a
-# catalog. The wait counts from when the show was first held back, through any other problem meanwhile.
+# catalog. The wait counts as Booth DJ counts it (`waited_s`: from when the show's turn came), or, from an
+# older Booth DJ, from when this Booth first held the show back, through any other problem meanwhile.
 SCAN_PATIENCE = 10 * 60
 WAIT_S = 45 * 60
 

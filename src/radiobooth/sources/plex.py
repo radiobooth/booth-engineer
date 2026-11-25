@@ -304,7 +304,7 @@ def build_catalog(
     section = sections[0]
     busy = scanning(section)
     if busy and first_scan(section) and not during_scan:
-        raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
+        raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
     tracks, skipped = read_section(client, section)
     if busy and not check({"tracks": tracks})[0]["tracks"]:  # none of them will do (see link.handle)
         raise PlexScanning("Plex is still reading your music library and has no songs Booth can use yet.")

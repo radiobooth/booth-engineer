@@ -84,8 +84,8 @@ listener's next show can go ahead. `409` if the show isn't waiting on this compu
 may pass (Plex off, or refusing the sign-in) is tried until the show times out, as below.
 
 While Plex is scanning the music library for the first time (its sections list says `refreshing`, with no
-`scannedAt` yet), Booth Engineer waits up to 10 minutes for the scan to end, then makes the show from the
-songs Plex has read so far. A rescan of a library already read holds nothing back. If Plex is scanning and
+`scannedAt` yet), Booth Engineer holds the show back until it has waited 10 minutes (counted from `waited_s`
+when Booth DJ sends it, so from when the show's turn came), then makes it from the songs Plex has read so far. A rescan of a library already read holds nothing back. If Plex is scanning and
 has no songs Booth can use yet, Booth Engineer keeps waiting, and after 45 minutes in all fails the show the
 same way, with the fixed sentence "Plex was still reading the music library on this computer, with no songs
 Booth could use yet. ...".

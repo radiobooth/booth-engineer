@@ -901,7 +901,7 @@ def scanning_station(log, now, songs_after=None):
         asked.append(during_scan)
         if during_scan and songs_after is not None and now[0] >= songs_after:
             return {"protocol": "radiobooth/catalog@0", "tracks": [SONG]}
-        raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
+        raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append, clock=lambda: now[0])
     return st, asked
@@ -978,7 +978,7 @@ def test_another_problem_while_waiting_stops_saying_plex_is_scanning(dj):
     def catalog(during_scan=False):
         calls.append(1)
         if len(calls) == 1:
-            raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
+            raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
         raise RuntimeError("Could not reach Plex")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: 0.0)
@@ -1008,7 +1008,7 @@ def test_a_wait_between_lasting_problems_starts_their_count_again(dj):
     def catalog(during_scan=False):
         calls.append(1)
         if len(calls) == 3:
-            raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
+            raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
         raise Unreadable("Plex sent a reply Booth couldn't read.")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: 0.0)
