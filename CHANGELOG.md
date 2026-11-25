@@ -7,10 +7,10 @@ lines indented): that's what Booth's page shows under "What's new".
 ## 0.5.7 (2026-11-25)
 
 - **Booth waits while Plex is still reading your music.** If you ask for a show while Plex is still adding a new
-  or big music library, Booth now waits for it instead of giving up after half a minute, and your phone says
-  "Plex is still reading your music library". After 10 minutes it makes the show from the songs Plex has
-  read so far. If Plex has none ready after 45 minutes, the show stops and says why, so you can ask again
-  once Plex is done.
+  music library, Booth now waits for it instead of giving up after half a minute, and your phone says "Plex
+  is still reading your music library". After 10 minutes it makes the show from the songs Plex has read so
+  far. If Plex has none ready after 45 minutes, the show stops and says why, so you can ask again once Plex
+  is done. Plex checking a library it already knows for new music doesn't hold shows up.
 
 ## 0.5.6 (2026-11-24)
 

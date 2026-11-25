@@ -152,6 +152,11 @@ def test_a_library_plex_is_still_scanning_waits_then_makes_do():
     assert plex.build_catalog(FakePlex(done))[0]["tracks"]
 
 
+def test_a_rescan_of_a_library_already_read_holds_nothing_back():
+    rescan = [{"key": "3", "type": "artist", "title": "Music", "refreshing": True, "scannedAt": 1764000000}]
+    assert plex.build_catalog(FakePlex(rescan))[0]["tracks"]
+
+
 def test_a_library_still_scanning_with_no_songs_yet_keeps_waiting():
     busy = [{"key": "3", "type": "artist", "title": "Music", "refreshing": 1}]
 

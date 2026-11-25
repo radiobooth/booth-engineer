@@ -141,7 +141,7 @@ def index(args: argparse.Namespace) -> int:
     try:
         exclude = setting("BOOTH_BREAKS_LIBRARY", "breaks_library")
         library = args.library or setting("BOOTH_MUSIC_LIBRARY", "music_library")
-        catalog, skipped = build_catalog(PlexClient(url, token), library, exclude=exclude)
+        catalog, skipped = build_catalog(PlexClient(url, token), library, exclude=exclude, during_scan=True)
         # Checked as `booth run` checks it, so this file is exactly what would be sent.
         catalog, left_out, _ = catalogs.check(history.annotate(catalog))
         skipped += left_out

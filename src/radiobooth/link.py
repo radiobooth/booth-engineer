@@ -4,7 +4,7 @@ on their phone.
 
 Every connection goes out from this machine; nothing here listens. What is sent is exactly what
 protocol/api.md documents: this machine's name and Booth Engineer version, a catalog when a show asks for
-one, the outcome of each delivery, and a delivered show mixed
+one (or which of two reasons is holding it back), the outcome of each delivery, and a delivered show mixed
 into one MP3 when its listener asks to download it (only then, and only that show).
 """
 
@@ -54,10 +54,11 @@ NO_SONGS_FAILURE = (
 # in a row, so the listener's later shows don't wait an hour behind it. Anything else is tried until Booth DJ
 # gives up on the show.
 LASTING_TRIES = 3
-# A problem that says it's `waiting` (Plex still scanning the library, say) holds the show back while it
-# lasts, and Booth DJ hears why at each check-in so the phone page can say so. After SCAN_PATIENCE the show is
-# made from the songs read so far, if there are any; with none, it fails after the problem's `wait_s`
-# (WAIT_S unless it says otherwise; None: no limit), within Booth DJ's hour for a catalog.
+# A problem that says it's `waiting` (Plex still scanning a new library, say) holds the show back while it
+# lasts, and Booth DJ hears why at each check-in so the phone page can say so. After SCAN_PATIENCE the catalog
+# is asked for with `during_scan`: the songs read so far, if there are any. With none, the show fails after
+# the problem's `wait_s` (WAIT_S unless it says otherwise; None: no limit), within Booth DJ's hour for a
+# catalog. The wait counts from when the show was first held back, through any other problem meanwhile.
 SCAN_PATIENCE = 10 * 60
 WAIT_S = 45 * 60
 
@@ -246,7 +247,7 @@ class Link:
 class Station:
     """What `booth run` needs from this machine: how to read the catalog and how to deliver a show."""
 
-    catalog: Callable[[], dict]
+    catalog: Callable[..., dict]  # (during_scan=False): see SCAN_PATIENCE
     deliver: Callable[[Path], str]  # show folder -> playlist title
     log: Callable[[str], None]
     # Outcomes not yet accepted by Booth DJ, so a lost report is retried instead of delivering twice.

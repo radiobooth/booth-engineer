@@ -149,6 +149,12 @@ def scanning(section: dict) -> bool:
     return section.get("refreshing") in (True, 1, "1", "true")
 
 
+def first_scan(section: dict) -> bool:
+    """Plex has never finished scanning this library (no `scannedAt` yet): a new one, still filling up. A
+    rescan of a library already read has one, and its songs are all there meanwhile."""
+    return not section.get("scannedAt")
+
+
 def _paged(client: Getter, section_key: str, kind: int) -> Iterator[dict]:
     start = 0
     while True:
@@ -278,8 +284,8 @@ def build_catalog(
     """The catalog for one music library (by name, or the only one), and the skipped-track count.
 
     `exclude` names a library to leave out, normally the one that holds Radio Booth's own breaks. While Plex
-    is scanning the library this raises PlexScanning, or with `during_scan` reads the songs it has so far
-    (raising PlexScanning still if none of them can be used).
+    is scanning the library, it raises PlexScanning when none of the songs read so far can be used, and also
+    without `during_scan` when this is the library's first scan (its songs are still coming in).
     """
     sections = [s for s in music_sections(client) if not exclude or s.get("title") != exclude]
     if library:
@@ -296,7 +302,7 @@ def build_catalog(
         raise PlexError("This Plex server has no music library.")
     section = sections[0]
     busy = scanning(section)
-    if busy and not during_scan:
+    if busy and first_scan(section) and not during_scan:
         raise PlexScanning("Plex is still reading your music library; the show starts once it's done.")
     tracks, skipped = read_section(client, section)
     if busy and not tracks:
