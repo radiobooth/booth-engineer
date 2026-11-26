@@ -28,6 +28,11 @@ file below, so nothing needs to be set in the environment.
 Booth's page is served only to this computer (on 127.0.0.1, behind a random key the app hands your
 browser); nothing on your network can reach it.
 
+**Use Claude, ChatGPT or Gemini?** Connect it to Radio Booth (a custom connector at
+`https://my.radiobooth.fm/mcp`) and it can make shows for you in a chat: it picks the songs from your library
+and writes the DJ's breaks, and Radio Booth voices and delivers them through this Booth Engineer as usual. See
+[Make shows with your own AI assistant](docs/getting-started.md#make-shows-with-your-own-ai-assistant).
+
 **Music on a NAS or another computer?** See
 [Music on another computer](docs/getting-started.md#music-on-another-computer). **Linux or Docker?** See
 [docs/other-setups.md](docs/other-setups.md).

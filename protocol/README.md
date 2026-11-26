@@ -10,7 +10,9 @@ repo so anyone can read exactly what leaves your machine. Version 0: expect chan
 | [`show-request`](show-request.schema.json) | you → service | The prompt, show length, DJ (personality, voice, your name for them) and your station name. |
 | [`show-package`](show-package.schema.json) | service → your machine | The running order: your track ids and the DJ breaks between them, each break with its audio file, transcript and fact sources. |
 
-The catalog is sent only when you ask for a show, and Booth DJ never stores it.
+The catalog is sent only when you ask for a show, and Booth DJ never stores it, except while your own AI
+assistant puts a show together: then it's kept encrypted for that show only, and deleted when the show is made,
+cancelled or times out (see [api.md](api.md#sending-the-catalog-for-a-show)).
 
 Everything in this folder is Apache-2.0 ([LICENSE](LICENSE)), unlike the rest of Booth Engineer (GPL-3.0-or-later),
 so other clients and servers can implement the protocol under any license.

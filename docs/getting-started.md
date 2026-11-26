@@ -6,7 +6,9 @@
 # Getting started with Radio Booth
 
 Radio Booth makes radio shows from your own music, with a DJ talking between songs. You ask for a show on
-your phone ("Sunday morning coffee, an hour"), and a few minutes later it's a playlist in Plex.
+your phone ("Sunday morning coffee, an hour"), and a few minutes later it's a playlist in Plex. If you use
+Claude, ChatGPT or Gemini, you can also ask it for shows in a chat: see
+[Make shows with your own AI assistant](#make-shows-with-your-own-ai-assistant).
 
 This takes about 10 minutes, once.
 
@@ -121,6 +123,59 @@ flag is read.
 For anything bigger, questions, or ideas, come say hi in the [Radio Booth Discord](https://discord.gg/aN2bNKB74y), where testers and
 the people making Booth talk.
 
+## Make shows with your own AI assistant
+
+If you use Claude, ChatGPT or Gemini, you can connect it to Radio Booth and make shows by chatting with it.
+Your assistant already knows you and what you've talked about, so you can ask for something like "a two-hour
+show for our drive up north tomorrow, with the songs my dad loved". It picks the songs from your library and
+writes what the DJ says. Radio Booth then voices the DJ, in the voice you chose, and puts the show in Plex or
+your shows folder like any other show. Booth needs to be set up on your computer first (steps 1 to 4 above).
+
+### Connect it
+
+Add Radio Booth to your assistant as a custom connector, with this address (your phone's Booth page shows it
+too, under **Your assistant**):
+
+```
+https://my.radiobooth.fm/mcp
+```
+
+- **Claude** (on claude.ai or in the Claude app): open **Settings > Connectors**, click **Add custom
+  connector**, name it `Radio Booth` and paste the address.
+- **ChatGPT** or **Gemini**: add a custom connector (or app) in its settings with the same address. If it
+  asks for a client ID or a client secret, leave them empty.
+
+Your assistant then opens a Radio Booth page asking whether to allow it. Click **Allow**. That page uses your
+Booth sign-in: if it asks you to sign in, open your sign-in link in that same browser, then come back and
+reload the page.
+
+### Ask for a show
+
+Just ask in a chat: "Make me a Radio Booth show for Sunday morning, an hour." Your assistant asks what it
+needs (the length, the DJ and their voice), waits for Booth on your computer to send your library, chooses
+the songs and writes the breaks. That takes a few minutes of work on its side. Before it sends the show off,
+ask to read the script: it can show you the whole show, song by song and break by break, and change what you
+don't like. A few minutes after it sends it, the show is in Plex (or your shows folder), and it's listed on
+your phone's Booth page with your other shows, where you can rate it and flag breaks as usual.
+
+- Shows your assistant makes don't count against your shows. It can make up to 10 a day.
+- As with any show, the computer running Booth needs to be on and awake.
+- A show your assistant leaves unfinished for 3 hours is dropped. You can also cancel it on your phone's
+  Booth page, or ask your assistant to.
+- If your assistant says a Radio Booth tool is missing or doesn't work after Booth has been updated, turn the
+  connector off and on again in its settings, so it picks up the new version.
+
+### What your assistant can see
+
+While it makes a show, your assistant can see your library's song list (titles, artists, albums, years,
+genres, plays and the like, the same details Booth sends for any show), the shows you've made, and the DJs.
+Those details go to the AI service you use, under your own account with it. Radio Booth keeps your library's
+details, encrypted, only while that show is being put together (at most 3 hours), and deletes them as soon as
+the show is sent off, cancelled or dropped. Your music files stay on your computer, as always.
+
+To disconnect your assistant, tap **Disconnect** next to it on your phone's Booth page, under **Your
+assistant**. It can't reach your Radio Booth from then on; to use it again, connect it again.
+
 ## Music on another computer
 
 Your music is on a NAS, a media PC or another computer, and Booth runs on a Windows PC or Mac in the same home.
@@ -221,7 +276,9 @@ it, or after a day if you don't.
 When you ask for a show, and only then, Booth sends the details of your music library: titles, artists,
 albums, years, genres, ratings, play counts, when you added things, and which songs were in your recent
 shows. That's what the DJ uses to pick songs and talk about them. Radio Booth uses it to make that one show
-and doesn't keep it afterwards. While the show is made, the AI services that write and voice it (Claude, by
+and doesn't keep it afterwards. (When your own AI assistant makes the show, your assistant sees those details
+too, and Radio Booth keeps them, encrypted, until the show is finished: see
+[What your assistant can see](#what-your-assistant-can-see).) While the show is made, the AI services that write and voice it (Claude, by
 Anthropic, and Google Cloud's text-to-speech) process the parts they need, under business terms that don't
 let them train on it.
 
