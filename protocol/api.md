@@ -77,6 +77,13 @@ when Booth restarts or the computer sleeps.
 It is sent only when you have asked for a show, and Booth DJ keeps it in memory just long enough to make
 that one show. It is never stored. → `202`, or `409` if it was already sent.
 
+The one exception is a show your own AI assistant makes, if you connected one to Booth (Booth DJ's MCP
+server). The assistant picks the songs and writes the DJ's breaks itself, so while it works on that show
+(at most 3 hours from its last step) it can search the catalog, and Booth DJ keeps the catalog encrypted
+for that show only. Booth DJ deletes it as soon as the show is made, or when the show is cancelled or
+times out. Booth Engineer sends the same catalog either way, and the reply is `202` with
+`{"status": "drafting"}`.
+
 If this computer can't read its library for the show in a way that asking again won't fix (Plex answers with
 a reply Booth can't read, every time), Booth Engineer gives up after three tries and says so:
 `POST /v0/shows/{show_id}/result` with `{"ok": false, "error": "Booth couldn't read the music library on this
