@@ -30,7 +30,7 @@ from pathlib import Path
 
 from radiobooth import __version__, macapp
 
-REPO = "radiobooth/booth-engineer"
+REPO = "radiobooth/engineer"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 DOWNLOADS = f"https://github.com/{REPO}/releases/download/"
 SUMS = "SHA256SUMS"
