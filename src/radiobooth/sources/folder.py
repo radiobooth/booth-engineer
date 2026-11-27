@@ -111,6 +111,7 @@ class Report:
     repaired: int = 0
     garbled: int = 0
     coverage: Counter = field(default_factory=Counter)  # Bag name -> tracks that have it
+    ids: list[str] = field(default_factory=list)  # every music file's id, used or not (for arrivals)
     samples: dict[str, list[str]] = field(default_factory=lambda: defaultdict(list))  # issue -> paths
 
     def note(self, issue: str, rel: str) -> None:
@@ -554,6 +555,7 @@ def build_catalog(
             files = refresh(folder, index, key, report, skip, progress)
         finally:
             index.close()
+    report.ids = [f.id for f in files if f.id]
     catalog = {
         "protocol": "radiobooth/catalog@0",
         "generated_at": history.stamp(),

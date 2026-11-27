@@ -106,3 +106,15 @@ def test_each_person_sharing_booth_has_their_own_history(tmp_path, cfg):
     assert [
         t.get("last_in_show_at") for t in history.annotate(catalog("101", "202"), "p_ab12")["tracks"]
     ] == [None, "2026-11-06T00:00:00Z"]
+
+
+def test_damaged_shows_are_left_out(cfg):
+    cfg.mkdir()
+    shows = [{"at": "x", "title": "Bad"}, {"at": "2026-11-20T10:00:00Z", "title": ""}]
+    (cfg / "history.json").write_text(
+        json.dumps({"version": 2, "tracks": {"1": {"count": 2, "shows": shows}}})
+    )
+    t = history.annotate(catalog("1"), fresh=False)["tracks"][0]
+    assert t["last_in_show_at"] == "2026-11-20T10:00:00Z" and t["recent_shows"] == [
+        {"at": "2026-11-20T10:00:00Z"}
+    ]

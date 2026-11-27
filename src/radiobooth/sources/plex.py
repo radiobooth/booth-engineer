@@ -273,13 +273,18 @@ def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
 
 
 def build_catalog(
-    client: Getter, library: str | None = None, exclude: str | None = None, during_scan: bool = False
+    client: Getter,
+    library: str | None = None,
+    exclude: str | None = None,
+    during_scan: bool = False,
+    state: dict | None = None,
 ) -> tuple[dict, int]:
     """The catalog for one music library (by name, or the only one), and the skipped-track count.
 
     `exclude` names a library to leave out, normally the one that holds Radio Booth's own breaks. While Plex
     is scanning the library, it raises PlexScanning when none of the songs read so far can be used, and also
     without `during_scan` when this is the library's first scan (its songs are still coming in).
+    `state`, when given, gets "scanning": whether Plex was scanning the library (so this read may be partial).
     """
     sections = [s for s in music_sections(client) if not exclude or s.get("title") != exclude]
     if library:
@@ -296,6 +301,8 @@ def build_catalog(
         raise PlexError("This Plex server has no music library.")
     section = sections[0]
     busy = scanning(section)
+    if state is not None:
+        state["scanning"] = bool(busy)
     if busy and first_scan(section) and not during_scan:
         raise PlexScanning("Plex is still reading your music library; Radio Booth gives it a few minutes.")
     tracks, skipped = read_section(client, section)

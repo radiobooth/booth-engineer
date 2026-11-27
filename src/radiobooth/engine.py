@@ -74,9 +74,10 @@ def needs(settings: dict) -> tuple[dict, list[str], list[str]]:
     return found, missing, [found["dest"]]
 
 
-def read_folder(settings: dict, on_scan: Callable | None = None) -> dict:
+def read_folder(settings: dict, on_scan: Callable | None = None, ids: list | None = None) -> dict:
     """The music folder's catalog (the index brought up to date). `on_scan(done, total)` hears how reading
-    it goes, then `on_scan(report)` gets the tag report, or `on_scan(None)` if reading failed."""
+    it goes, then `on_scan(report)` gets the tag report, or `on_scan(None)` if reading failed. `ids`, when
+    given, gets every music file's id, used or not."""
     found, _ = folder_settings(settings)
     try:
         built, report = folder_source.build_catalog(
@@ -93,6 +94,8 @@ def read_folder(settings: dict, on_scan: Callable | None = None) -> dict:
         raise
     if on_scan:
         on_scan(report)
+    if ids is not None:
+        ids.extend(report.ids)
     return built
 
 
@@ -156,11 +159,14 @@ def station(
     def catalog(during_scan: bool = False) -> dict:
         mark(True)
         try:
+            state: dict = {}
             read = signed_in(
-                lambda: plex_source.build_catalog(plex, music, exclude=library, during_scan=during_scan)
+                lambda: plex_source.build_catalog(
+                    plex, music, exclude=library, during_scan=during_scan, state=state
+                )
             )
             # A library Plex is still reading isn't a whole read: its arrivals wait for the next one.
-            return history.annotate(read[0], who, fresh=not during_scan, where=plex.base_url)
+            return history.annotate(read[0], who, fresh=not state.get("scanning"), where=plex.base_url)
         finally:
             mark(False)
 
@@ -260,8 +266,10 @@ def folder_station(
             raise FolderBusy("Radio Booth is still reading your music folder; the show starts after that.")
         mark(True)
         try:
-            built = read_folder(settings, on_scan)
-            return history.annotate(built, who, where=str(folder_source.music_root(found["music"])))
+            ids: list[str] = []
+            built = read_folder(settings, on_scan, ids)
+            where = str(Path(found["music"]).expanduser())
+            return history.annotate(built, who, where=where, also=ids)
         finally:
             mark(False)
 

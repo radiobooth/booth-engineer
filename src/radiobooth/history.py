@@ -38,17 +38,29 @@ def stamp(when: datetime | None = None) -> str:
     return when.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _is_time(v) -> bool:
+    if not isinstance(v, str) or "T" not in v.upper():
+        return False
+    try:
+        return datetime.fromisoformat(v.upper().replace("Z", "+00:00")).tzinfo is not None
+    except ValueError:
+        return False
+
+
 def _entry(value) -> dict | None:
     """One track's history as kept, from either version of the file; None if it can't be read. {"count":
     shows that had it, "floor": True when count may be short, "shows": [{"at", ...}, newest first]}"""
-    if isinstance(value, str) and value:  # version 1: when it was last in a show
+    if _is_time(value):  # version 1: when it was last in a show
         return {"count": 1, "floor": True, "shows": [{"at": value}]}
     if not isinstance(value, dict):
         return None
     shows = value.get("shows")
     if not isinstance(shows, list):
         return None
-    shows = [s for s in shows if isinstance(s, dict) and isinstance(s.get("at"), str)]
+    shows = [s for s in shows if isinstance(s, dict) and _is_time(s.get("at"))]
+    for s in shows:
+        if "title" in s and not (isinstance(s["title"], str) and s["title"].strip()):
+            del s["title"]
     count = value.get("count")
     if not shows or not isinstance(count, int) or isinstance(count, bool) or count < len(shows):
         return None
@@ -108,12 +120,19 @@ def record_package(package: dict, when: datetime | None = None, person: str | No
     return record(tracks, when, person, show=package.get("show_id"), title=package.get("title"))
 
 
-def annotate(catalog: dict, person: str | None = None, fresh: bool = True, where: str | None = None) -> dict:
+def annotate(
+    catalog: dict,
+    person: str | None = None,
+    fresh: bool = True,
+    where: str | None = None,
+    also: Iterable[str] = (),
+) -> dict:
     """The catalog with Radio Booth's own history on its tracks: for each track that was in this person's
     shows, `in_shows` (with `in_shows_at_least` when that's a floor), `last_in_show_at` and `recent_shows`;
     and the library's arrivals (`arrivals.annotate`). `fresh`: this is a whole, new read of the library,
     so tracks new since the last one are noted as arrivals (not for a library Plex is still reading, or a
-    look at the catalog that sends nothing). `where`: the library's folder or server (see `arrivals`)."""
+    look at the catalog that sends nothing). `where`: the library's folder or server; `also`: ids the
+    source found but couldn't use (see `arrivals`)."""
     seen = load(person)
     for t in catalog["tracks"]:
         if entry := seen.get(t["id"]):
@@ -122,4 +141,4 @@ def annotate(catalog: dict, person: str | None = None, fresh: bool = True, where
                 t["in_shows_at_least"] = True
             t["last_in_show_at"] = last_at(entry)
             t["recent_shows"] = [{k: s[k] for k in ("at", "title") if k in s} for s in entry["shows"][:SENT]]
-    return arrivals.annotate(catalog, fresh=fresh, where=where)
+    return arrivals.annotate(catalog, fresh=fresh, where=where, also=also)

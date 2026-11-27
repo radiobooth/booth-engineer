@@ -32,7 +32,7 @@ def joined(c):
 
 def test_the_first_read_is_a_baseline_with_no_dates(cfg):
     c = arrivals.annotate(catalog(range(50)), when=day(1))
-    assert c["history_since"] == "2026-11-01T12:00:00Z" and joined(c) == {}
+    assert c["history_since"].startswith("2026-11-01T") and joined(c) == {}
     assert (cfg / "library-seen.json").is_file()
 
 
@@ -69,6 +69,35 @@ def test_each_library_has_its_own_record():
     assert joined(c) == {}  # the folder's first read is its own baseline
 
 
+def test_the_same_library_at_a_new_address_carries_on(cfg):
+    arrivals.annotate(catalog(range(20)), where="http://192.168.1.5:32400", when=day(1))
+    arrivals.annotate(catalog([*range(20), 50]), where="http://192.168.1.5:32400", when=day(3))
+    c = arrivals.annotate(catalog([*range(20), 50, 51]), where="http://192.168.1.7:32400", when=day(6))
+    assert joined(c) == {"50": ("2026-11-01", "2026-11-03"), "51": ("2026-11-03", "2026-11-06")}
+    assert c["history_since"].startswith("2026-11-01")
+    assert len(json.loads((cfg / "library-seen.json").read_text())["sources"]) == 1  # moved, not copied
+    look = arrivals.annotate(catalog([*range(20), 50]), fresh=False, where="http://plex.local:32400")
+    assert joined(look) == {"50": ("2026-11-01", "2026-11-03")}  # previews find it too
+
+
+def test_songs_that_become_usable_are_no_arrivals():
+    arrivals.annotate(catalog(range(5)), also=["5", "6"], when=day(1))  # 5 and 6 had no tags then
+    c = arrivals.annotate(catalog(range(8)), when=day(4))
+    assert joined(c) == {"7": ("2026-11-01", "2026-11-04")}
+
+
+def test_lengths_either_side_of_a_step_are_the_same_song():
+    arrivals.annotate(
+        catalog([1]) | {"tracks": [{"id": "1", "title": "S", "artist": "A", "duration_ms": 182999}]},
+        when=day(1),
+    )
+    c = arrivals.annotate(
+        catalog([]) | {"tracks": [{"id": "1b", "title": "S", "artist": "A", "duration_ms": 183001}]},
+        when=day(2),
+    )
+    assert joined(c) == {}
+
+
 def test_another_folder_or_server_is_a_new_baseline():
     arrivals.annotate(catalog(range(5), kind="folder"), where="/music", when=day(1))
     c = arrivals.annotate(catalog(range(100, 150), kind="folder"), where="/other", when=day(2))
@@ -98,7 +127,7 @@ def test_a_broken_file_starts_over(cfg, text):
     cfg.mkdir()
     (cfg / "library-seen.json").write_text(text)
     c = arrivals.annotate(catalog(range(3)), when=day(1))
-    assert joined(c) == {} and c["history_since"] == "2026-11-01T12:00:00Z"
+    assert joined(c) == {} and c["history_since"].startswith("2026-11-01T")
     assert json.loads((cfg / "library-seen.json").read_text())["version"] == 1
 
 

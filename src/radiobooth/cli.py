@@ -160,7 +160,7 @@ def index(args: argparse.Namespace) -> int:
                 f"booth index: Plex is still scanning {name!r}; these are the songs so far.", file=sys.stderr
             )
         # Checked as `booth run` checks it, so this file is exactly what would be sent.
-        catalog, left_out, _ = catalogs.check(history.annotate(catalog, fresh=False))
+        catalog, left_out, _ = catalogs.check(history.annotate(catalog, fresh=False, where=client.base_url))
         skipped += left_out
     except PlexError as e:
         print(f"booth index: {e}", file=sys.stderr)
@@ -206,7 +206,9 @@ def scan(args: argparse.Namespace) -> int:
             examples=max(0, args.examples),
         )
         # As `booth run` would send it (without noting this look as a read of the library)
-        catalog, _, _ = catalogs.check(history.annotate(catalog, fresh=False))
+        catalog, _, _ = catalogs.check(
+            history.annotate(catalog, fresh=False, where=str(Path(where).expanduser()))
+        )
         print("\n".join(report.lines()))
         if args.catalog:
             out = Path(args.catalog)

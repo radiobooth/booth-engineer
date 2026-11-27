@@ -594,7 +594,7 @@ def test_run_picks_up_a_plex_sign_in_saved_while_it_runs(dj, tmp_path, monkeypat
     config.save(settings)
     seen = []
 
-    def build_catalog(client, library, exclude=None, during_scan=False):
+    def build_catalog(client, library, exclude=None, during_scan=False, state=None):
         seen.append(client.token)
         if client.token == "old":
             config.save(settings | {"plex_token": "new"})  # setup, run again in another window
@@ -630,7 +630,7 @@ def test_a_refused_plex_token_from_the_shell_gives_way_to_setups(dj, tmp_path, m
     )
     seen = []
 
-    def build_catalog(client, library, exclude=None, during_scan=False):
+    def build_catalog(client, library, exclude=None, during_scan=False, state=None):
         seen.append(client.token)
         if client.token != "fresh":
             raise plex_source.PlexAuthError()
@@ -652,7 +652,7 @@ def test_a_refused_plex_token_from_the_shell_says_to_unset_it(dj, tmp_path, monk
     monkeypatch.setenv("BOOTH_BREAKS_DIR", str(tmp_path))
     config.save({"server": dj.url, "device_token": "be_secret"})
 
-    def build_catalog(client, library, exclude=None, during_scan=False):
+    def build_catalog(client, library, exclude=None, during_scan=False, state=None):
         raise plex_source.PlexAuthError()
 
     monkeypatch.setattr(plex_source, "build_catalog", build_catalog)
