@@ -84,11 +84,11 @@ genres and other details. `booth scan ~/Music` prints the same report; add `--ca
 exactly what would be sent. By hand, set `BOOTH_SOURCE=folder`, `BOOTH_MUSIC_FOLDER` and
 `BOOTH_SHOWS_FOLDER` instead of the Plex settings above.
 
-So new shows don't repeat what you've just heard, and so the DJ can say what's true ("we've played that for
-you twice before"), Radio Booth remembers which tracks were in the shows it delivered, in `history.json`
+So new shows don't repeat what you've just heard, and so the DJ can say what's true ("that's been in two of
+your shows"), Radio Booth remembers which tracks were in the shows it delivered, in `history.json`
 next to its config file (normally `~/.config/radiobooth/`), and in `history-<id>.json` for each other person
 sharing this Radio Booth (see below). `library-seen.json` beside it records when tracks first turned up in
-your library, as Radio Booth saw it, so the DJ can say "that joined your library about a month ago" (music
+your library, as Radio Booth saw it, so the DJ can say "that turned up in your library about a month ago" (music
 already there when you started never gets a date). Neither leaves your machine except inside a show's
 catalog. Delete a file to start it over.
 
