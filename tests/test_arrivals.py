@@ -181,3 +181,34 @@ def test_ids_handed_out_again_carry_no_old_dates():
     reset.append({"id": "0", "title": "Arrived", "artist": "A", "duration_ms": 1})
     c = arrivals.annotate(catalog([]) | {"tracks": reset}, when=day(5))
     assert joined(c) == {"0": ("2026-11-01", "2026-11-02")}  # the dates follow the song, not the id
+
+
+def song(i, title, artist="A", ms=200_000):
+    return {"id": str(i), "title": title, "artist": artist, "duration_ms": ms}
+
+
+def test_a_few_ids_holding_other_songs_take_their_songs_status():
+    arrivals.annotate(catalog([]) | {"tracks": [song(1, "Old"), song(2, "Older")]}, when=day(1))
+    c = arrivals.annotate(
+        catalog([]) | {"tracks": [song(1, "Old"), song(2, "Older"), song(3, "New")]}, when=day(2)
+    )
+    assert joined(c) == {"3": ("2026-11-01", "2026-11-02")}
+    # Plex rebuilt: id 3 now holds "Older", id 9 holds "New".
+    c = arrivals.annotate(
+        catalog([]) | {"tracks": [song(1, "Old"), song(3, "Older"), song(9, "New")]}, when=day(4)
+    )
+    assert joined(c) == {"9": ("2026-11-01", "2026-11-02")}
+
+
+def test_retagged_and_renamed_at_once_is_still_known():
+    arrivals.annotate(catalog([]) | {"tracks": [song(1, "Help!", "Beatles"), song(2, "Other")]}, when=day(1))
+    c = arrivals.annotate(
+        catalog([]) | {"tracks": [song("1x", "Help!", "The Beatles"), song(2, "Other")]}, when=day(3)
+    )
+    assert joined(c) == {}
+
+
+def test_a_widened_folder_is_a_new_baseline():
+    arrivals.annotate(catalog(range(30), kind="folder"), where="/music/jazz", when=day(1))
+    c = arrivals.annotate(catalog(range(50), kind="folder"), where="/music", when=day(3))
+    assert joined(c) == {}  # the jazz record is only part of this library: no dates for the rest

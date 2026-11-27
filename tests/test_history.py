@@ -118,3 +118,19 @@ def test_damaged_shows_are_left_out(cfg):
     assert t["last_in_show_at"] == "2026-11-20T10:00:00Z" and t["recent_shows"] == [
         {"at": "2026-11-20T10:00:00Z"}
     ]
+
+
+def test_shows_follow_songs_not_ids():
+    def track(i, title):
+        return {"id": i, "title": title, "artist": "A", "duration_ms": 200_000}
+
+    first = {"protocol": "radiobooth/catalog@0", "tracks": [track("1", "Pepper"), track("2", "Shitlist")]}
+    history.record(["1"], datetime(2026, 11, 5, tzinfo=UTC), show="s", title="Loud")
+    history.annotate(first)  # learns which song id 1 is
+    # Plex rebuilt: id 1 now holds another song, and Pepper is id 7.
+    again = {"protocol": "radiobooth/catalog@0", "tracks": [track("1", "Shitlist"), track("7", "Pepper")]}
+    tracks = {t["id"]: t for t in history.annotate(again)["tracks"]}
+    assert "in_shows" not in tracks["1"]
+    assert tracks["7"]["in_shows"] == 1 and tracks["7"]["recent_shows"][0]["title"] == "Loud"
+    retagged = {"protocol": "radiobooth/catalog@0", "tracks": [{**track("7", "Pepper"), "artist": "The A"}]}
+    assert history.annotate(retagged)["tracks"][0]["in_shows"] == 1

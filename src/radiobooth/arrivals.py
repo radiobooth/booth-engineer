@@ -9,7 +9,9 @@ date at all. So Radio Booth keeps its own, on this machine only (library-seen.js
 - A track in a later read that wasn't in any earlier one joined between the two reads: `joined_after` the
   day of the read before, `joined_by` the day of this one.
 - A "new" track that's a song already known here (same artist, title and length: a file moved or renamed,
-  a Plex rescan that gave it a new id, a second copy) is no news: it keeps the status of the one known.
+  a Plex rescan that gave it a new id, a second copy; or with its artist or title retagged and moved at
+  once) is no news: it keeps the status of the one known. Dates follow songs, never ids alone: an id that
+  now holds another song (a rebuilt Plex database) is judged by its new song.
 - A track the source found before but couldn't use (a file missing its tags, say) isn't news when it
   becomes usable: the source's `also` ids are remembered too.
 - Many new tracks at once (a big rescan or restore) say nothing about when the listener got them, so they
@@ -58,19 +60,35 @@ def _key(catalog: dict, where: str | None) -> str:
 
 
 def signature(t: dict) -> str:
-    """A song as it's recognised again under another id: a hash of artist and title, and its length in
-    two-second steps ("<hash>:<steps>"; `_near` also takes the steps either side)."""
+    """A song as it's recognised again under another id: short hashes of its artist and of its title, and
+    its length in two-second steps ("<artist><title>:<steps>")."""
     artist, title = (" ".join(str(t.get(k, "")).casefold().split()) for k in ("artist", "title"))
-    return f"{_short(artist + chr(0) + title)}:{round(t.get('duration_ms', 0) / 2000)}"
+    return f"{_short(artist)[:6]}{_short(title)[:6]}:{round(t.get('duration_ms', 0) / 2000)}"
+
+
+def _parts(sig: str) -> tuple[str, str, int] | None:
+    name, _, steps = sig.rpartition(":")
+    if len(name) != 12 or not steps.lstrip("-").isdigit():
+        return None
+    return name[:6], name[6:], int(steps)
 
 
 def _near(sig: str) -> list[str]:
     """The signature and the ones a step shorter and longer, so lengths either side of a step still match."""
-    name, _, steps = sig.rpartition(":")
-    if not steps.lstrip("-").isdigit():
+    p = _parts(sig)
+    if p is None:
         return [sig]
-    n = int(steps)
-    return [sig, f"{name}:{n - 1}", f"{name}:{n + 1}"]
+    return [sig, f"{p[0]}{p[1]}:{p[2] - 1}", f"{p[0]}{p[1]}:{p[2] + 1}"]
+
+
+def same_song(a: str, b: str) -> bool:
+    """Whether two signatures are the same song: the same title at much the same length, with the artist
+    the same or retagged ("Beatles" to "The Beatles"). The same artist alone isn't enough: their other
+    songs often run as long."""
+    pa, pb = _parts(a), _parts(b)
+    if pa is None or pb is None:
+        return a == b
+    return abs(pa[2] - pb[2]) <= 1 and pa[1] == pb[1]
 
 
 def _is_day(v) -> bool:
@@ -122,25 +140,34 @@ def _load() -> dict:
     return {k: rec for k, v in sources.items() if isinstance(k, str) and (rec := _clean(v))}
 
 
-ADOPT_SHARE = 0.5  # of a read's tracks known to another record of the same kind: the same library, moved
+ADOPT_SHARE = (
+    0.9  # of each other's songs a read and another record of its kind share: the same library, moved
+)
 
 
 def _find(sources: dict, key: str, read: dict[str, str]) -> str | None:
-    """The record for this library: its own key, or else the record of the same kind that knows most of
-    this read's songs (at least ADOPT_SHARE): the same library at a new address (a Plex server reached
-    another way, a drive mounted elsewhere)."""
+    """The record for this library: its own key, or else the record of the same kind whose songs and this
+    read's mostly agree (each holds at least ADOPT_SHARE of the other's): the same library at a new
+    address (a Plex server reached another way, a drive mounted elsewhere), not a part of it widened."""
     if key in sources:
         return key
     kind = key.split(":", 1)[0] + ":"
-    best, most = None, ADOPT_SHARE * len(read)
+    mine = {x for sig in read.values() for x in _near(sig)}
+    best, most = None, 0.0
     for k, rec in sources.items():
         if not k.startswith(kind):
             continue
         # By songs, never ids alone: two Plex databases hand out the same small numbers to different songs.
-        sigs = set(rec["tracks"].values())
-        n = sum(any(x in sigs for x in _near(sig)) for sig in read.values())
-        if n >= most and n > 0:
-            best, most = k, n
+        theirs = [sig for sig in rec["tracks"].values() if sig]
+        if not theirs or not read:
+            continue
+        sigs = set(theirs)
+        share = min(
+            sum(any(x in sigs for x in _near(sig)) for sig in read.values()) / len(read),
+            sum(sig in mine for sig in theirs) / len(theirs),
+        )
+        if share >= ADOPT_SHARE and share > most:
+            best, most = k, share
     return best
 
 
@@ -150,7 +177,7 @@ def watch(
     """Note a fresh, whole read of the catalog's library (`where`: its folder or server; `also`: ids of
     tracks the source found but couldn't use, which aren't news when they become usable); its record:
     {"since": the baseline read, "day": this read's local day, "tracks": {id: signature, or "" for one
-    never usable yet}, "joined": {id: [after day, by day]}}."""
+    not usable yet}, "joined": {id: [after day, by day]}}."""
     when = when or datetime.now(UTC)
     today = when.astimezone().date().isoformat()
     sources, key = _load(), _key(catalog, where)
@@ -161,30 +188,35 @@ def watch(
         rec = {"since": _stamp(when), "day": today, "tracks": dict(read), "joined": {}}
     else:
         known, joined = rec["tracks"], rec["joined"]
-        before = dict(joined)  # by the ids' old songs, which `by_song` points at
+        before = dict(joined)  # each id's status as it was, by the song it held
         by_song: dict[str, str] = {}
         for i, sig in known.items():
             if sig:
                 by_song.setdefault(sig, i)
-        bulk = max(BULK_MIN, BULK_SHARE * len(read))
-        # A known id now holding another song: a few are retagged songs (same file, fixed tags), keeping
-        # their status; many mean the ids were handed out again (a new Plex database), so those ids are
-        # judged by their songs like new ones.
-        changed = [i for i, sig in read.items() if known.get(i) and known[i] not in _near(sig)]
-        if len(changed) >= bulk:
-            for i in changed:
+        # Known ids this read doesn't have: a song among them may be back under a new id and new tags.
+        gone = [(i, sig) for i, sig in known.items() if sig and i not in read]
+        unsettled = []  # ids to judge by their songs
+        for i, sig in read.items():
+            old = known.get(i)
+            if old and not same_song(old, sig):  # the id holds another song now (ids handed out again)
                 joined.pop(i, None)
-                del known[i]
-        new = [i for i in read if i not in known]
+                unsettled.append(i)
+            elif i not in known:  # ("" is a track seen before that couldn't be used: no news)
+                unsettled.append(i)
         arrived = []
-        for i in new:
-            old = next((o for x in _near(read[i]) if (o := by_song.get(x)) is not None), None)
-            if old is not None:  # a song known here under another id
-                if old in before:
-                    joined[i] = before[old]
+        for i in unsettled:
+            sig = read[i]
+            twin = next((o for x in _near(sig) if (o := by_song.get(x)) is not None and o != i), None)
+            if twin is None:  # retagged and moved at once: a song that went missing from this read
+                twin = next((g for g, gsig in gone if same_song(gsig, sig)), None)
+                if twin is not None:
+                    gone = [(g, gsig) for g, gsig in gone if g != twin]
+            if twin is not None:
+                if twin in before:
+                    joined[i] = before[twin]
             else:
                 arrived.append(i)
-        if len(arrived) < bulk:
+        if len(arrived) < max(BULK_MIN, BULK_SHARE * len(read)):
             for i in arrived:
                 joined[i] = [min(rec["day"], today), today]
         known.update(read)  # each song as it's tagged now, so a later move still matches it

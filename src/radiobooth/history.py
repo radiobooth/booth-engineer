@@ -16,6 +16,7 @@ The catalog also carries when each track joined the library, from `arrivals`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -67,6 +68,8 @@ def _entry(value) -> dict | None:
     out = {"count": count, "shows": sorted(shows, key=lambda s: s["at"], reverse=True)[:KEEP]}
     if value.get("floor") is True:
         out["floor"] = True
+    if isinstance(value.get("song"), str):
+        out["song"] = value["song"]
     return out
 
 
@@ -108,6 +111,10 @@ def record(
             played["title"] = title.strip()
         entry["count"] += 1
         entry["shows"] = sorted([played, *entry["shows"]], key=lambda s: s["at"], reverse=True)[:KEEP]
+    return _save(tracks, person)
+
+
+def _save(tracks: dict, person: str | None) -> Path:
     p = path(person)
     p.parent.mkdir(parents=True, exist_ok=True)
     config.write_atomically(p, json.dumps({"version": VERSION, "tracks": tracks}, sort_keys=True) + "\n")
@@ -133,12 +140,35 @@ def annotate(
     so tracks new since the last one are noted as arrivals (not for a library Plex is still reading, or a
     look at the catalog that sends nothing). `where`: the library's folder or server; `also`: ids the
     source found but couldn't use (see `arrivals`)."""
-    seen = load(person)
+    seen, changed = load(person), False
+    songs = {t["id"]: arrivals.signature(t) for t in catalog["tracks"]}
+    # Entries whose ids this read lacks or gives to another song, by song: a song under a new id (moved,
+    # or a rebuilt Plex database) takes its shows along.
+    away = {
+        e["song"]: i
+        for i, e in seen.items()
+        if e.get("song") and (i not in songs or not arrivals.same_song(e["song"], songs[i]))
+    }
     for t in catalog["tracks"]:
-        if entry := seen.get(t["id"]):
-            t["in_shows"] = entry["count"]
-            if entry.get("floor"):
-                t["in_shows_at_least"] = True
-            t["last_in_show_at"] = last_at(entry)
-            t["recent_shows"] = [{k: s[k] for k in ("at", "title") if k in s} for s in entry["shows"][:SENT]]
+        entry = seen.get(t["id"])
+        if not entry and away and (old := away.pop(songs[t["id"]], None)) is not None:
+            entry = seen[t["id"]] = seen.pop(old)
+            changed = True
+        if not entry:
+            continue
+        # Each entry knows its song (arrivals.signature), so an id that now holds another song (a rebuilt
+        # Plex database, another server) never gets its shows. A retagged song keeps them.
+        sig = songs[t["id"]]
+        if entry.get("song") and not arrivals.same_song(entry["song"], sig):
+            continue  # (its shows stay with its song, in case that's back under another id)
+        if entry.get("song") != sig:
+            entry["song"], changed = sig, True
+        t["in_shows"] = entry["count"]
+        if entry.get("floor"):
+            t["in_shows_at_least"] = True
+        t["last_in_show_at"] = last_at(entry)
+        t["recent_shows"] = [{k: s[k] for k in ("at", "title") if k in s} for s in entry["shows"][:SENT]]
+    if changed and fresh:
+        with contextlib.suppress(OSError):
+            _save(seen, person)
     return arrivals.annotate(catalog, fresh=fresh, where=where, also=also)

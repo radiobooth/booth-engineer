@@ -83,10 +83,13 @@ docker build -t booth-engineer https://github.com/radiobooth/engineer.git#v0.1.2
 
    ```sh
    docker run -d --name booth --restart unless-stopped \
+     -e TZ=America/Chicago \
      -v booth-config:/config \
      -v "/volume1/audio/Radio Booth:/breaks" \
      booth-engineer
    ```
+
+   Put your own time zone in `TZ`, so the days Radio Booth notes (when songs joined your library) are yours.
 
 Docker's normal network and host networking both work. Either way, Radio Booth in a container treats Plex as
 being on another computer, since the two don't see the same folders, which is why it asks for `/breaks`.

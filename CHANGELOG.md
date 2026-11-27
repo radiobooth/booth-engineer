@@ -22,7 +22,7 @@ lines indented): that's what Radio Booth's page shows under "What's new".
   that for you twice before" or "that joined your library about a month ago". It no longer uses Plex's play
   counts or "added" dates, which miss music you play elsewhere and often date your whole collection to the
   day Plex was installed. Songs already in your library get no date, and songs from your earlier shows
-  count as played "before" (the DJ won't give a number for those). This works the same for music in Plex and
+  count as played "before" (the DJ only says "at least" for those). This works the same for music in Plex and
   in a folder.
 
 ## 0.5.7 (2026-11-25)
