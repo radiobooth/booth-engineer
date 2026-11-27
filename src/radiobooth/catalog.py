@@ -91,7 +91,7 @@ def _date(v: str) -> bool:
         date.fromisoformat(v)
     except ValueError:
         return False
-    return len(v) == 10  # YYYY-MM-DD only
+    return len(v) == 10 and v[4] == "-" and v[7] == "-"  # YYYY-MM-DD only (not a week date)
 
 
 def fits(v, spec: dict) -> bool:

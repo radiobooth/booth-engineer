@@ -37,3 +37,9 @@ def test_tracks_are_checked_one_by_one():
         good | {"id": "4", "sonic": {"provider": "plex"}, "last_played_at": "2026-11-01T10:00:00Z"},
     ]
     assert skipped == 4 and first == "track 1: no artist"
+
+
+def test_dates_are_plain_days():
+    day = {"type": "string", "format": "date"}
+    assert catalog.fits("2026-11-27", day)
+    assert not any(catalog.fits(v, day) for v in ("2026-W47-1", "20261127", "2026-11-27T00:00:00Z", "x"))

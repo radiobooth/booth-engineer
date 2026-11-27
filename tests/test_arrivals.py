@@ -18,7 +18,7 @@ def catalog(ids, kind="plex", library="Music"):
     return {
         "protocol": "radiobooth/catalog@0",
         "source": {"kind": kind, "library": library},
-        "tracks": [{"id": str(i)} for i in ids],
+        "tracks": [{"id": str(i), "title": f"Song {i}", "artist": "A", "duration_ms": 200_000} for i in ids],
     }
 
 
@@ -69,13 +69,48 @@ def test_each_library_has_its_own_record():
     assert joined(c) == {}  # the folder's first read is its own baseline
 
 
-@pytest.mark.parametrize("text", ["", "junk", "[]", '{"sources": {"plex:Music": {"since": 1}}}'])
+def test_another_folder_or_server_is_a_new_baseline():
+    arrivals.annotate(catalog(range(5), kind="folder"), where="/music", when=day(1))
+    c = arrivals.annotate(catalog(range(100, 150), kind="folder"), where="/other", when=day(2))
+    assert joined(c) == {}
+    c = arrivals.annotate(catalog([*range(5), 7], kind="folder"), where="/music", when=day(3))
+    assert joined(c) == {"7": ("2026-11-01", "2026-11-03")}
+    assert "/music" not in (arrivals.path()).read_text()  # no paths kept
+
+
+def test_a_known_song_under_a_new_id_is_no_arrival():
+    arrivals.annotate(catalog(range(5)), when=day(1))
+    arrivals.annotate(catalog([*range(5), 9]), when=day(3))  # 9 really arrived
+    moved = catalog([0, 1, 2, 3, 9])
+    moved["tracks"][4]["id"] = "9b"  # Plex rescanned 9 and gave it a new id
+    moved["tracks"].append(
+        {"id": "4b", "title": "Song 4", "artist": "a ", "duration_ms": 200_400}
+    )  # 4, moved
+    c = arrivals.annotate(moved, when=day(8))
+    assert joined(c) == {"9b": ("2026-11-01", "2026-11-03")}
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "junk", "[]", '{"sources": {"plex:Music": {"since": 1}}}', '{"sources": []}'],
+)
 def test_a_broken_file_starts_over(cfg, text):
     cfg.mkdir()
     (cfg / "library-seen.json").write_text(text)
     c = arrivals.annotate(catalog(range(3)), when=day(1))
     assert joined(c) == {} and c["history_since"] == "2026-11-01T12:00:00Z"
     assert json.loads((cfg / "library-seen.json").read_text())["version"] == 1
+
+
+def test_damaged_entries_are_left_out(cfg):
+    arrivals.annotate(catalog(range(3)), when=day(1))
+    data = json.loads((cfg / "library-seen.json").read_text())
+    (rec,) = data["sources"].values()
+    rec["tracks"] |= {"x": ["not", "a", "hash"]}
+    rec["joined"] |= {"1": ["2026-W47-1", "2026-11-01"], "2": "2026-11-01", "0": ["2026-10-01", "2026-10-09"]}
+    (cfg / "library-seen.json").write_text(json.dumps(data))
+    c = arrivals.annotate(catalog(range(3)), when=day(2))
+    assert joined(c) == {"0": ("2026-10-01", "2026-10-09")}
 
 
 def test_file_trouble_sends_the_catalog_without_arrivals(monkeypatch):

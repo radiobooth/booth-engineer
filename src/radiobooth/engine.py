@@ -160,7 +160,7 @@ def station(
                 lambda: plex_source.build_catalog(plex, music, exclude=library, during_scan=during_scan)
             )
             # A library Plex is still reading isn't a whole read: its arrivals wait for the next one.
-            return history.annotate(read[0], who, fresh=not during_scan)
+            return history.annotate(read[0], who, fresh=not during_scan, where=plex.base_url)
         finally:
             mark(False)
 
@@ -260,7 +260,8 @@ def folder_station(
             raise FolderBusy("Radio Booth is still reading your music folder; the show starts after that.")
         mark(True)
         try:
-            return history.annotate(read_folder(settings, on_scan), who)
+            built = read_folder(settings, on_scan)
+            return history.annotate(built, who, where=str(folder_source.music_root(found["music"])))
         finally:
             mark(False)
 

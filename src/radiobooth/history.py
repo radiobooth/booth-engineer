@@ -45,7 +45,10 @@ def _entry(value) -> dict | None:
         return {"count": 1, "floor": True, "shows": [{"at": value}]}
     if not isinstance(value, dict):
         return None
-    shows = [s for s in value.get("shows", []) if isinstance(s, dict) and isinstance(s.get("at"), str)]
+    shows = value.get("shows")
+    if not isinstance(shows, list):
+        return None
+    shows = [s for s in shows if isinstance(s, dict) and isinstance(s.get("at"), str)]
     count = value.get("count")
     if not shows or not isinstance(count, int) or isinstance(count, bool) or count < len(shows):
         return None
@@ -105,12 +108,12 @@ def record_package(package: dict, when: datetime | None = None, person: str | No
     return record(tracks, when, person, show=package.get("show_id"), title=package.get("title"))
 
 
-def annotate(catalog: dict, person: str | None = None, fresh: bool = True) -> dict:
+def annotate(catalog: dict, person: str | None = None, fresh: bool = True, where: str | None = None) -> dict:
     """The catalog with Radio Booth's own history on its tracks: for each track that was in this person's
     shows, `in_shows` (with `in_shows_at_least` when that's a floor), `last_in_show_at` and `recent_shows`;
     and the library's arrivals (`arrivals.annotate`). `fresh`: this is a whole, new read of the library,
     so tracks new since the last one are noted as arrivals (not for a library Plex is still reading, or a
-    look at the catalog that sends nothing)."""
+    look at the catalog that sends nothing). `where`: the library's folder or server (see `arrivals`)."""
     seen = load(person)
     for t in catalog["tracks"]:
         if entry := seen.get(t["id"]):
@@ -119,4 +122,4 @@ def annotate(catalog: dict, person: str | None = None, fresh: bool = True) -> di
                 t["in_shows_at_least"] = True
             t["last_in_show_at"] = last_at(entry)
             t["recent_shows"] = [{k: s[k] for k in ("at", "title") if k in s} for s in entry["shows"][:SENT]]
-    return arrivals.annotate(catalog, fresh=fresh)
+    return arrivals.annotate(catalog, fresh=fresh, where=where)

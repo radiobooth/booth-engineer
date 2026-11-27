@@ -70,7 +70,15 @@ def test_the_old_history_carries_over_as_a_floor(cfg):
 
 @pytest.mark.parametrize(
     "text",
-    ["", "not json", "[]", '{"tracks": []}', '{"tracks": {"1": 5}}', '{"tracks": {"1": {"count": 1}}}'],
+    [
+        "",
+        "not json",
+        "[]",
+        '{"tracks": []}',
+        '{"tracks": {"1": 5}}',
+        '{"tracks": {"1": {"count": 1}}}',
+        '{"tracks": {"1": {"count": 1, "shows": null}}}',
+    ],
 )
 def test_a_broken_or_missing_history_is_empty(cfg, text):
     assert history.load() == {}
