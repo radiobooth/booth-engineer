@@ -192,7 +192,7 @@ def test_setup_on_the_page(plex_home, monkeypatch):
     def redeem(self, code, name):
         codes.append((self.server, code, name))
         if code != "ABCD-2345":
-            raise LinkError("Booth DJ: That code didn't work.", 404)
+            raise LinkError("Radio Booth: That code didn't work.", 404)
         return "be_device"
 
     monkeypatch.setattr(websetup.Link, "redeem", redeem)
@@ -274,10 +274,10 @@ def test_the_engine_says_how_booth_is_doing(tmp_path, monkeypatch):
     def checkin(self, waiting=None):
         checkins.append(1)
         if len(checkins) == 1:
-            raise LinkError("Could not reach Booth DJ at https://booth.example: offline")
+            raise LinkError("Could not reach Radio Booth at https://booth.example: offline")
         if len(checkins) == 2:
             return {"shows": [], "next_checkin_s": 0.01}
-        raise LinkError("Booth DJ: unknown device", 401)
+        raise LinkError("Radio Booth: unknown device", 401)
 
     monkeypatch.setattr(engine.Link, "checkin", checkin)
     monkeypatch.setattr(engine.time, "sleep", lambda s: None)
@@ -506,7 +506,7 @@ def test_the_shows_list_doesnt_need_the_account_name(booth, monkeypatch):
 
     def get(self, path):
         if path == "/v0/me":
-            raise LinkError("Booth DJ: HTTP 503", 503)
+            raise LinkError("Radio Booth: HTTP 503", 503)
         return {"shows": [{"show_id": "show_1", "status": "queued"}]}
 
     monkeypatch.setattr(web.Link, "get", get)
@@ -544,15 +544,19 @@ def test_the_page_says_when_radio_booth_is_out_of_reach(booth, monkeypatch):
     config.update({"device_token": "be_device", "server": "https://booth.example"})
 
     def offline(self, path):
-        raise LinkError("Could not reach Booth DJ at https://booth.example: no route", network=True)
+        raise LinkError("Could not reach Radio Booth at https://booth.example: no route", network=True)
 
     monkeypatch.setattr(web.Link, "get", offline)
     status, _, body = call(port, "GET", "/api/shows", headers={"Cookie": f"{web.COOKIE}={key}"})
     assert status == 422 and "Is this computer online?" in json.loads(body)["error"]
-    assert "was removed" in app._said(LinkError("Booth DJ: Unknown Booth Engineer", 401)).args[0]
-    assert "Try again" in app._said(LinkError("Booth DJ sent a reply that isn't JSON (cut short?).")).args[0]
-    assert "having trouble" in app._said(LinkError("Booth DJ: HTTP 503", 503)).args[0]
-    assert app._said(LinkError("Booth DJ: Shows run 10 to 240 minutes.", 400)).args[0].startswith("Shows run")
+    assert "was removed" in app._said(LinkError("Radio Booth: Unknown computer", 401)).args[0]
+    assert (
+        "Try again" in app._said(LinkError("Radio Booth sent a reply that isn't JSON (cut short?).")).args[0]
+    )
+    assert "having trouble" in app._said(LinkError("Radio Booth: HTTP 503", 503)).args[0]
+    assert (
+        app._said(LinkError("Radio Booth: Shows run 10 to 240 minutes.", 400)).args[0].startswith("Shows run")
+    )
 
     # It talks to the server it's paired with, whatever BOOTH_SERVER says now.
     monkeypatch.setenv("BOOTH_SERVER", "https://elsewhere.example")
@@ -575,7 +579,7 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
     def redeem(self, code, name):
         redeemed.append((self.server, code, name))
         if code not in codes:
-            raise LinkError("Booth DJ: That code didn't work.", 404)
+            raise LinkError("Radio Booth: That code didn't work.", 404)
         return codes[code]
 
     def get(self, path):
@@ -619,7 +623,7 @@ def test_another_person_can_share_this_booth(booth, monkeypatch):
     assert status == 422 and "new code" in data["error"] and len(config.people(config.load())) == 1
     # The same person again, after their account forgot this computer, gets their place (and history) back.
     app.engine.unpaired = {jen["id"]}
-    forgot = app._said(LinkError("Booth DJ: Unknown Booth Engineer", 401), who=jen["id"]).args[0]
+    forgot = app._said(LinkError("Radio Booth: Unknown computer", 401), who=jen["id"]).args[0]
     assert forgot.startswith("This computer was removed from Jennifer's Radio Booth")
     assert act(port, key, "add_person", {"code": "JENN-0002"})[1] == {"name": "Jennifer"}
     assert [(p["id"], p["device_token"]) for p in config.people(config.load())] == [(jen["id"], "be_jen2")]
@@ -935,7 +939,7 @@ def test_a_new_pairing_with_someone_elses_code_asks_first(booth, monkeypatch):
 
     def get(self, path):
         if self.token not in names:
-            raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
+            raise LinkError("Radio Booth: Unknown computer", 401)
         return {"name": names[self.token]}
 
     monkeypatch.setattr(web.Link, "redeem", redeem)

@@ -177,7 +177,7 @@ def test_pair_refuses_to_drop_an_account_that_still_works(monkeypatch, tmp_path,
     def get(self, path):
         assert path == "/v0/me" and self.server == "https://booth.example"
         if self.token not in known:
-            raise LinkError("Booth DJ: Unknown Booth Engineer", 401)
+            raise LinkError("Radio Booth: Unknown computer", 401)
         return {"name": known[self.token]}
 
     monkeypatch.setattr(Link, "get", get)

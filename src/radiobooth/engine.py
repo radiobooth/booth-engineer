@@ -550,7 +550,7 @@ class Engine:
 
                     def logged(msg: str, _log=original_log) -> None:
                         _log(msg)
-                        if msg.startswith("Could not reach Booth DJ"):
+                        if msg.startswith("Could not reach Radio Booth"):
                             self.state = OFFLINE
 
                     st.log = logged

@@ -398,7 +398,7 @@ class App:
 
     def _said(self, e: LinkError, who: str | None = None) -> SetupError:
         """What the page says when Booth DJ couldn't answer (`who`: for another person sharing this Booth)."""
-        said = str(e).removeprefix("Booth DJ: ")
+        said = str(e).removeprefix("Radio Booth: ")
         if who and e.status == 401:
             name = next((p["name"] for p in config.people(config.load()) if p["id"] == who), "Their")
             return SetupError(

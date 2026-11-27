@@ -89,7 +89,7 @@ class Link:
     def __init__(self, server: str, token: str | None = None, timeout: float = 60):
         # The device token rides on every call, so plain http is only for a DJ on this machine.
         if not secure_url(server):
-            raise LinkError(f"Booth DJ's address must start with https:// (got {server!r}).")
+            raise LinkError(f"Radio Booth's address must start with https:// (got {server!r}).")
         self.server = server.rstrip("/")
         self.token = token
         self.timeout = timeout
@@ -115,16 +115,16 @@ class Link:
                     message = body["error"]
             except (ValueError, http.client.HTTPException, OSError):
                 pass
-            raise LinkError(f"Booth DJ: {message}", e.code) from None
+            raise LinkError(f"Radio Booth: {message}", e.code) from None
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
             reason = getattr(e, "reason", e)
-            raise LinkError(f"Could not reach Booth DJ at {self.server}: {reason}", network=True) from None
+            raise LinkError(f"Could not reach Radio Booth at {self.server}: {reason}", network=True) from None
         try:
             data = json.loads(raw) if raw.strip() else {}
         except ValueError:
-            raise LinkError("Booth DJ sent a reply that isn't JSON (cut short?).") from None
+            raise LinkError("Radio Booth sent a reply that isn't JSON (cut short?).") from None
         if not isinstance(data, dict):
-            raise LinkError("Booth DJ sent an unexpected reply.")
+            raise LinkError("Radio Booth sent an unexpected reply.")
         return status, data
 
     def get(self, path: str) -> dict:
@@ -144,7 +144,7 @@ class Link:
         _, data = self.post("/v0/pair", {"code": code, "name": name})
         token = data.get("device_token")
         if not isinstance(token, str) or not token:
-            raise LinkError("Booth DJ accepted the code but sent no device token.")
+            raise LinkError("Radio Booth accepted the code but sent no device token.")
         return token
 
     # Shows
@@ -160,7 +160,7 @@ class Link:
         reply = self.post("/v0/checkin", said)[1]
         shows, wait = reply.get("shows", []), reply.get("next_checkin_s", 60)
         if not isinstance(shows, list) or not all(isinstance(s, dict) and s.get("show_id") for s in shows):
-            raise LinkError("Booth DJ sent a check-in reply this version doesn't understand.")
+            raise LinkError("Radio Booth sent a check-in reply this version doesn't understand.")
         if isinstance(wait, bool) or not isinstance(wait, int | float) or wait != wait:
             wait = 60
         return {**reply, "shows": shows, "next_checkin_s": min(max(float(wait), 5.0), 3600.0)}
@@ -185,11 +185,11 @@ class Link:
         _, where = self.post(f"/v0/shows/{show_id}/file/upload", {"bytes": size})
         url, headers = where.get("url"), where.get("headers") or {}
         if not isinstance(url, str) or not url:
-            raise PackageError("Booth DJ sent no link to upload the file to.")
+            raise PackageError("Radio Booth sent no link to upload the file to.")
         if not secure_url(url):
             raise PackageError("Refusing to upload the file over an insecure link.")
         if not isinstance(headers, dict) or {str(k).lower() for k in headers} - {"content-type"}:
-            raise PackageError("Booth DJ asked for upload headers this version won't send.")
+            raise PackageError("Radio Booth asked for upload headers this version won't send.")
         kind = next((str(v) for k, v in headers.items() if str(k).lower() == "content-type"), "audio/mpeg")
         h = {"User-Agent": USER_AGENT, "Content-Length": str(size), "Content-Type": kind}
         with path.open("rb") as f:
@@ -402,7 +402,7 @@ def handle(link: Link, station: Station, item: dict) -> None:
                 pass
             elif e.status is not None and 400 <= e.status < 500 and e.status not in (401, 408, 429):
                 # Not network trouble: backing off every check-in for it would hold up other shows too.
-                raise CatalogRefused(f"Booth DJ refused this library: {e}") from None
+                raise CatalogRefused(f"Radio Booth refused this library: {e}") from None
             else:
                 raise
         station.log(f"{show_id}: sent {len(catalog['tracks'])} tracks; the DJ is on it.")
