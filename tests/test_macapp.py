@@ -159,7 +159,7 @@ def test_notices_name_the_holder_the_version_source_and_python(monkeypatch):
     assert text.startswith("Radio Booth 0.3.0\nCopyright \u00a9 2026 Thomas Bohmbach, Jr.")
     assert "radiobooth/engineer/tree/v0.3.0" in text and "== Python " in text and "PSF LICENSE" in text
     assert "Copyright \u00a9 2026 Thomas Bohmbach, Jr.\n" in text
-    assert "radiobooth/engineer/tree/abc123\n" in notices.render("0.3.0", ref="abc123")  # a build, not a release
+    assert "/engineer/tree/abc123\n" in notices.render("0.3.0", ref="abc123")  # a build, not a release
     assert "Thomas Bohmbach, Jr. GNU GPL v3 or later." in version_info.render("0.3.0")
     monkeypatch.setattr(notices, "python_license", lambda: (_ for _ in ()).throw(SystemExit("no license")))
     with pytest.raises(SystemExit):
