@@ -73,7 +73,7 @@ nothing is uploaded.
 
 The same three buttons sit under shows delivered to Plex. **Remove** deletes the show's Plex playlist and its
 breaks. **Copy to a folder** and **Make one file** fetch the show's songs from your Plex server to this
-computer and write the copy into `Copies/` in the `Booth shows` folder in your home folder (or in
+computer and write the copy into `Copies/` in the `Radio Booth shows` folder in your home folder (or in
 `BOOTH_SHOWS_FOLDER`, when that's set).
 
 Radio Booth reads the folder's tags when you set it up (with a progress bar: the first read of a big collection

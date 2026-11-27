@@ -37,10 +37,17 @@ def music_ready(settings: dict) -> bool:
     return plex_ready(settings)
 
 
+SHOWS_FOLDER = "Radio Booth shows"
+OLD_SHOWS_FOLDER = "Booth shows"  # the name before 0.5.8
+
+
 def default_shows_folder(home: Path | None = None) -> Path:
     """Where shows go unless the person says otherwise: beside their music, not in it, so a music player
-    watching the music folder doesn't list the DJ's breaks as songs."""
-    return (home or Path.home()) / "Booth shows"
+    watching the music folder doesn't list the DJ's breaks as songs. A "Booth shows" folder made before
+    0.5.8 stays in use (Plex copies are found there by this default), so nothing already made moves."""
+    home = home or Path.home()
+    old, new = home / OLD_SHOWS_FOLDER, home / SHOWS_FOLDER
+    return old if old.is_dir() and not new.exists() else new
 
 
 def default_music_folder(home: Path | None = None) -> Path | None:

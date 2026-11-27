@@ -100,14 +100,14 @@ That's it.
 On your phone's Radio Booth page, describe the show, pick a length and a DJ, and tap **Make the show**. (Radio Booth's page
 on the computer shows that page's QR code under **Make a show on your phone**: scan it with your phone's camera
 to open it. **Open it here** opens it on the computer instead.) The phone page tells you how it's going. When it says **In Plex**, open Plex and look under
-**Playlists**. With your music in a folder, it says **In your Booth shows folder**: open the new playlist
+**Playlists**. With your music in a folder, it says **In your shows folder**: open the new playlist
 there in your music player. Radio Booth's page on the computer lists your latest shows too, under **Your shows**. **Remove** under a show there deletes its playlist and DJ breaks
-(in Plex, or in your Booth shows folder). To take a show with you, click **Copy to a folder** under it: Radio Booth copies its songs and breaks into a folder
+(in Plex, or in your shows folder). To take a show with you, click **Copy to a folder** under it: Radio Booth copies its songs and breaks into a folder
 of their own, numbered in order, and opens that folder. Drag it onto your phone, a USB stick or your car's
 drive, and it plays in order even in a player that ignores playlists. Or click **Make one file**: Radio Booth mixes
 the show into a single MP3, crossfaded like the radio, with a chapter for each song and break. Some players, VLC among them, don't show MP3
 chapters: open the `.cue` file next to the MP3 instead and they list every song and break. A 2-hour show
-takes a few minutes to make. With Plex, both go into `Copies` in the `Booth shows` folder in your home
+takes a few minutes to make. With Plex, both go into `Copies` in the `Radio Booth shows` folder in your home
 folder (or in `BOOTH_SHOWS_FOLDER`, when that's set), and Radio Booth fetches the songs from your Plex server first.
 
 If your account has a limit, your phone's Radio Booth page shows what's left above the form.
@@ -214,10 +214,10 @@ different name). Do the Plex side above, then try again.
 1. **Connect to the shared folder your music is in, and copy its path** (see below).
 2. **Click It's in a folder** on Radio Booth's page and paste it as your music folder.
 3. **For the shows folder**, either keep the one Radio Booth suggests on this computer, or put it on the NAS too
-   (for example a `Booth shows` folder next to your music), so other computers and players at home can open
+   (for example a `Radio Booth shows` folder next to your music), so other computers and players at home can open
    the shows. Radio Booth writes playlists that work from any computer that sees the same folder.
 
-The first read of a big collection over the network takes longer than from a local drive; Booth shows a
+The first read of a big collection over the network takes longer than from a local drive; Radio Booth shows a
 progress bar, and after that it only reads what's new.
 
 ### Copying a shared folder's path

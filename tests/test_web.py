@@ -843,13 +843,13 @@ def test_music_in_a_folder_set_up_listed_and_removed_on_the_page(booth, monkeypa
         assert status == 422 and "for a phone" in data["error"]
     assert act(port, key, "copy_show", {"show_id": "show_gone000000"})[0] == 200  # it says why when done
     wait_for(lambda: app.copy["finished"])
-    assert "isn't in your Booth shows folder" in app.copy["error"]
+    assert "isn't in your shows folder" in app.copy["error"]
 
     assert act(port, key, "remove_show", {"show_id": "show_abcdef123456"})[0] == 200
     assert not copy.exists() and not one.exists()
     assert playlist.shows(shows) == [] and (music / "a" / "1.flac").exists()
     status, data = act(port, key, "remove_show", {"show_id": "show_abcdef123456"})
-    assert status == 422 and "isn't in your Booth shows folder" in data["error"]
+    assert status == 422 and "isn't in your shows folder" in data["error"]
     assert act(port, key, "remove_show", {"show_id": "../../x"})[0] == 422
 
 

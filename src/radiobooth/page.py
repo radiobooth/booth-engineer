@@ -348,10 +348,10 @@ const SHOW_STATUS = {
   queued: "Waiting for Radio Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
   delivered: "In Plex", failed: "Didn't work", expired: "Expired before Radio Booth could deliver it",
 };
-const FOLDER_STATUS = {ready: "Saving the playlist", delivered: "In your Booth shows folder"};
-// Music in a folder: shows are playlist files in the Booth shows folder, not in Plex.
+const FOLDER_STATUS = {ready: "Saving the playlist", delivered: "In your shows folder"};
+// Music in a folder: shows are playlist files in the shows folder, not in Plex.
 const inFolder = () => !!(last && last.music && last.music.kind === "folder");
-const arrives = () => inFolder() ? "in your Booth shows folder" : "in Plex";
+const arrives = () => inFolder() ? "in your shows folder" : "in Plex";
 
 async function post(action, body = {}) {
   const r = await fetch("/api/" + action, {
@@ -693,7 +693,7 @@ function renderShows(list, listed = true) {
     let text = (here && FOLDER_STATUS[s.status]) || SHOW_STATUS[s.status] || s.status;
     if (s.waiting_for_earlier) text = "Up next, after your earlier show";
     if (!s.for_computer && s.status === "delivered" && s.on_disk === false) {
-      text = here ? "Removed from your Booth shows folder" : "Removed from Plex";
+      text = here ? "Removed from your shows folder" : "Removed from Plex";
     }
     else
     if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
@@ -775,7 +775,7 @@ function renderCopy(c) {
 function removeButton(s) {
   const b = el("button", {type: "button", className: "quiet remove", textContent: "Remove"});
   b.onclick = async () => {
-    const where = inFolder() ? "your Booth shows folder" : "Plex";
+    const where = inFolder() ? "your shows folder" : "Plex";
     if (!confirm("Remove “" + (s.playlist || s.title) + "” from " + where + "? Its playlist, DJ breaks" +
       " and any copy or one file Radio Booth made of it are deleted. Your music stays where it is.")) return;
     b.disabled = true;

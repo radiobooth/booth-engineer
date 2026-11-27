@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
             )
             p.add_argument("--examples", type=int, default=5, help="example files to list per issue")
         if name == "render":
-            p.add_argument("playlist", help="the show's .m3u8 playlist in the Booth shows folder")
+            p.add_argument("playlist", help="the show's .m3u8 playlist in the shows folder")
             p.add_argument(
                 "-o",
                 "--output",

@@ -178,7 +178,7 @@ def test_a_show_copied_to_a_folder_is_numbered_files_in_playing_order(tmp_path):
 
     assert playlist.remove(out, "show_abcdef123456")
     assert not made.folder.exists() and other.folder.exists()
-    with pytest.raises(playlist.PlaylistError, match="isn't in your Booth shows folder"):
+    with pytest.raises(playlist.PlaylistError, match="isn't in your shows folder"):
         playlist.copy_out(out, "show_abcdef123456")
 
 

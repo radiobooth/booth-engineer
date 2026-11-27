@@ -301,7 +301,7 @@ class App:
                 playlist_target.MIXING.release()
         if not gone:
             raise SetupError(
-                "That show isn't in your Booth shows folder any more."
+                "That show isn't in your shows folder any more."
                 if plex is None
                 else "That show's breaks aren't in Radio Booth's breaks folder any more."
             )
@@ -437,7 +437,7 @@ class App:
                         config.update({"account_name": name})
         shows = listed.get("shows")
         shows = [s for s in shows[:6] if isinstance(s, dict)] if isinstance(shows, list) else []
-        if engine.folder_mode(settings):  # which shows are still in the Booth shows folder, to remove
+        if engine.folder_mode(settings):  # which shows are still in the shows folder, to remove
             folder = engine.folder_settings(settings)[0]["shows"]
             here = {s.show_id for s in playlist_target.shows(Path(folder).expanduser())} if folder else set()
             shows = [s | {"on_disk": s.get("show_id") in here} for s in shows]

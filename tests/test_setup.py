@@ -556,3 +556,19 @@ def test_the_start_menu_entry_is_made_without_start_at_sign_in(tmp_path, monkeyp
     assert made == [(programs / "Radio Booth.lnk", r"C:\Radio Booth\RadioBooth.exe", "", r"C:\Radio Booth")]
     assert not (programs / "Radio Booth setup.lnk").exists()
     assert not (programs / "Startup").exists()  # starting at sign-in is a separate choice
+
+
+def test_new_installs_get_a_radio_booth_shows_folder(tmp_path):
+    from radiobooth.websetup import default_shows_folder
+
+    assert default_shows_folder(tmp_path) == tmp_path / "Radio Booth shows"
+
+
+def test_a_booth_shows_folder_from_before_stays_in_use(tmp_path):
+    # Plex copies are found by this default, so an existing folder keeps them where they are.
+    from radiobooth.websetup import default_shows_folder
+
+    (tmp_path / "Booth shows" / "Copies").mkdir(parents=True)
+    assert default_shows_folder(tmp_path) == tmp_path / "Booth shows"
+    (tmp_path / "Radio Booth shows").mkdir()
+    assert default_shows_folder(tmp_path) == tmp_path / "Radio Booth shows"
