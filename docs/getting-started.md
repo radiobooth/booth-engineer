@@ -302,8 +302,10 @@ Radio Booth is doing and, if something needs you, what to do.
   Open **Radio Booth**; that starts it. Radio Booth's page should then say **On air**.
 - **"Didn't work".** The reason is shown under the show. Try again; if it keeps happening, tell us in the
   [Discord](https://discord.gg/aN2bNKB74y) what it says, and what Radio Booth's page shows under **What Radio Booth has been doing**.
-- **You changed your Plex setup, or moved your music.** On Radio Booth's page, click **Change** next to
-  **Change Radio Booth's setup**, then **Sign in to Plex again** (or **Change folders**).
+- **You want shows from another Plex library, changed your Plex setup, or moved your music.** On Radio
+  Booth's page, click **Change** next to **Change Radio Booth's setup**, then **Change Plex library** (or
+  **Change folders**), and pick the library. You don't need a new pairing code for this: your phone stays
+  connected.
 - **Radio Booth's page says "Radio Booth isn't running".** Open **Radio Booth** again.
 
 ## Updating Radio Booth

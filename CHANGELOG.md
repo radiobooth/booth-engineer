@@ -4,6 +4,13 @@ Each release's notes come from its section here (the release workflow refuses a 
 for listeners: what they'll notice, in plain words. Newest first. Keep each change one `- ` bullet (wrapped
 lines indented): that's what Radio Booth's page shows under "What's new".
 
+## 0.5.9
+
+- **Switching music libraries no longer asks for a pairing code.** When you click **Change** under
+  Settings, your account stays connected and the code box stays out of the way. To switch Plex libraries,
+  click **Change Plex library** and pick the one you want. **Connect a different account** is still there
+  if you need it.
+
 ## 0.5.8 (2026-11-27)
 
 - **It's called Radio Booth everywhere now.** The app's page, its messages, the setup guide and the help
