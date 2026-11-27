@@ -36,7 +36,6 @@ from radiobooth.sources import tags as tagreader
 # Folders that hold no music of the listener's: NAS thumbnails and recycle bins, OS bookkeeping.
 SKIP_DIRS = {"@eadir", "#recycle", "#snapshot", "$recycle.bin", "system volume information", "lost+found"}
 DUPLICATE_SECONDS = 2  # copies of one recording can differ this much in length
-PLAY_COUNT_SHARE = 0.5  # send play counts only when at least this share of tracks has one
 
 # Why a file was left out, as the tag report says it.
 NO_NAMES = "no title or artist tag"
@@ -111,7 +110,6 @@ class Report:
     from_path: int = 0
     repaired: int = 0
     garbled: int = 0
-    play_counts_dropped: int = 0
     coverage: Counter = field(default_factory=Counter)  # Bag name -> tracks that have it
     samples: dict[str, list[str]] = field(default_factory=lambda: defaultdict(list))  # issue -> paths
 
@@ -148,11 +146,6 @@ class Report:
         if self.garbled:
             out.append(f"Tags that look garbled (wrong text encoding), sent as they are: {self.garbled}")
             out += [f"    {p}" for p in self.samples["garbled"]]
-        if self.play_counts_dropped:
-            out.append(
-                f"Play counts left out: only {self.play_counts_dropped} tracks have one, too few to say what"
-                " you play most."
-            )
         if self.used:
             out.append("Tag coverage:")
             for key, (name, why) in COVERAGE.items():
@@ -520,12 +513,6 @@ def tracks_of(files: list[Found], report: Report) -> list[dict]:
             report.note(f"details the catalog can't hold ({why})", f.rel)
             continue
         kept.append((f, t))
-    # A few files with play counts (from some old player) would make the rest look never played.
-    counted = sum("play_count" in t for _, t in kept)
-    if counted and counted < PLAY_COUNT_SHARE * len(kept):
-        report.play_counts_dropped = counted
-        for _, t in kept:
-            t.pop("play_count", None)
     for f, _ in kept:
         report.coverage.update(f.tags.get("seen", []))
     report.used = len(kept)

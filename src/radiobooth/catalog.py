@@ -10,12 +10,13 @@ ships without a JSON Schema library, so this checks only the keywords those prop
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 _STRING, _INT, _BOOL = {"type": "string"}, {"type": "integer"}, {"type": "boolean"}
 _LIST = {"type": "array", "items": {"type": "string"}}
 _YEAR = {"type": "integer", "minimum": 1800, "maximum": 2200}
 _TIME = {"type": "string", "format": "date-time"}
+_DAY = {"type": "string", "format": "date"}
 
 REQUIRED = ["id", "title", "artist", "duration_ms"]
 TRACK: dict[str, dict] = {
@@ -38,6 +39,20 @@ TRACK: dict[str, dict] = {
     "play_count": {"type": "integer", "minimum": 0},
     "last_played_at": _TIME,
     "last_in_show_at": _TIME,
+    "in_shows": {"type": "integer", "minimum": 1},
+    "in_shows_at_least": _BOOL,
+    "recent_shows": {
+        "type": "array",
+        "maxItems": 3,
+        "items": {
+            "type": "object",
+            "required": ["at"],
+            "additionalProperties": False,
+            "properties": {"at": _TIME, "title": {"type": "string", "minLength": 1}},
+        },
+    },
+    "joined_after": _DAY,
+    "joined_by": _DAY,
     "rating": {"type": "number", "minimum": 0, "maximum": 1},
     "musicbrainz_id": _STRING,
     "musicbrainz_release_group_id": _STRING,
@@ -71,6 +86,14 @@ def _date_time(v: str) -> bool:
     return "T" in v.upper() and when.tzinfo is not None  # RFC 3339 needs a time and a zone
 
 
+def _date(v: str) -> bool:
+    try:
+        date.fromisoformat(v)
+    except ValueError:
+        return False
+    return len(v) == 10  # YYYY-MM-DD only
+
+
 def fits(v, spec: dict) -> bool:
     """Whether `v` matches this (small) schema."""
     if not _is_type(v, spec["type"]):
@@ -82,6 +105,12 @@ def fits(v, spec: dict) -> bool:
     if "maximum" in spec and v > spec["maximum"]:
         return False
     if spec.get("format") == "date-time" and not _date_time(v):
+        return False
+    if spec.get("format") == "date" and not _date(v):
+        return False
+    if "maxItems" in spec and len(v) > spec["maxItems"]:
+        return False
+    if spec.get("additionalProperties") is False and set(v) - set(spec.get("properties", {})):
         return False
     if "items" in spec and not all(fits(x, spec["items"]) for x in v):
         return False

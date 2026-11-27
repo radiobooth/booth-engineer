@@ -17,11 +17,16 @@ cancelled or times out (see [api.md](api.md#sending-the-catalog-for-a-show)).
 Everything in this folder is Apache-2.0 ([LICENSE](LICENSE)), unlike the rest of Booth Engineer (GPL-3.0-or-later),
 so other clients and servers can implement the protocol under any license.
 
-Your show history (which tracks were in which delivered show, so new shows don't repeat them) is kept by
-Booth Engineer on your machine, in `history.json` next to its config file (and `history-<id>.json` for each
-other person sharing your Booth Engineer, so their shows keep their own history). It travels only inside the
-catalog, as each track's `last_in_show_at`, so Booth DJ forgets it along with the catalog. Delete the file
-to start the history over.
+Your show history (which tracks were in which delivered shows: when, the show's title, where in the running
+order) is kept by Booth Engineer on your machine, in `history.json` next to its config file (and
+`history-<id>.json` for each other person sharing your Booth Engineer, so their shows keep their own
+history). Beside it, `library-seen.json` records when each track first turned up in your library, as Booth
+Engineer saw it: the first library read is a baseline whose tracks never get a date, and only tracks that
+arrive later do. Both travel only inside the catalog, as each track's `in_shows`, `last_in_show_at`,
+`recent_shows`, `joined_after` and `joined_by` (and the catalog's `history_since`), so Booth DJ forgets them
+along with the catalog. They replace a music server's add dates and play counts, which aren't sent: those
+say when the server first scanned a track and how often that one player played it. Delete either file to
+start it over.
 
 What never leaves your machine: file paths, your music server's address or token, and audio, with one
 exception: when you ask on your phone to download a show you've had delivered, Booth Engineer mixes that show

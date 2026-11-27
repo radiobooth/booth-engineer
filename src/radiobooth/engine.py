@@ -159,7 +159,8 @@ def station(
             read = signed_in(
                 lambda: plex_source.build_catalog(plex, music, exclude=library, during_scan=during_scan)
             )
-            return history.annotate(read[0], who)
+            # A library Plex is still reading isn't a whole read: its arrivals wait for the next one.
+            return history.annotate(read[0], who, fresh=not during_scan)
         finally:
             mark(False)
 

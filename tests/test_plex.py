@@ -91,11 +91,8 @@ def test_track_mapping():
         "year": 1996,
         "genres": ["Alternative"],
         "duration_ms": 297000,
-        "added_at": "2009-04-18T21:14:00Z",
-        "play_count": 12,
-        "last_played_at": "2024-10-27T03:33:20Z",
         "rating": 0.8,
-    }
+    }  # never Plex's addedAt, viewCount or lastViewedAt
 
 
 def test_track_artist_differs_from_album_artist_and_bad_numbers_dropped():

@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Protocol
 
 from radiobooth.catalog import check
-from radiobooth.sources.added import drop_bulk_dates
 
 PAGE_SIZE = 500
 TRACK, ALBUM, ARTIST = 10, 9, 8  # Plex metadata type numbers
@@ -173,12 +172,6 @@ def _paged(client: Getter, section_key: str, kind: int) -> Iterator[dict]:
             return
 
 
-def _iso(epoch: int | None) -> str | None:
-    if not epoch:
-        return None
-    return datetime.fromtimestamp(epoch, UTC).isoformat().replace("+00:00", "Z")
-
-
 def _tags(meta: dict, key: str) -> list[str]:
     return [t["tag"] for t in meta.get(key, []) if t.get("tag")]
 
@@ -242,9 +235,9 @@ def to_track(meta: dict, album: dict | None = None, artist_mbid: str | None = No
         "label": album.get("label"),
         "compilation": album.get("compilation"),
         "duration_ms": int(duration),
-        "added_at": _iso(meta.get("addedAt")),
-        "play_count": meta.get("viewCount"),
-        "last_played_at": _iso(meta.get("lastViewedAt")),
+        # Not Plex's addedAt, viewCount or lastViewedAt: add dates are when Plex first scanned a track,
+        # and play counts miss every other player the listener uses. Radio Booth keeps its own (history.py,
+        # arrivals.py).
         "rating": round(meta["userRating"] / 10, 2) if meta.get("userRating") is not None else None,
         # The album artist's id, so only where the track is theirs (not a guest's or a compilation's).
         "musicbrainz_artist_id": artist_mbid if artist == album_artist else None,
@@ -310,7 +303,6 @@ def build_catalog(
         raise PlexScanning(
             "Plex is still reading your music library and has no songs Radio Booth can use yet."
         )
-    drop_bulk_dates(tracks)
     catalog = {
         "protocol": "radiobooth/catalog@0",
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),

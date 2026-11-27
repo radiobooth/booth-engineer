@@ -84,10 +84,13 @@ genres and other details. `booth scan ~/Music` prints the same report; add `--ca
 exactly what would be sent. By hand, set `BOOTH_SOURCE=folder`, `BOOTH_MUSIC_FOLDER` and
 `BOOTH_SHOWS_FOLDER` instead of the Plex settings above.
 
-So new shows don't repeat what you've just heard, Booth Engineer remembers which tracks were in the shows it
-delivered, in `history.json` next to its config file (normally `~/.config/radiobooth/`), and in
-`history-<id>.json` for each other person sharing this Radio Booth (see below). That history stays
-on your machine except inside a show's catalog. Delete the file to start over.
+So new shows don't repeat what you've just heard, and so the DJ can say what's true ("we've played that for
+you twice before"), Booth Engineer remembers which tracks were in the shows it delivered, in `history.json`
+next to its config file (normally `~/.config/radiobooth/`), and in `history-<id>.json` for each other person
+sharing this Radio Booth (see below). `library-seen.json` beside it records when tracks first turned up in
+your library, as Booth Engineer saw it, so the DJ can say "that joined your library about a month ago" (music
+already there when you started never gets a date). Neither leaves your machine except inside a show's
+catalog. Delete a file to start it over.
 
 Someone with their own Radio Booth account can share this Radio Booth: on Radio Booth's page, under **Settings**, click
 **Add another person** and type the pairing code from their phone. Their shows come from the same music and go
