@@ -136,8 +136,9 @@ def _find(sources: dict, key: str, read: dict[str, str]) -> str | None:
     for k, rec in sources.items():
         if not k.startswith(kind):
             continue
+        # By songs, never ids alone: two Plex databases hand out the same small numbers to different songs.
         sigs = set(rec["tracks"].values())
-        n = sum(i in rec["tracks"] or sig in sigs for i, sig in read.items())
+        n = sum(any(x in sigs for x in _near(sig)) for sig in read.values())
         if n >= most and n > 0:
             best, most = k, n
     return best
@@ -159,24 +160,34 @@ def watch(
     if rec is None:
         rec = {"since": _stamp(when), "day": today, "tracks": dict(read), "joined": {}}
     else:
-        known = rec["tracks"]
+        known, joined = rec["tracks"], rec["joined"]
+        before = dict(joined)  # by the ids' old songs, which `by_song` points at
         by_song: dict[str, str] = {}
         for i, sig in known.items():
             if sig:
                 by_song.setdefault(sig, i)
+        bulk = max(BULK_MIN, BULK_SHARE * len(read))
+        # A known id now holding another song: a few are retagged songs (same file, fixed tags), keeping
+        # their status; many mean the ids were handed out again (a new Plex database), so those ids are
+        # judged by their songs like new ones.
+        changed = [i for i, sig in read.items() if known.get(i) and known[i] not in _near(sig)]
+        if len(changed) >= bulk:
+            for i in changed:
+                joined.pop(i, None)
+                del known[i]
         new = [i for i in read if i not in known]
         arrived = []
         for i in new:
-            old = next((o for s in _near(read[i]) if (o := by_song.get(s)) is not None), None)
+            old = next((o for x in _near(read[i]) if (o := by_song.get(x)) is not None), None)
             if old is not None:  # a song known here under another id
-                if old in rec["joined"]:
-                    rec["joined"][i] = rec["joined"][old]
+                if old in before:
+                    joined[i] = before[old]
             else:
                 arrived.append(i)
-        if len(arrived) < max(BULK_MIN, BULK_SHARE * len(read)):
+        if len(arrived) < bulk:
             for i in arrived:
-                rec["joined"][i] = [rec["day"], today]
-        known.update({i: read[i] for i in read if not known.get(i)})
+                joined[i] = [min(rec["day"], today), today]
+        known.update(read)  # each song as it's tagged now, so a later move still matches it
         rec["day"] = today
     for i in also:
         rec["tracks"].setdefault(i, "")

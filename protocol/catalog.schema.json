@@ -70,7 +70,7 @@
             }
           }
         },
-        "joined_after": {"type": "string", "format": "date", "description": "The track first turned up in this library after this day (the catalog read before it), as Booth Engineer saw it. Only for tracks that arrived after history_since."},
+        "joined_after": {"type": "string", "format": "date", "description": "The track first turned up in this library on or after this day (the day of the catalog read before it), as Booth Engineer saw it. Only for tracks that arrived after history_since. Never later than joined_by."},
         "joined_by": {"type": "string", "format": "date", "description": "... and by this day (the catalog read that first had it)."},
         "rating": {"type": "number", "minimum": 0, "maximum": 1, "description": "User rating scaled to 0..1."},
         "musicbrainz_id": {"type": "string", "description": "MusicBrainz recording id."},

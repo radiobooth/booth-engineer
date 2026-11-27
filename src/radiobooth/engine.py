@@ -166,7 +166,13 @@ def station(
                 )
             )
             # A library Plex is still reading isn't a whole read: its arrivals wait for the next one.
-            return history.annotate(read[0], who, fresh=not state.get("scanning"), where=plex.base_url)
+            return history.annotate(
+                read[0],
+                who,
+                fresh=not state.get("scanning"),
+                where=plex.base_url,
+                also=state.get("unused", ()),
+            )
         finally:
             mark(False)
 

@@ -154,3 +154,30 @@ def test_history_annotates_arrivals_too():
     history.annotate(catalog(range(3)))
     c = history.annotate(catalog([0, 1, 2, 3]))
     assert "joined_by" in c["tracks"][3] and "joined_by" not in c["tracks"][0]
+
+
+def test_a_retagged_song_that_moves_later_is_still_known():
+    arrivals.annotate(catalog(range(5)), when=day(1))
+    retagged = catalog(range(5))
+    retagged["tracks"][0]["artist"] = "Björk"  # same id, fixed tags
+    assert joined(arrivals.annotate(retagged, when=day(2))) == {}
+    moved = catalog(range(1, 5))
+    moved["tracks"].append({"id": "0b", "title": "Song 0", "artist": "Björk", "duration_ms": 200_000})
+    assert joined(arrivals.annotate(moved, when=day(3))) == {}
+
+
+def test_ids_handed_out_again_carry_no_old_dates():
+    old = [{"id": str(i), "title": f"Old {i}", "artist": "A", "duration_ms": 200_000} for i in range(300)]
+    arrivals.annotate(catalog([]) | {"tracks": old}, when=day(1))
+    arrivals.annotate(
+        catalog([]) | {"tracks": [*old, {"id": "300", "title": "Arrived", "artist": "A", "duration_ms": 1}]},
+        when=day(2),
+    )
+    # A new Plex database: the same songs under shuffled ids, so id 300 now holds an old song.
+    reset = [
+        {"id": str((i + 1) % 301), "title": f"Old {i}", "artist": "A", "duration_ms": 200_000}
+        for i in range(300)
+    ]
+    reset.append({"id": "0", "title": "Arrived", "artist": "A", "duration_ms": 1})
+    c = arrivals.annotate(catalog([]) | {"tracks": reset}, when=day(5))
+    assert joined(c) == {"0": ("2026-11-01", "2026-11-02")}  # the dates follow the song, not the id

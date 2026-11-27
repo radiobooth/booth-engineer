@@ -254,8 +254,9 @@ def to_track(meta: dict, album: dict | None = None, artist_mbid: str | None = No
     return {k: v for k, v in track.items() if v is not None}
 
 
-def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
-    """All usable tracks in one music section, and how many were skipped."""
+def read_section(client: Getter, section: dict, unused: list | None = None) -> tuple[list[dict], int]:
+    """All usable tracks in one music section, and how many were skipped (`unused`, when given, gets the
+    skipped ones' ids)."""
     artists = {str(a["ratingKey"]): _musicbrainz(a) for a in _paged(client, section["key"], ARTIST)}
     albums = {str(a["ratingKey"]): album_details(a) for a in _paged(client, section["key"], ALBUM)}
     tracks, skipped = [], 0
@@ -267,6 +268,8 @@ def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
         )
         if track is None:
             skipped += 1
+            if unused is not None and meta.get("ratingKey"):
+                unused.append(str(meta["ratingKey"]))
         else:
             tracks.append(track)
     return tracks, skipped
@@ -284,7 +287,8 @@ def build_catalog(
     `exclude` names a library to leave out, normally the one that holds Radio Booth's own breaks. While Plex
     is scanning the library, it raises PlexScanning when none of the songs read so far can be used, and also
     without `during_scan` when this is the library's first scan (its songs are still coming in).
-    `state`, when given, gets "scanning": whether Plex was scanning the library (so this read may be partial).
+    `state`, when given, gets "scanning": whether Plex was scanning the library (so this read may be partial),
+    and "unused": the ids of tracks it has that can't be used yet.
     """
     sections = [s for s in music_sections(client) if not exclude or s.get("title") != exclude]
     if library:
@@ -305,7 +309,9 @@ def build_catalog(
         state["scanning"] = bool(busy)
     if busy and first_scan(section) and not during_scan:
         raise PlexScanning("Plex is still reading your music library; Radio Booth gives it a few minutes.")
-    tracks, skipped = read_section(client, section)
+    tracks, skipped = read_section(
+        client, section, state.setdefault("unused", []) if state is not None else None
+    )
     if busy and not check({"tracks": tracks})[0]["tracks"]:  # none of them will do (see link.handle)
         raise PlexScanning(
             "Plex is still reading your music library and has no songs Radio Booth can use yet."

@@ -102,9 +102,10 @@ def test_track_artist_differs_from_album_artist_and_bad_numbers_dropped():
 
 
 def test_catalog_pages_skips_and_validates():
-    catalog, skipped = plex.build_catalog(FakePlex())
+    state = {}
+    catalog, skipped = plex.build_catalog(FakePlex(), state=state)
     assert [t["id"] for t in catalog["tracks"]] == ["48211", "51007"]
-    assert skipped == 1
+    assert skipped == 1 and len(state["unused"]) == 1 and state["scanning"] is False
     Draft202012Validator(SCHEMA).validate(catalog)
 
 
