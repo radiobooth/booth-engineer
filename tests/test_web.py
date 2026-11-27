@@ -994,3 +994,10 @@ def test_page_server_stays_quiet_when_the_page_hangs_up(capsys):
         assert "real trouble" in capsys.readouterr().err
     finally:
         server.server_close()
+
+
+def test_page_says_works_with_plex_and_not_endorsed():
+    # Plex's trademark guidelines: "Works with Plex" is fine, with no suggestion of endorsement.
+    from radiobooth import page
+
+    assert "Works with Plex. Radio Booth is not affiliated with or endorsed by Plex." in page.HTML

@@ -122,6 +122,7 @@ a.button { display: inline-block; font: 600 15px var(--text); border-radius: 9px
   border: 1px solid var(--chalk); background: var(--chalk); color: var(--studio); text-decoration: none; }
 @media (max-width: 520px) { .phone-card { flex-direction: column; align-items: flex-start; } }
 footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 24px; }
+footer .plex { margin: 6px 0 0; }
 #files-form { display: grid; gap: 6px; margin-top: 10px; }
 #files-form label { font: 12px/1.3 var(--label); letter-spacing: .1em; text-transform: uppercase;
   color: var(--muted); margin-top: 8px; }
@@ -323,7 +324,8 @@ HTML = f"""<!doctype html>
   </section>
 
   <footer id="footer"><span id="footer-text"></span><a id="terms" href="{LICENSE_URL}" target="_blank"
-    rel="noopener">free software, no warranty (GNU GPL)</a></footer>
+    rel="noopener">free software, no warranty (GNU GPL)</a>
+    <p class="plex">Works with Plex. Radio Booth is not affiliated with or endorsed by Plex.</p></footer>
 </main>
 </body>
 </html>
