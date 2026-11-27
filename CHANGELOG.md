@@ -1,8 +1,14 @@
-# What's new in Booth
+# What's new in Radio Booth
 
 Each release's notes come from its section here (the release workflow refuses a version without one). Write
 for listeners: what they'll notice, in plain words. Newest first. Keep each change one `- ` bullet (wrapped
-lines indented): that's what Booth's page shows under "What's new".
+lines indented): that's what Radio Booth's page shows under "What's new".
+
+## 0.5.8 (2026-11-27)
+
+- **It's called Radio Booth everywhere now.** The app's page, its messages, the setup guide and the help
+  for the `booth` command say "Radio Booth" instead of just "Booth". Nothing else changes: your settings,
+  your shows and your shows folder stay where they are.
 
 ## 0.5.7 (2026-11-25)
 

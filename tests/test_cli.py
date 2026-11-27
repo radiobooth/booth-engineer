@@ -186,7 +186,7 @@ def test_pair_refuses_to_drop_an_account_that_still_works(monkeypatch, tmp_path,
     # Jennifer's code typed here by mistake: refused before the code is spent, pointing at Add another person.
     assert main(["pair", "JENN-0001"]) == 1
     err = capsys.readouterr().err
-    assert "already connected to Thomas's Booth account" in err and "Add another person" in err
+    assert "already connected to Thomas's Radio Booth account" in err and "Add another person" in err
     assert redeemed == [] and config.load()["device_token"] == "be_own"
 
     # --replace does it anyway (and forgets the old account's name).

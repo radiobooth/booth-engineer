@@ -63,7 +63,7 @@ def file_name(title: str) -> str:
     name = re.sub(r'[<>"?*\x00-\x1f\x7f]', "", name)
     name = re.sub(r"\s+", " ", name).strip(" .")[:100].strip(" .")
     if not name or name.split(".")[0].lower() in _RESERVED:
-        name = f"Booth show {name}".strip()
+        name = f"Radio Booth show {name}".strip()
     return name
 
 
@@ -163,7 +163,7 @@ def deliver(
     if not folder.resolve().is_relative_to(root):
         raise PlaylistError(f"Refusing to write outside {out_root}.")
     music_root = music_root.resolve()
-    host = _line(package.get("dj", {}).get("name") or "") or "Booth"
+    host = _line(package.get("dj", {}).get("name") or "") or "Radio Booth"
 
     lines = ["#EXTM3U", f"#PLAYLIST:{_line(title)}", f"{MARK}{_line(show_id)}"]
     tracks = breaks = missing = 0

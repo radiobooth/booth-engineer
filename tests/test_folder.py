@@ -424,6 +424,6 @@ def test_names_from_paths_keep_numbers_that_belong_to_the_title(name, title, num
 def test_booths_own_shows_folder_inside_the_music_is_never_read(tmp_path):
     music, home = tmp_path / "music", tmp_path / "home"
     tagged(music, "A/1.flac", TITLE="One", ARTIST="A")
-    tagged(music, "Booth shows/breaks/x/01.flac", TITLE="Break", ARTIST="Booth")
+    tagged(music, "Booth shows/breaks/x/01.flac", TITLE="Break", ARTIST="Radio Booth")
     catalog, report = scan(music, home, skip=[music / "Booth shows"])
     assert [t["title"] for t in catalog["tracks"]] == ["One"] and report.files == 1

@@ -44,8 +44,8 @@ class PlexUnreadable(PlexError):
 
 
 SCANNING_FAILURE = (
-    "Plex was still reading the music library on this computer, with no songs Booth could use yet. Ask for"
-    " the show again once Plex has finished."
+    "Plex was still reading the music library on this computer, with no songs Radio Booth could use yet. Ask "
+    "for the show again once Plex has finished."
 )
 
 
@@ -58,8 +58,8 @@ class PlexScanning(PlexError):
 
 
 SIGN_IN_AGAIN = (
-    "Plex no longer accepts Booth's sign-in (HTTP 401). Sign in to Plex again: open Radio Booth and choose to"
-    " change its settings, or run `booth setup`."
+    "Plex no longer accepts Radio Booth's sign-in (HTTP 401). Sign in to Plex again: open Radio Booth and "
+    "choose to change its settings, or run `booth setup`."
 )
 
 
@@ -84,7 +84,7 @@ def parse_reply(body: bytes, ctype: str, base_url: str, path: str) -> dict:
     except ValueError as e:
         if "json" in ctype.lower():
             # Plex itself answered, but with JSON Booth can't read: the address is right.
-            raise PlexUnreadable(f"Plex sent a reply Booth couldn't read for {path} ({e}).") from None
+            raise PlexUnreadable(f"Plex sent a reply Radio Booth couldn't read for {path} ({e}).") from None
         raise PlexError(
             f"{base_url} answered with {ctype or 'something'} instead of Plex JSON."
             " Check PLEX_URL, including the port (Plex usually listens on 32400)."
@@ -304,10 +304,12 @@ def build_catalog(
     section = sections[0]
     busy = scanning(section)
     if busy and first_scan(section) and not during_scan:
-        raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
+        raise PlexScanning("Plex is still reading your music library; Radio Booth gives it a few minutes.")
     tracks, skipped = read_section(client, section)
     if busy and not check({"tracks": tracks})[0]["tracks"]:  # none of them will do (see link.handle)
-        raise PlexScanning("Plex is still reading your music library and has no songs Booth can use yet.")
+        raise PlexScanning(
+            "Plex is still reading your music library and has no songs Radio Booth can use yet."
+        )
     drop_bulk_dates(tracks)
     catalog = {
         "protocol": "radiobooth/catalog@0",

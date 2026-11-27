@@ -294,7 +294,7 @@ def find_show(client, dest_root: Path, show_id: str, hint: str = "", folder: Pat
     breaks folder, if it's been found already."""
     folder = folder or show_folder(dest_root, show_id, hint)
     if folder is None:
-        raise PlexError("That show's breaks aren't in Booth's breaks folder any more.")
+        raise PlexError("That show's breaks aren't in Radio Booth's breaks folder any more.")
     note = _read_note(folder)
     key = note.get("playlist_key")
     items = _items(client, key) if key else None
@@ -438,7 +438,7 @@ def one_file(client, dest_root: Path, copies: Path, show_id: str, hint: str = ""
             ready.append(render.Item(path, s.label, s.kind, s.album, s.track))
         if not ready:
             raise PlexError("None of this show's files could be fetched from Plex.")
-        dj = next((s.artist for s in items if s.kind == "break" and s.artist), "") or "Booth"
+        dj = next((s.artist for s in items if s.kind == "break" and s.artist), "") or "Radio Booth"
         covers = (render.cover_of(s.local) for s in items if s.kind == "break" and s.local)
         cover = next((c for c in covers if c), None)
         tags = {"title": show.title, "show_id": show_id, "artist": dj, "cover": cover}

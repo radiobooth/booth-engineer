@@ -355,7 +355,7 @@ def read(path: str | Path) -> Tags:
     except mutagen.MutagenError as e:
         raise Unreadable(str(e) or type(e).__name__) from None
     if f is None:
-        raise Unreadable("not a format Booth reads")
+        raise Unreadable("not a format Radio Booth reads")
     length = getattr(f.info, "length", 0) or 0
     out = Tags(fields={})
     tags = f.tags

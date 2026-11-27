@@ -458,7 +458,7 @@ def from_playlist(playlist: Path) -> tuple[list[Item], dict]:
     show = {
         "title": header.get("title") or playlist.stem,
         "show_id": header.get("show_id") or "",
-        "artist": dj or "Booth",
+        "artist": dj or "Radio Booth",
         "cover": cover,
     }
     return items, show

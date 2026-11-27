@@ -524,7 +524,7 @@ def test_a_saved_plex_sign_in_that_plex_refuses_is_not_offered(home, monkeypatch
         saved, ask=lambda q: pytest.fail(f"asked {q!r}") if "Keep it" in q else "1", open_browser=None
     )
     assert out["plex_token"] == "server-token"
-    assert "no longer accepts Booth's saved sign-in" in capsys.readouterr().out
+    assert "no longer accepts Radio Booth's saved sign-in" in capsys.readouterr().out
 
 
 def test_an_older_versions_sign_in_item_is_noticed(tmp_path, monkeypatch):
@@ -552,7 +552,7 @@ def test_the_start_menu_entry_is_made_without_start_at_sign_in(tmp_path, monkeyp
     programs.mkdir(parents=True)
     (programs / "Radio Booth setup.lnk").write_text("0.1's setup shortcut")
     made = []
-    autostart.start_menu(tmp_path, cmd=[r"C:\Booth\RadioBooth.exe"], make=lambda *a: made.append(a))
-    assert made == [(programs / "Radio Booth.lnk", r"C:\Booth\RadioBooth.exe", "", r"C:\Booth")]
+    autostart.start_menu(tmp_path, cmd=[r"C:\Radio Booth\RadioBooth.exe"], make=lambda *a: made.append(a))
+    assert made == [(programs / "Radio Booth.lnk", r"C:\Radio Booth\RadioBooth.exe", "", r"C:\Radio Booth")]
     assert not (programs / "Radio Booth setup.lnk").exists()
     assert not (programs / "Startup").exists()  # starting at sign-in is a separate choice

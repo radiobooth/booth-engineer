@@ -88,7 +88,7 @@ def test_without_the_key_nothing_is_shown(booth):
     app, port, key, _ = booth
     assert call(port, "GET", "/?k=guess")[0] == 403
     status, _, body = call(port, "GET", "/api/state")
-    assert status == 403 and b'"engine"' not in body and b"Open Booth from your computer" in body
+    assert status == 403 and b'"engine"' not in body and b"Open Radio Booth from your computer" in body
     assert call(port, "GET", "/api/state", headers={"Cookie": f"{web.COOKIE}=guess"})[0] == 403
 
 
@@ -492,7 +492,7 @@ def test_the_page_lists_shows_and_asks_for_none(booth, monkeypatch):
     for action in ("new_show", "feedback"):
         assert act(port, key, action, {"prompt": "rain", "show_id": "show_1", "rating": 3}) == (
             422,
-            {"error": "Booth doesn't know that button."},
+            {"error": "Radio Booth doesn't know that button."},
         )
     assert call(port, "GET", "/api/show?id=show_1", headers=cookie)[0] == 404
     assert len(gets) == 3
@@ -918,7 +918,7 @@ def test_plex_shows_can_be_copied_and_removed_on_the_page(booth, monkeypatch, tm
     listed = json.loads(call(port, "GET", "/api/shows", headers=cookie)[2])
     assert listed["shows"][0]["on_disk"] is False
     status, data = act(port, key, "remove_show", {"show_id": SHOW})
-    assert status == 422 and "breaks aren't in Booth's breaks folder" in data["error"]
+    assert status == 422 and "breaks aren't in Radio Booth's breaks folder" in data["error"]
 
 
 def test_a_new_pairing_with_someone_elses_code_asks_first(booth, monkeypatch):

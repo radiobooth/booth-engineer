@@ -59,8 +59,8 @@ def keep_app(cmd: list[str], home: Path, platform: str) -> list[str]:
         except OSError as e:
             staged.unlink(missing_ok=True)
             raise OSError(
-                f"Booth couldn't copy itself to its own folder ({e.strerror or e}). Restart the computer,"
-                " then try again."
+                f"Radio Booth couldn't copy itself to its own folder ({e.strerror or e}). Restart the "
+                "computer, then try again."
             ) from None
     return [str(target)]
 
@@ -282,8 +282,8 @@ def install(
         write_shortcut(startup / "Radio Booth.lnk", cmd, " ".join(APP_ARGS), make)
         write_shortcut(programs / "Radio Booth.lnk", cmd, "", make)
         return (
-            "Booth will start by itself, in the background, each time you sign in to Windows. To see its"
-            " page, open Radio Booth from the Start menu."
+            "Radio Booth will start by itself, in the background, each time you sign in to Windows. To see "
+            "its page, open Radio Booth from the Start menu."
         )
     if platform == "darwin":
         plist, logs = _mac_paths(home)
@@ -295,7 +295,7 @@ def install(
             checked(run, ["launchctl", "load", str(plist)])
         # else this is that sign-in item, running now: unloading it would stop this very Booth. It's still
         # loaded, and the new file is what starts Booth next time.
-        done = "Booth now runs in the background and starts each time you sign in to this Mac."
+        done = "Radio Booth now runs in the background and starts each time you sign in to this Mac."
         if macapp.bundle(cmd[0]):
             # The bare program the Mac download kept before it was an app; nothing starts it any more.
             app_home(platform, home).unlink(missing_ok=True)
@@ -307,7 +307,7 @@ def install(
     checked(run, ["systemctl", "--user", "daemon-reload"])
     checked(run, ["systemctl", "--user", "enable", f"{NAME}.service"])
     checked(run, ["systemctl", "--user", "restart", f"{NAME}.service"])  # picks up new settings too
-    return f"Booth now runs as the systemd user service {NAME!r} and starts when you sign in."
+    return f"Radio Booth now runs as the systemd user service {NAME!r} and starts when you sign in."
 
 
 def remove(platform: str = sys.platform, home: Path | None = None, run=subprocess.run) -> str:
@@ -317,13 +317,18 @@ def remove(platform: str = sys.platform, home: Path | None = None, run=subproces
         startup = _windows_paths(home)[1]
         for name in ("Radio Booth.lnk", "Radio Booth.cmd"):
             (startup / name).unlink(missing_ok=True)
-        return "Booth won't start by itself any more. Open Radio Booth from the Start menu when you want it."
+        return (
+            "Radio Booth won't start by itself any more. Open Radio Booth from the Start menu when you"
+            " want it."
+        )
     if platform == "darwin":
         plist = _mac_paths(home)[0]
         # Not `launchctl unload`: that would stop this Booth too, if launchd started it.
         plist.unlink(missing_ok=True)
-        return "Booth won't start by itself any more. Open Radio Booth from Applications when you want it."
+        return (
+            "Radio Booth won't start by itself any more. Open Radio Booth from Applications when you want it."
+        )
     unit = home / ".config" / "systemd" / "user" / f"{NAME}.service"
     run(["systemctl", "--user", "disable", f"{NAME}.service"], capture_output=True)
     unit.unlink(missing_ok=True)
-    return "Booth won't start by itself any more."
+    return "Radio Booth won't start by itself any more."

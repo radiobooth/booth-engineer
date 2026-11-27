@@ -20,11 +20,14 @@ DEFAULT_SERVER = "https://my.radiobooth.fm"
 NEEDS_SETUP, NEEDS_PAIRING, ALREADY_RUNNING = 3, 4, 5
 
 COMMANDS = {
-    "setup": "Set up Booth step by step: sign in to Plex, pick your music, connect to your Booth account.",
+    "setup": (
+        "Set up Radio Booth step by step: sign in to Plex, pick your music, connect to your Radio Booth"
+        " account."
+    ),
     "index": "Read your music library and write a catalog file (nothing leaves this machine).",
     "scan": (
-        "Read a folder of music files and report on their tags: what Booth can use, what it leaves out and"
-        " why (nothing leaves this machine)."
+        "Read a folder of music files and report on their tags: what Radio Booth can use, what it leaves out "
+        "and why (nothing leaves this machine)."
     ),
     "deliver": "Put a finished show's breaks where your music server sees them and build the playlist.",
     "pair": "Connect this machine to your Radio Booth account with a pairing code.",
@@ -32,11 +35,13 @@ COMMANDS = {
 COMMANDS["run"] = (
     "Stay connected to Booth DJ: send the catalog when you ask for a show, deliver it when ready."
 )
-COMMANDS["license"] = "Show Booth's license (GNU GPL v3 or later) and the notices for what the app bundles."
+COMMANDS["license"] = (
+    "Show Radio Booth's license (GNU GPL v3 or later) and the notices for what the app bundles."
+)
 COMMANDS["render"] = "Make one MP3 of a show, with a chapter per song and break, from its playlist."
 COMMANDS["app"] = (
-    "Run Booth with its page in your browser (setup, status, settings), or open the page of the Booth"
-    " already running here."
+    "Run Radio Booth with its page in your browser (setup, status, settings), or open the page of the Radio "
+    "Booth already running here."
 )
 
 
@@ -58,7 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
                 "folder", nargs="?", help="the music folder (default $BOOTH_MUSIC_FOLDER, then the saved one)"
             )
             p.add_argument("--name", default="Music", help="what to call this library on the DJ's side")
-            p.add_argument("--catalog", metavar="FILE", help="also write the exact catalog Booth would send")
+            p.add_argument(
+                "--catalog", metavar="FILE", help="also write the exact catalog Radio Booth would send"
+            )
             p.add_argument("--examples", type=int, default=5, help="example files to list per issue")
         if name == "render":
             p.add_argument("playlist", help="the show's .m3u8 playlist in the Booth shows folder")
@@ -75,15 +82,17 @@ def build_parser() -> argparse.ArgumentParser:
             )
         if name == "pair":
             p.add_argument(
-                "code", nargs="?", help="the code from the Booth page on your phone (asked for if left out)"
+                "code",
+                nargs="?",
+                help="the code from the Radio Booth page on your phone (asked for if left out)",
             )
             p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER, then the saved one)")
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
             p.add_argument(
                 "--replace",
                 action="store_true",
-                help="drop the Booth account this computer is connected to now (to share it, use Add another"
-                " person on Booth's page instead)",
+                help="drop the Radio Booth account this computer is connected to now (to share it, use Add "
+                "another person on Radio Booth's page instead)",
             )
         if name == "setup":
             p.add_argument("--server", help=argparse.SUPPRESS)
@@ -200,7 +209,7 @@ def scan(args: argparse.Namespace) -> int:
             out = Path(args.catalog)
             out.write_text(json.dumps(catalog, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
             print(
-                f"Wrote the catalog Booth would send ({len(catalog['tracks'])} tracks) to {out}.",
+                f"Wrote the catalog Radio Booth would send ({len(catalog['tracks'])} tracks) to {out}.",
                 file=sys.stderr,
             )
     except (OSError, ValueError, sqlite3.Error) as e:  # ValueError: a damaged config.json
@@ -266,11 +275,15 @@ def pair(args: argparse.Namespace) -> int:
             me = None  # forgotten (a 401) or out of reach: pairing again is what's wanted, or fails anyway
         if me is not None:
             name = me.get("name") if isinstance(me, dict) else None
-            whose = f"{name}'s Booth account" if isinstance(name, str) and name.strip() else "a Booth account"
+            whose = (
+                f"{name}'s Radio Booth account"
+                if isinstance(name, str) and name.strip()
+                else "a Radio Booth account"
+            )
             print(
                 f"booth pair: this computer is already connected to {whose}, and pairing again would drop it."
-                "\n  To make shows for someone else too, open Booth's page (booth app), go to Settings and"
-                " use Add another person with a code from their phone."
+                "\n  To make shows for someone else too, open Radio Booth's page (booth app), go to Settings "
+                "and use Add another person with a code from their phone."
                 "\n  To switch this computer to another account for good: booth pair --replace",
                 file=sys.stderr,
             )
@@ -309,7 +322,7 @@ def run(args: argparse.Namespace) -> int:
     if engine.folder_mode(settings):
         _, missing, folders = engine.needs(settings)
         if missing:
-            print(f"booth run: missing {', '.join(missing)}. Set Booth up first.", file=sys.stderr)
+            print(f"booth run: missing {', '.join(missing)}. Set Radio Booth up first.", file=sys.stderr)
             return NEEDS_SETUP
         if absent := next((f for f in folders if not Path(f).expanduser().is_dir()), None):
             print(f"booth run: {absent} isn't a folder here (is the drive connected?).", file=sys.stderr)
@@ -323,8 +336,8 @@ def run(args: argparse.Namespace) -> int:
     lock = single_instance(config.path().parent / "run.lock")
     if lock is None:
         print(
-            "booth run: Booth is already running on this computer. If you just changed its settings, close"
-            " the other Booth window and open Booth again so they take effect.",
+            "booth run: Radio Booth is already running on this computer. If you just changed its settings, "
+            "close the other Radio Booth window and open Radio Booth again so they take effect.",
             file=sys.stderr,
         )
         return ALREADY_RUNNING
@@ -486,9 +499,9 @@ def license_text() -> str:
     head = ""
     if not files or files[0].name != "NOTICES.txt":
         head = (
-            f"Booth {__version__}. {__copyright__}\n"
-            "Booth is free software under the GNU General Public License, version 3 or later, and comes\n"
-            "with ABSOLUTELY NO WARRANTY. You may redistribute it under those terms.\n\n"
+            f"Radio Booth {__version__}. {__copyright__}\n"
+            "Radio Booth is free software under the GNU General Public License, version 3 or later, and "
+            "comes\nwith ABSOLUTELY NO WARRANTY. You may redistribute it under those terms.\n\n"
         )
     body = "\n".join(f.read_text(encoding="utf-8") for f in files)
     return head + (body or f"The license: {LICENSE_URL}\n")
@@ -502,7 +515,7 @@ def license_(args, opener=None) -> int:
     # The Windows app has no console to print to: open the text in the computer's text viewer instead.
     from radiobooth import config
 
-    path = config.path().parent / "Booth license.txt"
+    path = config.path().parent / "Radio Booth license.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     (opener or getattr(os, "startfile", None) or (lambda p: None))(str(path))
