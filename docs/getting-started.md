@@ -274,9 +274,9 @@ it, or after a day if you don't.
 ## What Radio Booth sends, and what it doesn't
 
 When you ask for a show, and only then, Radio Booth sends the details of your music library: titles, artists,
-albums, years, genres, ratings, play counts, when you added things, and which songs were in your recent
-shows. That's what the DJ uses to pick songs and talk about them. Radio Booth uses it to make that one show
-and doesn't keep it afterwards. (When your own AI assistant makes the show, your assistant sees those details
+albums, years, genres, ratings, which of your Radio Booth shows had each song, and when songs turned up in
+your library since you started using Radio Booth. That's what the DJ uses to pick songs and talk about them.
+Radio Booth uses it to make that one show and doesn't keep it afterwards. (When your own AI assistant makes the show, your assistant sees those details
 too, and Radio Booth keeps them, encrypted, until the show is finished: see
 [What your assistant can see](#what-your-assistant-can-see).) While the show is made, the AI services that write and voice it (Claude, by
 Anthropic, and Google Cloud's text-to-speech) process the parts they need, under business terms that don't

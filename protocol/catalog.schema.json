@@ -18,7 +18,8 @@
         "library": {"type": "string", "description": "Library or section name, e.g. \"Music\"."}
       }
     },
-    "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}}
+    "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}},
+    "history_since": {"type": "string", "format": "date-time", "description": "Since when Radio Booth has watched this library for new tracks: the first catalog Booth Engineer read after it started keeping track. Tracks already there have no joined dates."}
   },
   "$defs": {
     "track": {
@@ -45,14 +46,32 @@
         "composers": {"type": "array", "items": {"type": "string"}},
         "label": {"type": "string", "description": "Record label."},
         "duration_ms": {"type": "integer", "minimum": 1},
-        "added_at": {"type": "string", "format": "date-time", "description": "When the track joined the collection. Left out when the music server's date only records a bulk import (the library's first scan, a move or a rescan), since that says nothing about when the listener got the music."},
-        "play_count": {"type": "integer", "minimum": 0},
-        "last_played_at": {"type": "string", "format": "date-time"},
+        "added_at": {"type": "string", "format": "date-time", "description": "No longer sent (Booth Engineer 0.5.8 on) and ignored by Booth DJ: a music server's add date is when it first scanned a track, not when the listener got it. joined_after and joined_by take its place."},
+        "play_count": {"type": "integer", "minimum": 0, "description": "No longer sent (Booth Engineer 0.5.8 on) and ignored by Booth DJ: a music server's play count misses every other player the listener uses."},
+        "last_played_at": {"type": "string", "format": "date-time", "description": "No longer sent (Booth Engineer 0.5.8 on): a music server's last play misses every other player the listener uses."},
         "last_in_show_at": {
           "type": "string",
           "format": "date-time",
-          "description": "When this track was last in a Booth show delivered to this machine, from Booth Engineer's local history. Lets new shows skip recent picks."
+          "description": "When this track was last in a Radio Booth show delivered to this machine for this person, from Booth Engineer's local history. Lets new shows skip recent picks."
         },
+        "in_shows": {"type": "integer", "minimum": 1, "description": "How many of this person's Radio Booth shows had this track, from Booth Engineer's local history."},
+        "in_shows_at_least": {"type": "boolean", "description": "True when in_shows includes history kept before shows were counted, so the real number may be higher."},
+        "recent_shows": {
+          "type": "array",
+          "maxItems": 3,
+          "description": "This person's latest Radio Booth shows that had this track, newest first.",
+          "items": {
+            "type": "object",
+            "required": ["at"],
+            "additionalProperties": false,
+            "properties": {
+              "at": {"type": "string", "format": "date-time", "description": "When the show was delivered."},
+              "title": {"type": "string", "minLength": 1, "description": "The show's title."}
+            }
+          }
+        },
+        "joined_after": {"type": "string", "format": "date", "description": "The track first turned up in this library on or after this day (the day of the catalog read before it), as Booth Engineer saw it. Only for tracks that arrived after history_since. Never later than joined_by."},
+        "joined_by": {"type": "string", "format": "date", "description": "... and by this day (the catalog read that first had it)."},
         "rating": {"type": "number", "minimum": 0, "maximum": 1, "description": "User rating scaled to 0..1."},
         "musicbrainz_id": {"type": "string", "description": "MusicBrainz recording id."},
         "musicbrainz_release_group_id": {"type": "string"},

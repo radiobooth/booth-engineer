@@ -159,10 +159,10 @@ def test_wma_and_wav(tmp_path):
     assert tags.read(p).fields["title"] == "Wave" and tags.read(p).lossless
 
 
-def test_play_counts_but_no_ratings_or_add_dates(tmp_path):
+def test_no_play_counts_ratings_or_add_dates(tmp_path):
     p = id3(put(tmp_path, "a.mp3", "blank.mp3"), TIT2(encoding=3, text="T"), PCNT(count=12))
     f = tags.read(p).fields
-    assert f["play_count"] == 12 and not {"rating", "added_at", "last_played_at"} & f.keys()
+    assert not {"play_count", "rating", "added_at", "last_played_at"} & f.keys()
 
 
 def tagged(root: Path, rel: str, blank="blank.flac", **values) -> Path:
@@ -293,16 +293,6 @@ def test_bad_files_are_counted_never_fatal(tmp_path):
     assert report.skipped[folder.UNREADABLE] == 1 and report.skipped[folder.ONE_FILE_ALBUM] == 1
     assert report.other_types == {".ape": 1} and report.files == 3
     assert any("couldn't be read" in line for line in report.lines())
-
-
-def test_a_few_stray_play_counts_are_left_out(tmp_path):
-    music, home = tmp_path / "music", tmp_path / "home"
-    p = put(music, "a.mp3", "blank.mp3")
-    id3(p, TIT2(encoding=3, text="Counted"), TPE1(encoding=3, text="A"), PCNT(count=3))
-    for i in range(3):
-        tagged(music, f"b{i}.flac", TITLE=f"B{i}", ARTIST="B")
-    catalog, report = scan(music, home)
-    assert all("play_count" not in t for t in catalog["tracks"]) and report.play_counts_dropped == 1
 
 
 def test_scan_command_reports_and_writes_the_catalog(tmp_path, monkeypatch, capsys):

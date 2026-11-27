@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Protocol
 
 from radiobooth.catalog import check
-from radiobooth.sources.added import drop_bulk_dates
 
 PAGE_SIZE = 500
 TRACK, ALBUM, ARTIST = 10, 9, 8  # Plex metadata type numbers
@@ -173,12 +172,6 @@ def _paged(client: Getter, section_key: str, kind: int) -> Iterator[dict]:
             return
 
 
-def _iso(epoch: int | None) -> str | None:
-    if not epoch:
-        return None
-    return datetime.fromtimestamp(epoch, UTC).isoformat().replace("+00:00", "Z")
-
-
 def _tags(meta: dict, key: str) -> list[str]:
     return [t["tag"] for t in meta.get(key, []) if t.get("tag")]
 
@@ -242,9 +235,9 @@ def to_track(meta: dict, album: dict | None = None, artist_mbid: str | None = No
         "label": album.get("label"),
         "compilation": album.get("compilation"),
         "duration_ms": int(duration),
-        "added_at": _iso(meta.get("addedAt")),
-        "play_count": meta.get("viewCount"),
-        "last_played_at": _iso(meta.get("lastViewedAt")),
+        # Not Plex's addedAt, viewCount or lastViewedAt: add dates are when Plex first scanned a track,
+        # and play counts miss every other player the listener uses. Radio Booth keeps its own (history.py,
+        # arrivals.py).
         "rating": round(meta["userRating"] / 10, 2) if meta.get("userRating") is not None else None,
         # The album artist's id, so only where the track is theirs (not a guest's or a compilation's).
         "musicbrainz_artist_id": artist_mbid if artist == album_artist else None,
@@ -261,8 +254,9 @@ def to_track(meta: dict, album: dict | None = None, artist_mbid: str | None = No
     return {k: v for k, v in track.items() if v is not None}
 
 
-def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
-    """All usable tracks in one music section, and how many were skipped."""
+def read_section(client: Getter, section: dict, unused: list | None = None) -> tuple[list[dict], int]:
+    """All usable tracks in one music section, and how many were skipped (`unused`, when given, gets the
+    skipped ones' ids)."""
     artists = {str(a["ratingKey"]): _musicbrainz(a) for a in _paged(client, section["key"], ARTIST)}
     albums = {str(a["ratingKey"]): album_details(a) for a in _paged(client, section["key"], ALBUM)}
     tracks, skipped = [], 0
@@ -274,19 +268,27 @@ def read_section(client: Getter, section: dict) -> tuple[list[dict], int]:
         )
         if track is None:
             skipped += 1
+            if unused is not None and meta.get("ratingKey"):
+                unused.append(str(meta["ratingKey"]))
         else:
             tracks.append(track)
     return tracks, skipped
 
 
 def build_catalog(
-    client: Getter, library: str | None = None, exclude: str | None = None, during_scan: bool = False
+    client: Getter,
+    library: str | None = None,
+    exclude: str | None = None,
+    during_scan: bool = False,
+    state: dict | None = None,
 ) -> tuple[dict, int]:
     """The catalog for one music library (by name, or the only one), and the skipped-track count.
 
     `exclude` names a library to leave out, normally the one that holds Radio Booth's own breaks. While Plex
     is scanning the library, it raises PlexScanning when none of the songs read so far can be used, and also
     without `during_scan` when this is the library's first scan (its songs are still coming in).
+    `state`, when given, gets "scanning": whether Plex was scanning the library (so this read may be partial),
+    and "unused": the ids of tracks it has that can't be used yet.
     """
     sections = [s for s in music_sections(client) if not exclude or s.get("title") != exclude]
     if library:
@@ -303,14 +305,17 @@ def build_catalog(
         raise PlexError("This Plex server has no music library.")
     section = sections[0]
     busy = scanning(section)
+    if state is not None:
+        state["scanning"] = bool(busy)
     if busy and first_scan(section) and not during_scan:
         raise PlexScanning("Plex is still reading your music library; Radio Booth gives it a few minutes.")
-    tracks, skipped = read_section(client, section)
+    tracks, skipped = read_section(
+        client, section, state.setdefault("unused", []) if state is not None else None
+    )
     if busy and not check({"tracks": tracks})[0]["tracks"]:  # none of them will do (see link.handle)
         raise PlexScanning(
             "Plex is still reading your music library and has no songs Radio Booth can use yet."
         )
-    drop_bulk_dates(tracks)
     catalog = {
         "protocol": "radiobooth/catalog@0",
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),

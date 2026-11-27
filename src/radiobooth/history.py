@@ -1,19 +1,32 @@
-"""Which tracks have been in Booth shows delivered to this machine, so new shows can skip them.
+"""Radio Booth's own play history: which shows delivered to this machine had which tracks.
 
-Kept on this machine only, next to the config file (history.json), and yours to read or delete. It travels
-to Booth DJ only inside a show's catalog, as each track's `last_in_show_at`, and Booth DJ keeps it no longer
-than the catalog itself. Deleting the file starts the history over. Each other person sharing this computer
-has their own (history-<id>.json), so one person's shows don't keep tracks out of another's.
+Kept on this machine only, next to the config file (history.json), and yours to read or delete. For each
+track it keeps how many shows had it and the latest ones (when, which show, its title, where in the running
+order). It travels to Booth DJ only inside a show's catalog (see `annotate`), and Booth DJ keeps it no
+longer than the catalog itself. Deleting the file starts the history over. Each other person sharing this
+computer has their own (history-<id>.json), so one person's shows don't keep tracks out of another's.
+
+This, not a music server's play counts, is what DJs may say about the listener's history with a track: a
+music server only counts its own plays, and a folder of files has none. Earlier versions kept only when a
+track was last in a show; such a track carries over as one show with `floor` set, since it may have been
+in more.
+
+The catalog also carries when each track joined the library, from `arrivals`.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from radiobooth import config
+from radiobooth import arrivals, config
+
+VERSION = 2
+KEEP = 10  # latest shows kept per track (the count goes on past it)
+SENT = 3  # latest shows sent per track, newest first
 
 
 def path(person: str | None = None) -> Path:
@@ -26,8 +39,42 @@ def stamp(when: datetime | None = None) -> str:
     return when.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def load(person: str | None = None) -> dict[str, str]:
-    """track id -> when it was last in a delivered show. A missing or unreadable file is an empty history."""
+def _is_time(v) -> bool:
+    if not isinstance(v, str) or "T" not in v.upper():
+        return False
+    try:
+        return datetime.fromisoformat(v.upper().replace("Z", "+00:00")).tzinfo is not None
+    except ValueError:
+        return False
+
+
+def _entry(value) -> dict | None:
+    """One track's history as kept, from either version of the file; None if it can't be read. {"count":
+    shows that had it, "floor": True when count may be short, "shows": [{"at", ...}, newest first]}"""
+    if _is_time(value):  # version 1: when it was last in a show
+        return {"count": 1, "floor": True, "shows": [{"at": value}]}
+    if not isinstance(value, dict):
+        return None
+    shows = value.get("shows")
+    if not isinstance(shows, list):
+        return None
+    shows = [s for s in shows if isinstance(s, dict) and _is_time(s.get("at"))]
+    for s in shows:
+        if "title" in s and not (isinstance(s["title"], str) and s["title"].strip()):
+            del s["title"]
+    count = value.get("count")
+    if not shows or not isinstance(count, int) or isinstance(count, bool) or count < len(shows):
+        return None
+    out = {"count": count, "shows": sorted(shows, key=lambda s: s["at"], reverse=True)[:KEEP]}
+    if value.get("floor") is True:
+        out["floor"] = True
+    if isinstance(value.get("song"), str):
+        out["song"] = value["song"]
+    return out
+
+
+def load(person: str | None = None) -> dict[str, dict]:
+    """track id -> its history (see `_entry`). A missing or unreadable file is an empty history."""
     try:
         data = json.loads(path(person).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -35,30 +82,93 @@ def load(person: str | None = None) -> dict[str, str]:
     tracks = data.get("tracks") if isinstance(data, dict) else None
     if not isinstance(tracks, dict):
         return {}
-    return {k: v for k, v in tracks.items() if isinstance(k, str) and k and isinstance(v, str)}
+    return {k: e for k, v in tracks.items() if isinstance(k, str) and k and (e := _entry(v))}
 
 
-def record(track_ids: Iterable[str], when: datetime | None = None, person: str | None = None) -> Path:
-    """Note that these tracks were just in a delivered show."""
+def last_at(entry: dict) -> str:
+    return entry["shows"][0]["at"]
+
+
+def record(
+    track_ids: Iterable[str],
+    when: datetime | None = None,
+    person: str | None = None,
+    show: str | None = None,
+    title: str | None = None,
+) -> Path:
+    """Note that these tracks, in this running order, were just in a delivered show (`show`: its id, so the
+    same show delivered again isn't counted twice; `title`: what it's called)."""
     tracks = load(person)
     at = stamp(when)
-    tracks.update({t: at for t in track_ids if isinstance(t, str) and t})
+    for slot, t in enumerate((t for t in track_ids if isinstance(t, str) and t), start=1):
+        entry = tracks.setdefault(t, {"count": 0, "shows": []})
+        if show and any(s.get("show") == show for s in entry["shows"]):
+            continue
+        played = {"at": at, "slot": slot}
+        if show:
+            played["show"] = show
+        if title and title.strip():
+            played["title"] = title.strip()
+        entry["count"] += 1
+        entry["shows"] = sorted([played, *entry["shows"]], key=lambda s: s["at"], reverse=True)[:KEEP]
+    return _save(tracks, person)
+
+
+def _save(tracks: dict, person: str | None) -> Path:
     p = path(person)
     p.parent.mkdir(parents=True, exist_ok=True)
-    config.write_atomically(p, json.dumps({"version": 1, "tracks": tracks}, indent=0, sort_keys=True) + "\n")
+    config.write_atomically(p, json.dumps({"version": VERSION, "tracks": tracks}, sort_keys=True) + "\n")
     return p
 
 
 def record_package(package: dict, when: datetime | None = None, person: str | None = None) -> Path:
     """Note the tracks of a show package that was just delivered."""
-    tracks = (i.get("track_id") for i in package.get("items", []) if i.get("type") == "track")
-    return record(tracks, when, person)
+    tracks = [i.get("track_id") for i in package.get("items", []) if i.get("type") == "track"]
+    return record(tracks, when, person, show=package.get("show_id"), title=package.get("title"))
 
 
-def annotate(catalog: dict, person: str | None = None) -> dict:
-    """The catalog with `last_in_show_at` on each track that has been in a show here (for that person)."""
-    seen = load(person)
+def annotate(
+    catalog: dict,
+    person: str | None = None,
+    fresh: bool = True,
+    where: str | None = None,
+    also: Iterable[str] = (),
+) -> dict:
+    """The catalog with Radio Booth's own history on its tracks: for each track that was in this person's
+    shows, `in_shows` (with `in_shows_at_least` when that's a floor), `last_in_show_at` and `recent_shows`;
+    and the library's arrivals (`arrivals.annotate`). `fresh`: this is a whole, new read of the library,
+    so tracks new since the last one are noted as arrivals (not for a library Plex is still reading, or a
+    look at the catalog that sends nothing). `where`: the library's folder or server; `also`: ids the
+    source found but couldn't use (see `arrivals`)."""
+    seen, changed = load(person), False
+    songs = {t["id"]: arrivals.signature(t) for t in catalog["tracks"]}
+    # Entries whose ids this read lacks or gives to another song, by song: a song under a new id (moved,
+    # or a rebuilt Plex database) takes its shows along.
+    away = {
+        e["song"]: i
+        for i, e in seen.items()
+        if e.get("song") and (i not in songs or not arrivals.same_song(e["song"], songs[i]))
+    }
     for t in catalog["tracks"]:
-        if t["id"] in seen:
-            t["last_in_show_at"] = seen[t["id"]]
-    return catalog
+        entry = seen.get(t["id"])
+        if not entry and away and (old := away.pop(songs[t["id"]], None)) is not None:
+            entry = seen[t["id"]] = seen.pop(old)
+            changed = True
+        if not entry:
+            continue
+        # Each entry knows its song (arrivals.signature), so an id that now holds another song (a rebuilt
+        # Plex database, another server) never gets its shows. A retagged song keeps them.
+        sig = songs[t["id"]]
+        if entry.get("song") and not arrivals.same_song(entry["song"], sig):
+            continue  # (its shows stay with its song, in case that's back under another id)
+        if entry.get("song") != sig:
+            entry["song"], changed = sig, True
+        t["in_shows"] = entry["count"]
+        if entry.get("floor"):
+            t["in_shows_at_least"] = True
+        t["last_in_show_at"] = last_at(entry)
+        t["recent_shows"] = [{k: s[k] for k in ("at", "title") if k in s} for s in entry["shows"][:SENT]]
+    if changed and fresh:
+        with contextlib.suppress(OSError):
+            _save(seen, person)
+    return arrivals.annotate(catalog, fresh=fresh, where=where, also=also)

@@ -17,6 +17,13 @@ lines indented): that's what Radio Booth's page shows under "What's new".
   Radio Booth keeps using it, so your copies and one-file shows stay put. Rename it yourself if you like:
   quit Radio Booth, rename the folder, and open Radio Booth again (with your music in a folder, also pick
   the renamed folder under Settings).
+- **The DJ only says what Radio Booth saw happen.** Radio Booth now keeps its own record of every show a song
+  was in (when, and which show) and of when songs turn up in your library, so the DJ can say "that's been in
+  two of your shows" or "that turned up in your library about a month ago". It no longer uses Plex's play
+  counts or "added" dates, which miss music you play elsewhere and often date your whole collection to the
+  day Plex was installed. Songs already in your library get no date, and songs from your earlier shows
+  count as having been in your shows "before" (the DJ won't give a number for those). This works the same
+  for music in Plex and in a folder.
 
 ## 0.5.7 (2026-11-25)
 

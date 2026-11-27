@@ -128,8 +128,8 @@ def plex_login() -> tuple[str | None, str | None]:
 
 def coverage(tracks: list[dict]) -> str:
     counts = Counter(k for t in tracks for k in t)
-    fields = ["album", "year", "genres", "added_at", "play_count", "rating", "musicbrainz_id"]
-    fields += ["last_in_show_at"]
+    fields = ["album", "year", "genres", "rating", "musicbrainz_id"]
+    fields += ["in_shows", "joined_by"]
     total = len(tracks) or 1
     return ", ".join(f"{f} {100 * counts[f] // total}%" for f in fields)
 
@@ -160,7 +160,7 @@ def index(args: argparse.Namespace) -> int:
                 f"booth index: Plex is still scanning {name!r}; these are the songs so far.", file=sys.stderr
             )
         # Checked as `booth run` checks it, so this file is exactly what would be sent.
-        catalog, left_out, _ = catalogs.check(history.annotate(catalog))
+        catalog, left_out, _ = catalogs.check(history.annotate(catalog, fresh=False, where=client.base_url))
         skipped += left_out
     except PlexError as e:
         print(f"booth index: {e}", file=sys.stderr)
@@ -205,7 +205,10 @@ def scan(args: argparse.Namespace) -> int:
             progress=progress,
             examples=max(0, args.examples),
         )
-        catalog, _, _ = catalogs.check(history.annotate(catalog))  # as `booth run` would send it
+        # As `booth run` would send it (without noting this look as a read of the library)
+        catalog, _, _ = catalogs.check(
+            history.annotate(catalog, fresh=False, where=str(Path(where).expanduser()))
+        )
         print("\n".join(report.lines()))
         if args.catalog:
             out = Path(args.catalog)

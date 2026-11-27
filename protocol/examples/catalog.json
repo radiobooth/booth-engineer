@@ -2,6 +2,7 @@
   "protocol": "radiobooth/catalog@0",
   "generated_at": "2026-11-03T05:00:00Z",
   "source": {"kind": "plex", "library": "Music"},
+  "history_since": "2026-11-01T17:20:00Z",
   "tracks": [
     {
       "id": "48211",
@@ -12,8 +13,8 @@
       "year": 1996,
       "genres": ["Alternative"],
       "duration_ms": 297000,
-      "added_at": "2009-04-18T21:14:00Z",
-      "play_count": 12
+      "joined_after": "2026-11-10",
+      "joined_by": "2026-11-18"
     },
     {
       "id": "51007",
@@ -23,8 +24,12 @@
       "year": 1992,
       "genres": ["Grunge", "Punk"],
       "duration_ms": 175000,
-      "added_at": "2011-09-02T03:40:00Z",
-      "last_in_show_at": "2026-11-04T19:30:00Z"
+      "in_shows": 2,
+      "last_in_show_at": "2026-11-04T19:30:00Z",
+      "recent_shows": [
+        {"at": "2026-11-04T19:30:00Z", "title": "Loud Fast Rules"},
+        {"at": "2026-10-11T18:02:00Z", "title": "Saturday Morning Cleanup"}
+      ]
     },
     {
       "id": "60433",

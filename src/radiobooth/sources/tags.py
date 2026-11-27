@@ -128,7 +128,6 @@ _TXXX = {
     "MUSICBRAINZ RELEASE GROUP ID": "mb_releasegroup",
     "MUSICBRAINZ ARTIST ID": "mb_artist",
     "MUSICBRAINZ ALBUM ID": "mb_release",
-    "FMPS_PLAYCOUNT": "playcount",
 }
 
 
@@ -157,8 +156,6 @@ def _id3(tags: ID3, out: Tags) -> Bag:
             add(key, frame.text, latin1)
         elif fid == "UFID" and frame.owner == "http://musicbrainz.org":
             add("mb_recording", [frame.data.decode("ascii", "replace")])
-        elif fid == "PCNT":
-            add("playcount", [str(frame.count)])
     return bag
 
 
@@ -184,7 +181,6 @@ _VORBIS = {
     "MUSICBRAINZ_RELEASEGROUPID": "mb_releasegroup",
     "MUSICBRAINZ_ARTISTID": "mb_artist",
     "MUSICBRAINZ_ALBUMID": "mb_release",
-    "FMPS_PLAYCOUNT": "playcount",
 }
 
 
@@ -294,17 +290,6 @@ def _mbid(items: list[str]) -> str | None:
     return None
 
 
-def _count(items: list[str]) -> int | None:
-    for v in items:
-        try:
-            n = int(float(v))
-        except (ValueError, OverflowError):  # "inf" and other junk
-            continue
-        if n >= 0:
-            return n
-    return None
-
-
 def to_fields(bag: Bag) -> dict:
     """The catalog fields a file's tags give (no id, no length), leaving out what isn't there."""
     bag = {k: values(v) for k, v in bag.items()}
@@ -333,7 +318,6 @@ def to_fields(bag: Bag) -> dict:
         "genres": get("genre") or None,
         "composers": get("composer") or None,
         "label": (get("label") or [None])[0],
-        "play_count": _count(get("playcount")),
         "musicbrainz_id": _mbid(get("mb_recording")),
         "musicbrainz_release_group_id": _mbid(get("mb_releasegroup")),
         "musicbrainz_artist_id": _mbid(get("mb_artist")),
