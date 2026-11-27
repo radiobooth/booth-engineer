@@ -234,6 +234,8 @@ HTML = f"""<!doctype html>
         <h2>Your Radio Booth account</h2>
         <p id="pair-text">On your phone, open your Radio Booth page and tap <b>Get a pairing code</b>.
           Type the code here.</p>
+        <div class="actions hidden" id="pair-other-row"><button type="button" class="quiet" id="pair-other">
+          Connect a different account</button></div>
         <form class="actions" id="pair-form">
           <input type="text" id="pair-code" autocomplete="off" spellcheck="false" aria-label="Pairing code"
             placeholder="Code">
@@ -304,7 +306,7 @@ HTML = f"""<!doctype html>
     </div>
     <div class="row">
       <div><b>Change Radio Booth's setup</b>
-        <p class="muted">Where your music is, or a new pairing.</p></div>
+        <p class="muted">Which music it uses, or which account it's connected to.</p></div>
       <button class="quiet" id="change">Change</button>
     </div>
     <div class="row">
@@ -339,7 +341,7 @@ SCRIPT = r"""
 "use strict";
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => el.classList.toggle("hidden", !on);
-let last = null, changing = false, gone = 0, turningOff = false;
+let last = null, changing = false, repairing = false, gone = 0, turningOff = false;
 let showsTimer = null, showsWanted = false, showsAsk = 0, phoneShown = null;
 const PAGE_VERSION = "__BOOTH_VERSION__";  // the version that served this page
 const edited = new Set();  // fields typed in and not yet sent: a reload would lose them
@@ -484,7 +486,7 @@ function render(s) {
     : st.step === "plex_wait" ? "Sign in to Plex and allow Radio Booth. Radio Booth never sees your Plex password."
     : !files && s.plex.ready ? "Plex stopped accepting Radio Booth's sign-in. Sign in again, or use a folder instead."
     : "Is your music in Plex, or in a folder of music files?";
-  $("plex-go").textContent = s.music.ready && !files ? "Sign in to Plex again" : s.music.ready ? "Use Plex instead" : "It's in Plex";
+  $("plex-go").textContent = s.music.ready && !files ? (plexDone ? "Change Plex library" : "Sign in to Plex again") : s.music.ready ? "Use Plex instead" : "It's in Plex";
   $("files-go").textContent = s.music.ready && files ? "Change folders" : s.music.ready ? "Use a folder instead" : "It's in a folder";
   show($("plex-actions"), (st.step === "idle" || st.step === "done") && !filesOpen);
   show($("plex-go"), !plexDone || changing);
@@ -510,10 +512,13 @@ function render(s) {
 
   const pairDone = s.account.paired && !needsPair;
   $("step-pair").classList.toggle("done", pairDone);
-  $("pair-text").textContent = pairDone && !changing
-    ? "Connected as " + JSON.stringify(s.account.name) + "."
+  // Changing the music keeps the pairing: the code box only opens when asked for, so it doesn't look like a step
+  const newPairing = !pairDone || (changing && repairing);
+  $("pair-text").textContent = !newPairing
+    ? "Connected as " + JSON.stringify(s.account.name) + "." + (changing ? " Changing your music doesn't need a new code." : "")
     : "On your phone, open your Radio Booth page and tap “Get a pairing code”. Type the code here.";
-  show($("pair-form"), (!pairDone || changing) && $("pair-ask").classList.contains("hidden"));
+  show($("pair-other-row"), pairDone && changing && !repairing);
+  show($("pair-form"), newPairing && $("pair-ask").classList.contains("hidden"));
 
   // People sharing this Radio Booth, and whose shows the list shows
   const people = s.account.people || [];
@@ -953,7 +958,7 @@ function wire() {
     refresh();
   };
   function paired() {
-    changing = false;
+    changing = repairing = false;
     renderShows([], false);  // maybe another account now: don't show the last one's shows meanwhile
     loadShows();
   }
@@ -962,7 +967,7 @@ function wire() {
     $("pair-add").disabled = $("pair-switch").disabled = true;
     try {
       const r = await post("pair_choice", {choice});
-      if (r.added) changing = false;
+      if (r.added) changing = repairing = false;
       else paired();
     } catch (x) { error("pair-error", x.message); }
     show($("pair-ask"), false);
@@ -974,8 +979,13 @@ function wire() {
   $("autostart").onchange = (ev) => post("autostart", {on: ev.target.checked}).then(refresh)
     .catch((x) => { error("settings-error", x.message); refresh(); });
   $("auto-update").onchange = (ev) => post("auto_update", {on: ev.target.checked}).then(refresh);
+  $("pair-other").onclick = () => {
+    repairing = true;
+    if (last) render(last);
+  };
   $("change").onclick = () => {
     changing = !changing;
+    repairing = false;
     show($("pair-ask"), false);  // a question about someone's code, left unanswered: the code is spent
     if (!changing) { post("cancel"); filesOpen = false; }
     if (last) render(last);
