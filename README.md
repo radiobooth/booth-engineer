@@ -3,7 +3,7 @@
   <img alt="Radio Booth" src="docs/images/logo-horizontal-on-light.svg" width="280">
 </picture>
 
-# Booth Engineer
+# Radio Booth Engineer
 
 The home client for **Radio Booth**: personal radio shows made from the music you own, with an AI DJ
 talking between songs.

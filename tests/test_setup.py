@@ -213,7 +213,7 @@ def home(tmp_path, monkeypatch):
         if code != "ABCD-2345":
             from radiobooth.link import LinkError
 
-            raise LinkError("Booth DJ: That code didn't work.", 404)
+            raise LinkError("Radio Booth: That code didn't work.", 404)
         return "be_device"
 
     monkeypatch.setattr(setup_flow.Link, "redeem", redeem)

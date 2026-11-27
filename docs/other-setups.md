@@ -25,7 +25,7 @@ There's no double-click app for Linux yet; Radio Booth installs as a command. Yo
 [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```sh
-uv tool install git+https://github.com/radiobooth/booth-engineer@v0.1.2
+uv tool install git+https://github.com/radiobooth/engineer@v0.1.2
 booth setup
 ```
 
@@ -60,7 +60,7 @@ involved. There isn't a published image yet, so build it from this repository (a
 from a Git address can do the same):
 
 ```sh
-docker build -t booth-engineer https://github.com/radiobooth/booth-engineer.git#v0.1.2
+docker build -t booth-engineer https://github.com/radiobooth/engineer.git#v0.1.2
 ```
 
 1. **Make the `Radio Booth` library in Plex first**, as in
@@ -104,7 +104,7 @@ Radio Booth as a command, for example on a Mac you reach over SSH, install it wi
 [uv](https://docs.astral.sh/uv/getting-started/installation/), in Terminal:
 
 ```sh
-uv tool install git+https://github.com/radiobooth/booth-engineer@v0.2.0
+uv tool install git+https://github.com/radiobooth/engineer@v0.2.0
 booth setup
 ```
 

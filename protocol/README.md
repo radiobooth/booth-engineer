@@ -54,7 +54,7 @@ id and its title, as Plex Web's "Grant Access" does.
 ## Updates
 
 The Booth app (Windows and Mac) asks GitHub every few hours for this repository's latest release:
-`GET https://api.github.com/repos/radiobooth/booth-engineer/releases/latest`, with a `User-Agent` of
+`GET https://api.github.com/repos/radiobooth/engineer/releases/latest`, with a `User-Agent` of
 `radiobooth/<version>` and nothing else. When there's a newer version it downloads the file for your
 computer and the release's `SHA256SUMS` from this repository's release page, and installs it only if the
 checksum matches. Turn it off on Booth's page under **Update by itself**. The `booth` command and the

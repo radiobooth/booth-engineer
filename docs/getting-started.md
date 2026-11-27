@@ -40,7 +40,7 @@ your home screen or bookmark it. The link is yours alone; please don't share it.
 
 ## 2. Download Radio Booth on the computer with your music
 
-Go to the [latest release](https://github.com/radiobooth/booth-engineer/releases/latest) and download:
+Go to the [latest release](https://github.com/radiobooth/engineer/releases/latest) and download:
 
 - **Windows:** `RadioBooth-Windows.exe`. Your browser may warn that the file "isn't commonly downloaded",
   because Radio Booth is new. It's safe to keep: in **Chrome**, click **Keep** (or **Download suspicious file**);

@@ -33,7 +33,7 @@ COMMANDS = {
     "pair": "Connect this machine to your Radio Booth account with a pairing code.",
 }
 COMMANDS["run"] = (
-    "Stay connected to Booth DJ: send the catalog when you ask for a show, deliver it when ready."
+    "Stay connected to Radio Booth: send the catalog when you ask for a show, deliver it when ready."
 )
 COMMANDS["license"] = (
     "Show Radio Booth's license (GNU GPL v3 or later) and the notices for what the app bundles."
@@ -46,7 +46,7 @@ COMMANDS["app"] = (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="booth", description="Booth Engineer for Radio Booth.")
+    parser = argparse.ArgumentParser(prog="booth", description="Radio Booth on your computer.")
     parser.add_argument("--version", action="version", version=f"booth {__version__} (GNU GPL v3 or later)")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
     for name, help_text in COMMANDS.items():
@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
                 help="the MP3 to write (default: Copies/<show title>.mp3 beside it)",
             )
         if name == "deliver":
-            p.add_argument("show", help="show folder from Booth DJ (with show.json and breaks/)")
+            p.add_argument("show", help="show folder from Radio Booth (with show.json and breaks/)")
             p.add_argument("--library", help="Plex library for breaks (default $BOOTH_BREAKS_LIBRARY)")
             p.add_argument(
                 "--dest", help="that library's folder as seen from here (default $BOOTH_BREAKS_DIR)"
@@ -86,7 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
                 nargs="?",
                 help="the code from the Radio Booth page on your phone (asked for if left out)",
             )
-            p.add_argument("--server", help="Booth DJ address (default $BOOTH_SERVER, then the saved one)")
+            p.add_argument(
+                "--server", help="Radio Booth's address (default $BOOTH_SERVER, then the saved one)"
+            )
             p.add_argument("--name", default=socket.gethostname(), help="what to call this machine")
             p.add_argument(
                 "--replace",

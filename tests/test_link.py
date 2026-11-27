@@ -76,7 +76,9 @@ class FakeDJ:
                     return self.reply(200, {"device_token": "be_secret", "name": data["name"]})
                 if self.path == "/v0/checkin":
                     if self.headers.get("Authorization") != "Bearer be_secret":
-                        return self.reply(401, {"error": "Unknown Booth Engineer"})
+                        return self.reply(
+                            401, {"error": "Unknown computer; pair it again with `booth pair`."}
+                        )
                     dj.checkins.append(data)
                     shows = dj.queue.pop(0) if dj.queue else []
                     return self.reply(200, {"next_checkin_s": 10, "shows": shows})
@@ -554,7 +556,7 @@ def test_a_catalog_booth_dj_refuses_fails_the_show_without_backing_off(dj):
     assert len(dj.catalogs) == 3
     assert dj.results == [("show_1", {"ok": False, "error": CATALOG_FAILURE})]
     assert not any("trying again in" in line for line in log)  # not mistaken for network trouble
-    assert any("Booth DJ refused this library" in line for line in log)
+    assert any("Radio Booth refused this library" in line for line in log)
 
 
 def test_a_passing_catalog_problem_is_never_given_up_on(dj):
@@ -679,7 +681,7 @@ def test_people_sharing_booth_each_check_in_when_asked(monkeypatch):
     log, seen, waits, dropped = [], [], [], []
     own = ScriptedLink("own", [60, 60, 60], seen)
     theirs = ScriptedLink(
-        "theirs", [10, 10, 10, 10, 10, LinkError("Booth DJ: Unknown Booth Engineer", 401)], seen
+        "theirs", [10, 10, 10, 10, 10, LinkError("Radio Booth: Unknown computer", 401)], seen
     )
     with pytest.raises(StopIteration):
         run_all([(own, station(log)), (theirs, station(log))], sleep=waits.append, unpaired=dropped.append)
@@ -691,7 +693,7 @@ def test_people_sharing_booth_each_check_in_when_asked(monkeypatch):
 
 def test_a_forgotten_own_account_stops_everything():
     seen = []
-    own = ScriptedLink("own", [LinkError("Booth DJ: Unknown Booth Engineer", 401)], seen)
+    own = ScriptedLink("own", [LinkError("Radio Booth: Unknown computer", 401)], seen)
     theirs = ScriptedLink("theirs", [10], seen)
     with pytest.raises(LinkError):
         run_all([(own, station([])), (theirs, station([]))], sleep=lambda s: None, unpaired=lambda i: None)
