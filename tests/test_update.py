@@ -36,6 +36,14 @@ def test_only_this_projects_own_downloads_are_used():
         update.latest_release(lambda url: b"<html>captive portal</html>")
 
 
+def test_downloads_under_the_repos_old_name_still_count():
+    old = update.OLD_DOWNLOADS + "v0.2.1/RadioBooth-macOS.zip"
+    mac = {"name": "RadioBooth-macOS.zip", "browser_download_url": old}
+    got = update.latest_release(lambda url: release_json(extra=[mac]))
+    assert got["assets"]["RadioBooth-macOS.zip"] == old
+    assert "booth-engineer" not in update.LATEST  # asks under the new name
+
+
 def test_checksums_are_read_like_sha256sum_writes_them():
     sums = update.parse_sums(
         "a" * 64 + "  RadioBooth-Windows.exe\n" + "b" * 64 + " *RadioBooth-macOS.zip\njunk\n"

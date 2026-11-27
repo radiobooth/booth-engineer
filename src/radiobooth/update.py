@@ -33,6 +33,8 @@ from radiobooth import __version__, macapp
 REPO = "radiobooth/engineer"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 DOWNLOADS = f"https://github.com/{REPO}/releases/download/"
+# The repo was radiobooth/booth-engineer until 0.5.8; GitHub still redirects that name, so take either.
+OLD_DOWNLOADS = "https://github.com/radiobooth/booth-engineer/releases/download/"
 SUMS = "SHA256SUMS"
 ASSETS = {"win32": "RadioBooth-Windows.exe", "darwin": "RadioBooth-macOS.zip"}
 # The release workflow writes CHANGELOG.md's notes, then this line, then where to download and the license.
@@ -83,7 +85,11 @@ def latest_release(get: Callable[[str], bytes] = fetch) -> dict:
     for a in data.get("assets") or []:
         url = a.get("browser_download_url") if isinstance(a, dict) else None
         # Only files on this project's own release pages, over https.
-        if isinstance(url, str) and url.startswith(DOWNLOADS) and isinstance(a.get("name"), str):
+        if (
+            isinstance(url, str)
+            and url.startswith((DOWNLOADS, OLD_DOWNLOADS))
+            and isinstance(a.get("name"), str)
+        ):
             assets[a["name"]] = url
     body = data.get("body")
     return {
