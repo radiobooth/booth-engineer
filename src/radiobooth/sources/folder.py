@@ -42,7 +42,7 @@ PLAY_COUNT_SHARE = 0.5  # send play counts only when at least this share of trac
 NO_NAMES = "no title or artist tag"
 NO_LENGTH = "no audio length"
 UNREADABLE = "couldn't be read"
-UNSUPPORTED = "a file type Booth can't read yet"
+UNSUPPORTED = "a file type Radio Booth can't read yet"
 ONE_FILE_ALBUM = "a whole album in one file, with a CUE sheet (not split into tracks yet)"
 SAME_NAME = "another file has the same name, written with different accent characters"
 READERS = 8  # files read at once
@@ -127,14 +127,15 @@ class Report:
             out += [f"    {p}" for p in self.samples[reason]]
         if self.duplicates:
             out.append(
-                f"Left out as extra copies of a track: {len(self.duplicates)} (Booth keeps the best copy)"
+                f"Left out as extra copies of a track: {len(self.duplicates)}"
+                " (Radio Booth keeps the best copy)"
             )
             out += [f"    {d}  (kept {k})" for d, k in self.duplicates[: self.examples]]
         if self.other_types:
             kinds = ", ".join(f"{ext} {n}" for ext, n in self.other_types.most_common())
-            out.append(f"Audio files of types Booth can't read yet: {kinds}")
+            out.append(f"Audio files of types Radio Booth can't read yet: {kinds}")
         if self.unopened_folders:
-            out.append(f"Folders Booth wasn't allowed to open: {self.unopened_folders}")
+            out.append(f"Folders Radio Booth wasn't allowed to open: {self.unopened_folders}")
         if self.from_path:
             out.append(
                 f"Named from folder and file names (no tags): {self.from_path}. The DJ checks these names"

@@ -37,10 +37,17 @@ def music_ready(settings: dict) -> bool:
     return plex_ready(settings)
 
 
+SHOWS_FOLDER = "Radio Booth shows"
+OLD_SHOWS_FOLDER = "Booth shows"  # the name before 0.5.8
+
+
 def default_shows_folder(home: Path | None = None) -> Path:
     """Where shows go unless the person says otherwise: beside their music, not in it, so a music player
-    watching the music folder doesn't list the DJ's breaks as songs."""
-    return (home or Path.home()) / "Booth shows"
+    watching the music folder doesn't list the DJ's breaks as songs. A "Booth shows" folder made before
+    0.5.8 stays in use (Plex copies are found there by this default), so nothing already made moves."""
+    home = home or Path.home()
+    old, new = home / OLD_SHOWS_FOLDER, home / SHOWS_FOLDER
+    return old if old.is_dir() and not new.exists() else new
 
 
 def default_music_folder(home: Path | None = None) -> Path | None:
@@ -202,16 +209,16 @@ class WebSetup:
                 Path(path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
                 raise SetupError(
-                    f"Your {ob.BREAKS_LIBRARY!r} Plex library uses {path}, and Booth can't make that folder"
-                    f" ({e.strerror or e}). In Plex, point the library at a folder that exists, then try"
-                    " again."
+                    f"Your {ob.BREAKS_LIBRARY!r} Plex library uses {path}, and Radio Booth can't make that "
+                    f"folder ({e.strerror or e}). In Plex, point the library at a folder that exists, then"
+                    " try again."
                 ) from None
             self._save_plex(path)
         elif breaks is None:
             raise SetupError(
-                f"Your Plex server {self._server.get('name')!r} runs on another computer, so Booth needs a"
-                " folder for the DJ's breaks that both can reach. Make a folder on the Plex computer, add a"
-                f" Music library named {ob.BREAKS_LIBRARY!r} for it in Plex, share the folder so this"
+                f"Your Plex server {self._server.get('name')!r} runs on another computer, so Radio Booth "
+                "needs a folder for the DJ's breaks that both can reach. Make a folder on the Plex computer,"
+                f" add a Music library named {ob.BREAKS_LIBRARY!r} for it in Plex, share the folder so this"
                 " computer can open it, then try again."
             )
         else:
@@ -224,7 +231,7 @@ class WebSetup:
 
     def use_folder(self, path: str) -> None:
         if self.step != "folder":
-            raise SetupError("Booth isn't asking for a folder right now.")
+            raise SetupError("Radio Booth isn't asking for a folder right now.")
         path = path.strip().strip('"')
         if not path or not Path(path).is_dir():
             raise SetupError(
@@ -260,7 +267,7 @@ class WebSetup:
             raise SetupError("Type the folder your music is in.")
         if not music_path.is_absolute() or not music_path.is_dir():
             raise SetupError(
-                "Booth can't find that music folder. Copy its full path (e.g. from the address bar of"
+                "Radio Booth can't find that music folder. Copy its full path (e.g. from the address bar of"
                 " File Explorer or Finder) and try again."
             )
         if not shows_path.is_absolute():
@@ -271,7 +278,7 @@ class WebSetup:
         try:
             shows_path.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            raise SetupError(f"Booth can't make the folder {shows_path} ({e.strerror or e}).") from None
+            raise SetupError(f"Radio Booth can't make the folder {shows_path} ({e.strerror or e}).") from None
         with self._lock:
             self.reset()
             config.update(

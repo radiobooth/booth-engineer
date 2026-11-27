@@ -169,7 +169,7 @@ def set_aside(exe: Path) -> Path:
         except OSError:
             old = exe.with_name(f"{exe.stem}.old{n}{exe.suffix}")
     raise UpdateError(
-        "Booth's folder is full of old copies still in use; restart the computer, then try again"
+        "Radio Booth's folder is full of old copies still in use; restart the computer, then try again"
     )
 
 
@@ -232,7 +232,7 @@ def apply(
     target = installed(platform)
     name = ASSETS.get(platform)
     if target is None or name is None:
-        raise UpdateError("this copy of Booth doesn't update itself")
+        raise UpdateError("this copy of Radio Booth doesn't update itself")
     url, sums_url = release["assets"].get(name), release["assets"].get(SUMS)
     if not url or not sums_url:
         raise UpdateError(f"version {release['version']} has no checked download for this computer")
@@ -377,16 +377,16 @@ class Updater:
                 while self._busy():
                     time.sleep(pause)
                 self.state, self.message = "installing", f"Installing version {version}..."
-            self._log(f"Installing Booth {version}...")
+            self._log(f"Installing Radio Booth {version}...")
             try:
                 apply(release)
             except Exception as e:  # noqa: BLE001 - say what; the old version keeps running
                 self.state, self.message = "failed", f"Couldn't install the update: {e}."
-                self._log(f"Couldn't install Booth {version}: {e!r}")
+                self._log(f"Couldn't install Radio Booth {version}: {e!r}")
                 return
             self.state = "installed"
-            self.message = f"Version {version} installed; Booth is starting again."
-            self._log(f"Booth {version} installed; starting again.")
+            self.message = f"Version {version} installed; Radio Booth is starting again."
+            self._log(f"Radio Booth {version} installed; starting again.")
             self._restart()
         finally:
             self._lock.release()

@@ -139,8 +139,8 @@ def default_breaks_dir(watched: list[str], plex_uid: int | None = None) -> Path:
             return folder
     if plex_uid is not None:
         raise SetupError(
-            "Couldn't find a folder for the DJ's breaks that both Booth and Plex can use (Plex runs as its"
-            f" own user here). In Plex, add a Music library named {BREAKS_LIBRARY!r} for an empty folder"
+            "Couldn't find a folder for the DJ's breaks that both Radio Booth and Plex can use (Plex runs as "
+            f"its own user here). In Plex, add a Music library named {BREAKS_LIBRARY!r} for an empty folder"
             " that Plex can read and you can write to, then run setup again."
         )
     raise SetupError(

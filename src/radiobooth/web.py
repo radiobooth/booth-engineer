@@ -75,7 +75,7 @@ def bind(port: int = PORT) -> socket.socket:
             continue
         s.listen(16)
         return s
-    raise OSError("Booth couldn't start its page on this computer")
+    raise OSError("Radio Booth couldn't start its page on this computer")
 
 
 def page_link(path: Path | None = None) -> str | None:
@@ -252,13 +252,13 @@ class App:
         settings = config.load()
         plex = self._plex_shows(settings)
         if not SHOW_ID.fullmatch(show_id) or (not engine.folder_mode(settings) and plex is None):
-            raise SetupError("Booth can't remove that show here.")
+            raise SetupError("Radio Booth can't remove that show here.")
         found = None
         if plex is not None:  # looking for an older show's playlist can take a while: not under the lock
             client, dest, library, copies = plex
             folder = plex_target.show_folder(dest, show_id, title)
             if folder is None:
-                raise SetupError("That show's breaks aren't in Booth's breaks folder any more.")
+                raise SetupError("That show's breaks aren't in Radio Booth's breaks folder any more.")
             try:
                 found = plex_target.find_show(client, dest, show_id, title, folder)
             except PlexError as e:
@@ -268,8 +268,8 @@ class App:
             copying = self.copy
             if copying and not copying.get("finished") and copying.get("show_id") == show_id:
                 raise SetupError(
-                    "Booth is copying that show or making it into one file. Wait for that to finish, then"
-                    " remove it."
+                    "Radio Booth is copying that show or making it into one file. Wait for that to finish, "
+                    "then remove it."
                 )
             # And holding MIXING, so a file for a phone can't be made or sent from it meanwhile.
             if not playlist_target.MIXING.acquire(blocking=False):
@@ -278,7 +278,7 @@ class App:
                     if link_sending(show_id)
                     else "busy making a show into a file"
                 )
-                raise SetupError(f"Booth is {what}. Wait for that to finish, then remove it.")
+                raise SetupError(f"Radio Booth is {what}. Wait for that to finish, then remove it.")
             try:
                 if plex is None:
                     shows = engine.folder_settings(settings)[0]["shows"]
@@ -301,9 +301,9 @@ class App:
                 playlist_target.MIXING.release()
         if not gone:
             raise SetupError(
-                "That show isn't in your Booth shows folder any more."
+                "That show isn't in your shows folder any more."
                 if plex is None
-                else "That show's breaks aren't in Booth's breaks folder any more."
+                else "That show's breaks aren't in Radio Booth's breaks folder any more."
             )
 
     def copy_show(self, show_id: str, kind: str = "folder", title: str = "") -> None:
@@ -317,15 +317,15 @@ class App:
             or not SHOW_ID.fullmatch(show_id)
             or kind not in ("folder", "file")
         ):
-            raise SetupError("Booth can't copy that show here.")
+            raise SetupError("Radio Booth can't copy that show here.")
         target = plex_target if plex else playlist_target
         make = target.one_file if kind == "file" else target.copy_out
         if plex:
             client, dest, _library, copies = plex
             if onboard.in_container() and not engine.setting(settings, "BOOTH_SHOWS_FOLDER", "shows_folder"):
                 raise SetupError(
-                    "Booth is running in a container, so a copy would stay inside it. Mount a folder and set"
-                    " BOOTH_SHOWS_FOLDER to it, and copies go there."
+                    "Radio Booth is running in a container, so a copy would stay inside it. Mount a folder "
+                    "and set BOOTH_SHOWS_FOLDER to it, and copies go there."
                 )
             run = functools.partial(make, client, dest, copies, show_id, title)
         else:
@@ -334,11 +334,13 @@ class App:
         with self._copy_lock:
             if self.copy and not self.copy.get("finished"):
                 raise SetupError(
-                    "Booth is copying a show or making one into a file already. Wait for that one to finish."
+                    "Radio Booth is copying a show or making one into a file already. Wait for that one to"
+                    " finish."
                 )
             if not playlist_target.MIXING.acquire(blocking=False):
                 raise SetupError(
-                    "Booth is making a show into one file for a phone right now. Try again when that's done."
+                    "Radio Booth is making a show into one file for a phone right now. Try again when"
+                    " that's done."
                 )
             try:
                 self.copy = {"show_id": show_id, "kind": kind, "done": 0, "total": 0, "finished": False}
@@ -382,11 +384,11 @@ class App:
         settings = settings or config.load()
         token = settings.get("device_token")
         if not token:
-            raise SetupError("Connect Booth to your account first.")
+            raise SetupError("Connect Radio Booth to your account first.")
         if who:
             person = next((p for p in config.people(settings) if p["id"] == who), None)
             if person is None:
-                raise SetupError("Booth doesn't make shows for that person any more. Reload this page.")
+                raise SetupError("Radio Booth doesn't make shows for that person any more. Reload this page.")
             token = person["device_token"]
         try:
             # The server it paired with and checks in with, never another one the token would mean nothing to.
@@ -404,9 +406,11 @@ class App:
                 " code from their phone."
             )
         if e.network:
-            return SetupError("Booth can't reach Radio Booth right now. Is this computer online?")
+            return SetupError("Radio Booth can't reach Radio Booth right now. Is this computer online?")
         if e.status is None:
-            return SetupError("Radio Booth sent an answer Booth didn't understand. Try again in a moment.")
+            return SetupError(
+                "Radio Booth sent an answer Radio Booth didn't understand. Try again in a moment."
+            )
         if e.status == 401:
             return SetupError("This computer was removed from your Radio Booth. Pair it again in Settings.")
         if said.startswith("HTTP "):  # no message of its own (a 502 from in front of it, say)
@@ -433,7 +437,7 @@ class App:
                         config.update({"account_name": name})
         shows = listed.get("shows")
         shows = [s for s in shows[:6] if isinstance(s, dict)] if isinstance(shows, list) else []
-        if engine.folder_mode(settings):  # which shows are still in the Booth shows folder, to remove
+        if engine.folder_mode(settings):  # which shows are still in the shows folder, to remove
             folder = engine.folder_settings(settings)[0]["shows"]
             here = {s.show_id for s in playlist_target.shows(Path(folder).expanduser())} if folder else set()
             shows = [s | {"on_disk": s.get("show_id") in here} for s in shows]
@@ -493,9 +497,10 @@ class App:
             # Most likely a code from the account Booth already makes shows for. Radio Booth has no account id
             # to tell, so nothing changes rather than risk mixing two accounts up.
             raise SetupError(
-                f"That code is from an account named {name}, like the one Booth already makes shows for. To"
-                " add someone else, get the code on their phone while they're signed in to their own account."
-                " (Booth tells accounts apart by name, so two with the same name can't share it.)"
+                f"That code is from an account named {name}, like the one Radio Booth already makes shows "
+                "for. To add someone else, get the code on their phone while they're signed in to their own"
+                " account. (Radio Booth tells accounts apart by name, so two with the same name can't share"
+                " it.)"
             )
         self._add(token, name, main.server)
         return {"name": name}
@@ -570,12 +575,12 @@ class App:
         try:
             return {"users": plexshare.users(token, config.plex_client_id())}
         except PlexError as e:
-            raise SetupError(f"Booth couldn't get your Plex users ({e}).") from None
+            raise SetupError(f"Radio Booth couldn't get your Plex users ({e}).") from None
 
     def person_plex(self, who: str, user_id) -> dict:
         """Share this person's playlists with a Plex user from now on (None: nobody; they stay in yours)."""
         if not any(p["id"] == who for p in config.people(config.load())):
-            raise SetupError("Booth doesn't make shows for that person any more.")
+            raise SetupError("Radio Booth doesn't make shows for that person any more.")
         user, said = None, ""
         if user_id not in (None, ""):
             token, library = self._plex()
@@ -591,7 +596,7 @@ class App:
                     raise SetupError("That Plex user isn't one of yours any more. Reload this page.")
                 sees = plexshare.sees_library(token, client_id, machine, user["id"], library)
             except (PlexError, KeyError, TypeError) as e:
-                raise SetupError(f"Booth couldn't check that Plex user ({e}).") from None
+                raise SetupError(f"Radio Booth couldn't check that Plex user ({e}).") from None
             if sees is False:
                 said = (
                     f"Your Plex server doesn't share the {library!r} library with {user['title']}, so the"
@@ -608,7 +613,7 @@ class App:
 
     def remove_person(self, who: str) -> None:
         if not any(p["id"] == who for p in config.people(config.load())):
-            raise SetupError("Booth doesn't make shows for that person any more.")
+            raise SetupError("Radio Booth doesn't make shows for that person any more.")
         config.change_people(lambda people: [p for p in people if p["id"] != who])
         with contextlib.suppress(OSError):  # their show history goes with them
             history.path(who).unlink(missing_ok=True)
@@ -628,7 +633,7 @@ class App:
             self.setup.use_music_folder(str(body.get("music", "")), str(body.get("shows", "")))
         elif action == "rescan":
             if not self.engine.scan_music():
-                raise SetupError("Booth is reading your music already.")
+                raise SetupError("Radio Booth is reading your music already.")
         elif action == "remove_show":
             self.remove_show(str(body.get("show_id", "")), str(body.get("title") or "")[:200])
         elif action == "copy_show":
@@ -665,7 +670,7 @@ class App:
         elif action == "quit":
             threading.Timer(0.5, self.quit.set).start()  # answer the page first
         else:
-            raise SetupError("Booth doesn't know that button.")
+            raise SetupError("Radio Booth doesn't know that button.")
         return {}
 
 
@@ -753,16 +758,16 @@ def handler(app: App, key: str, origins: set[str]) -> type[BaseHTTPRequestHandle
 
         def do_POST(self):  # noqa: N802
             if not self._host_ok() or self.headers.get("Origin") not in origins or not self._key_ok():
-                return self._json(403, {"error": "Not from Booth's page."})
+                return self._json(403, {"error": "Not from Radio Booth's page."})
             if self.headers.get_content_type() != "application/json" or not self.path.startswith("/api/"):
-                return self._json(400, {"error": "Not a Booth request."})
+                return self._json(400, {"error": "Not a Radio Booth request."})
             try:
                 length = min(int(self.headers.get("Content-Length") or 0), 64 * 1024)
                 body = json.loads(self.rfile.read(length) or b"{}")
                 if not isinstance(body, dict):
                     raise ValueError
             except ValueError:
-                return self._json(400, {"error": "Not a Booth request."})
+                return self._json(400, {"error": "Not a Radio Booth request."})
             try:
                 return self._json(200, app.act(self.path.removeprefix("/api/"), body))
             except SetupError as e:
@@ -845,8 +850,9 @@ def main(
         if background or open_running(open_browser):
             return 0
         notice(
-            "Booth is already running on this computer, in an older version or as `booth run`, so it has no"
-            " page to show. Close that Booth (its window, or `booth run`), then open Radio Booth again."
+            "Radio Booth is already running on this computer, in an older version or as `booth run`, so it "
+            "has no page to show. Close that Radio Booth (its window, or `booth run`), then open Radio Booth"
+            " again."
         )
         return 5
 

@@ -30,7 +30,7 @@ def render(v: str | None = None, ref: str | None = None) -> str:
     ref = ref or f"v{v}"
     return (
         f"Radio Booth {v}\n{COPYRIGHT}\n\n"
-        "Booth is free software: you can redistribute it and/or modify it under the terms of the\n"
+        "Radio Booth is free software: you can redistribute it and/or modify it under the terms of the\n"
         "GNU General Public License, version 3 or (at your option) any later version. It comes with\n"
         "ABSOLUTELY NO WARRANTY. See LICENSE.\n"
         f"Source code for this version: {SOURCE_URL}/tree/{ref}\n\n"

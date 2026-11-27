@@ -45,10 +45,13 @@ class PackageError(Exception):
 
 
 GENERIC_FAILURE = "Delivery failed on this machine; details are in the booth run log there."
-FILE_FAILURE = "Making the file failed on this machine; details are in Booth's log there."
-CATALOG_FAILURE = "Booth couldn't read the music library on this machine; details are in Booth's log there."
+FILE_FAILURE = "Making the file failed on this machine; details are in Radio Booth's log there."
+CATALOG_FAILURE = (
+    "Radio Booth couldn't read the music library on this machine; details are in Radio Booth's log there."
+)
 NO_SONGS_FAILURE = (
-    "Booth found no songs it can use in the music library on this computer; details are in Booth's log there."
+    "Radio Booth found no songs it can use in the music library on this computer; details are in Radio"
+    " Booth's log there."
 )
 # A problem that says it's `lasting` (asking again gets the same answer) fails the show after this many tries
 # in a row, so the listener's later shows don't wait an hour behind it. Anything else is tried until Booth DJ
@@ -352,7 +355,7 @@ def _send_file(link: Link, station: Station, show_id: str, title: str) -> None:
             with contextlib.suppress(LinkError):
                 link.file_result(show_id, ok=False)
         else:
-            station.log(f"{show_id}: {e} (Booth tries again shortly)")
+            station.log(f"{show_id}: {e} (Radio Booth tries again shortly)")
     except Exception as e:  # noqa: BLE001 - a thread of its own: say what, and let the DJ ask again
         station.log(f"{show_id}: sending the file failed: {e}")
     finally:
@@ -391,7 +394,7 @@ def handle(link: Link, station: Station, item: dict) -> None:
             station.log(f"{show_id}: left out {skipped} tracks the catalog can't hold (the first: {why}).")
         if not catalog["tracks"]:
             why = f" ({skipped} left out; the first: {why})" if skipped else ""
-            raise NoSongs(f"Booth found no songs it can use in your music library{why}.")
+            raise NoSongs(f"Radio Booth found no songs it can use in your music library{why}.")
         try:
             link.send_catalog(item["catalog_url"], catalog)
         except LinkError as e:
@@ -440,7 +443,7 @@ def give_up(link: Link, station: Station, show_id: str, e: Exception) -> bool:
             raise
         return False
     forget(station, show_id)
-    station.log(f"{show_id}: {e} Booth stopped trying, so the show failed; the next one can go ahead.")
+    station.log(f"{show_id}: {e} Radio Booth stopped trying, so the show failed; the next one can go ahead.")
     return True
 
 
@@ -499,7 +502,7 @@ def check_in(link: Link, station: Station, backoff: float = 0.0) -> tuple[float,
                                 continue
                 if station.problems.get(show_id) != str(e):
                     station.problems[show_id] = str(e)
-                    station.log(f"{show_id}: {e} (Booth keeps trying; this is logged once)")
+                    station.log(f"{show_id}: {e} (Radio Booth keeps trying; this is logged once)")
             else:
                 if item.get("action") == "send_catalog":
                     forget(station, show_id)

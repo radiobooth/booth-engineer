@@ -391,7 +391,7 @@ def _tag(path: Path, *, title: str, artist: str, show_id: str, cover: bytes | No
     tags = ID3()
     tags.add(TIT2(encoding=3, text=title))
     tags.add(TPE1(encoding=3, text=artist))
-    tags.add(TALB(encoding=3, text="Booth shows"))
+    tags.add(TALB(encoding=3, text="Radio Booth shows"))
     tags.add(TXXX(encoding=3, desc=MARK, text=show_id))
     if cover:
         mime = "image/png" if cover.startswith(b"\x89PNG") else "image/jpeg"
@@ -458,7 +458,7 @@ def from_playlist(playlist: Path) -> tuple[list[Item], dict]:
     show = {
         "title": header.get("title") or playlist.stem,
         "show_id": header.get("show_id") or "",
-        "artist": dj or "Booth",
+        "artist": dj or "Radio Booth",
         "cover": cover,
     }
     return items, show

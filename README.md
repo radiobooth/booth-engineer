@@ -19,13 +19,13 @@ Status: early development. Exactly what is sent, and when, is in [`protocol/`](p
 ## Using it
 
 **Setting it up for the first time?** Follow [docs/getting-started.md](docs/getting-started.md): download
-the app for Windows or macOS and open it. Booth opens its page in your browser, which walks you through
-choosing your music (signing in to Plex, or naming your music folder) and connecting to your Booth account, then shows how Booth is doing. The app runs in the
+the app for Windows or macOS and open it. Radio Booth opens its page in your browser, which walks you through
+choosing your music (signing in to Plex, or naming your music folder) and connecting to your Radio Booth account, then shows how Radio Booth is doing. The app runs in the
 background with no window and keeps itself up to date. With the command installed, `booth app` does the
 same, and `booth setup` is the step-by-step version in the terminal. Either saves its settings in the config
 file below, so nothing needs to be set in the environment.
 
-Booth's page is served only to this computer (on 127.0.0.1, behind a random key the app hands your
+Radio Booth's page is served only to this computer (on 127.0.0.1, behind a random key the app hands your
 browser); nothing on your network can reach it.
 
 **Use Claude, ChatGPT or Gemini?** Connect it to Radio Booth (a custom connector at
@@ -48,7 +48,7 @@ export BOOTH_MUSIC_LIBRARY="Music"                             # if Plex has mor
 export BOOTH_BREAKS_LIBRARY="Radio Booth"                      # the Plex library for breaks
 export BOOTH_BREAKS_DIR=/path/to/that/library/folder           # the same folder, as seen from here
 
-booth pair --server https://...   # once: asks for the code from the Booth page on your phone
+booth pair --server https://...   # once: asks for the code from the Radio Booth page on your phone
 booth run                         # stays connected; leave it running
 ```
 
@@ -57,12 +57,12 @@ booth run                         # stays connected; leave it running
 
 ### Music in a folder
 
-Booth can use a plain folder of music files (MP3, FLAC, Ogg, Opus, M4A, WMA, WAV, AIFF) instead of Plex:
-on Booth's page, choose **It's in a folder** and name your music folder and a folder for your shows. Each show
+Radio Booth can use a plain folder of music files (MP3, FLAC, Ogg, Opus, M4A, WMA, WAV, AIFF) instead of Plex:
+on Radio Booth's page, choose **It's in a folder** and name your music folder and a folder for your shows. Each show
 arrives there as an `.m3u8` playlist, with its DJ breaks in `breaks/` beside it, so any player that opens
 playlists plays it (foobar2000, MusicBee, VLC, Winamp, Music on a Mac). The playlist points at your music
-where it is: Booth only reads your files, and never changes, moves, renames or uploads them. **Remove** on
-Booth's page deletes a show's playlist and breaks. **Copy to a folder** copies a show whole into
+where it is: Radio Booth only reads your files, and never changes, moves, renames or uploads them. **Remove** on
+Radio Booth's page deletes a show's playlist and breaks. **Copy to a folder** copies a show whole into
 `Copies/<title>/` in the shows folder: its songs and breaks as numbered files in playing order, plus a
 playlist, to put on a phone, a USB stick or a car's drive. **Make one file** mixes a show into one MP3,
 `Copies/<title>.mp3`, the way it sounds on the radio: levels evened, songs crossfaded (the next track of the
@@ -73,12 +73,12 @@ nothing is uploaded.
 
 The same three buttons sit under shows delivered to Plex. **Remove** deletes the show's Plex playlist and its
 breaks. **Copy to a folder** and **Make one file** fetch the show's songs from your Plex server to this
-computer and write the copy into `Copies/` in the `Booth shows` folder in your home folder (or in
+computer and write the copy into `Copies/` in the `Radio Booth shows` folder in your home folder (or in
 `BOOTH_SHOWS_FOLDER`, when that's set).
 
-Booth reads the folder's tags when you set it up (with a progress bar: the first read of a big collection
-takes a while) and again when Booth starts and for each show, reading only files that are new or changed. It
-keeps what it read in an index next to its config file (`folders/`). Booth's page shows what it found in your
+Radio Booth reads the folder's tags when you set it up (with a progress bar: the first read of a big collection
+takes a while) and again when Radio Booth starts and for each show, reading only files that are new or changed. It
+keeps what it read in an index next to its config file (`folders/`). Radio Booth's page shows what it found in your
 tags: how many tracks it can use, which files it left out and why, and how much of the library has years,
 genres and other details. `booth scan ~/Music` prints the same report; add `--catalog catalog.json` to see
 exactly what would be sent. By hand, set `BOOTH_SOURCE=folder`, `BOOTH_MUSIC_FOLDER` and
@@ -86,13 +86,13 @@ exactly what would be sent. By hand, set `BOOTH_SOURCE=folder`, `BOOTH_MUSIC_FOL
 
 So new shows don't repeat what you've just heard, Booth Engineer remembers which tracks were in the shows it
 delivered, in `history.json` next to its config file (normally `~/.config/radiobooth/`), and in
-`history-<id>.json` for each other person sharing this Booth (see below). That history stays
+`history-<id>.json` for each other person sharing this Radio Booth (see below). That history stays
 on your machine except inside a show's catalog. Delete the file to start over.
 
-Someone with their own Radio Booth account can share this Booth: on Booth's page, under **Settings**, click
+Someone with their own Radio Booth account can share this Radio Booth: on Radio Booth's page, under **Settings**, click
 **Add another person** and type the pairing code from their phone. Their shows come from the same music and go
 to the same place (Plex, or the shows folder), with their name at the start of each playlist's title, and
-count against their own show time. With Plex, pick their Plex user next to their name and Booth shares each of
+count against their own show time. With Plex, pick their Plex user next to their name and Radio Booth shares each of
 their new playlists with them in Plex.
 `booth run` makes shows for everyone added there.
 

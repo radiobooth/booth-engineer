@@ -52,7 +52,7 @@ def test_a_show_is_a_playlist_of_the_music_where_it_is_and_the_breaks(tmp_path):
         "#EXTM3U",
         "#PLAYLIST:Jennifer: Wipers On, Long Way Home",
         "#BOOTH-SHOW:show_abcdef123456",
-        "#EXTINF:20,Booth - Break 1",
+        "#EXTINF:20,Radio Booth - Break 1",
         "breaks/2026-11-03-wipers-on-long-way-home-123456/01.mp3",
     ]
     # Relative to the playlist, so it plays wherever the folders are reached (another computer, a NAS).
@@ -102,8 +102,8 @@ def test_a_damaged_package_is_refused_before_anything_is_written(tmp_path):
     ("title", "name"),
     [
         ('AC/DC: "Live" <at> the Ritz?', "AC-DC - Live at the Ritz"),
-        ("CON", "Booth show CON"),
-        ("...", "Booth show"),
+        ("CON", "Radio Booth show CON"),
+        ("...", "Radio Booth show"),
         ("Late night\tdrive. ", "Late night drive"),
         ("Sigur Rós ✶ " + "x" * 200, ("Sigur Rós ✶ " + "x" * 200)[:100]),
     ],
@@ -157,10 +157,10 @@ def test_a_show_copied_to_a_folder_is_numbered_files_in_playing_order(tmp_path):
     assert seen[0] == (0, 4) and seen[-1] == (4, 4)
     names = sorted(p.name for p in made.folder.iterdir())
     assert names == [
-        "01 Booth - Break 1.mp3",
+        "01 Radio Booth - Break 1.mp3",
         "02 Artist 101 - Song 101.flac",
-        "03 Booth - Break 2.mp3",
-        "04 Booth - Break 3.mp3",
+        "03 Radio Booth - Break 2.mp3",
+        "04 Radio Booth - Break 3.mp3",
         "Jennifer - Wipers On, Long Way Home.m3u8",
     ]
     assert (made.folder / "02 Artist 101 - Song 101.flac").read_bytes() == b"audio"
@@ -178,7 +178,7 @@ def test_a_show_copied_to_a_folder_is_numbered_files_in_playing_order(tmp_path):
 
     assert playlist.remove(out, "show_abcdef123456")
     assert not made.folder.exists() and other.folder.exists()
-    with pytest.raises(playlist.PlaylistError, match="isn't in your Booth shows folder"):
+    with pytest.raises(playlist.PlaylistError, match="isn't in your shows folder"):
         playlist.copy_out(out, "show_abcdef123456")
 
 

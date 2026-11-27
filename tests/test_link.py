@@ -462,7 +462,7 @@ def test_a_problem_that_repeats_every_checkin_is_logged_once(dj):
     def catalog():
         tries.append(1)
         if len(tries) < 3:
-            raise RuntimeError("Plex no longer accepts Booth's sign-in")
+            raise RuntimeError("Plex no longer accepts Radio Booth's sign-in")
         return {"protocol": "radiobooth/catalog@0", "tracks": [SONG]}
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append)
@@ -472,7 +472,8 @@ def test_a_problem_that_repeats_every_checkin_is_logged_once(dj):
     assert len(tries) == 3  # still tried at every check-in
     assert log == [
         "show_1: reading the library for a new show...",
-        "show_1: Plex no longer accepts Booth's sign-in (Booth keeps trying; this is logged once)",
+        "show_1: Plex no longer accepts Radio Booth's sign-in"
+        " (Radio Booth keeps trying; this is logged once)",
         "show_1: sent 1 tracks; the DJ is on it.",
     ]
     assert st.problems == {} and len(dj.catalogs) == 1
@@ -493,7 +494,7 @@ def test_a_lasting_catalog_problem_fails_the_show_so_the_next_can_go(dj):
     log = []
 
     def catalog():
-        raise Unreadable("Plex sent a reply Booth couldn't read.")
+        raise Unreadable("Plex sent a reply Radio Booth couldn't read.")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append)
     link = Link(dj.url, "be_secret")
@@ -503,7 +504,9 @@ def test_a_lasting_catalog_problem_fails_the_show_so_the_next_can_go(dj):
     run(link, st, once=True)
     assert dj.results == [("show_1", {"ok": False, "error": CATALOG_FAILURE})]
     assert st.lasting == {} and st.problems == {}
-    assert log[-1].startswith("show_1: Plex sent a reply Booth couldn't read. Booth stopped trying")
+    assert log[-1].startswith(
+        "show_1: Plex sent a reply Radio Booth couldn't read. Radio Booth stopped trying"
+    )
 
 
 def test_a_library_with_no_usable_songs_fails_the_show_with_a_plain_reason(dj):
@@ -901,7 +904,7 @@ def scanning_station(log, now, songs_after=None):
         asked.append(during_scan)
         if during_scan and songs_after is not None and now[0] >= songs_after:
             return {"protocol": "radiobooth/catalog@0", "tracks": [SONG]}
-        raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
+        raise PlexScanning("Plex is still reading your music library; Radio Booth gives it a few minutes.")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=log.append, clock=lambda: now[0])
     return st, asked
@@ -961,7 +964,7 @@ def test_a_music_folder_being_read_waits_with_no_limit_of_its_own(dj):
     now = [0.0]
 
     def catalog(during_scan=False):
-        raise FolderBusy("Booth is still reading your music folder; the show starts after that.")
+        raise FolderBusy("Radio Booth is still reading your music folder; the show starts after that.")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: now[0])
     link = Link(dj.url, "be_secret")
@@ -978,7 +981,9 @@ def test_another_problem_while_waiting_stops_saying_plex_is_scanning(dj):
     def catalog(during_scan=False):
         calls.append(1)
         if len(calls) == 1:
-            raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
+            raise PlexScanning(
+                "Plex is still reading your music library; Radio Booth gives it a few minutes."
+            )
         raise RuntimeError("Could not reach Plex")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: 0.0)
@@ -1008,8 +1013,10 @@ def test_a_wait_between_lasting_problems_starts_their_count_again(dj):
     def catalog(during_scan=False):
         calls.append(1)
         if len(calls) == 3:
-            raise PlexScanning("Plex is still reading your music library; Booth gives it a few minutes.")
-        raise Unreadable("Plex sent a reply Booth couldn't read.")
+            raise PlexScanning(
+                "Plex is still reading your music library; Radio Booth gives it a few minutes."
+            )
+        raise Unreadable("Plex sent a reply Radio Booth couldn't read.")
 
     st = Station(catalog=catalog, deliver=lambda p: "x", log=lambda m: None, clock=lambda: 0.0)
     link = Link(dj.url, "be_secret")

@@ -1,6 +1,6 @@
 """Deliver a finished show as a playlist file, for music kept in a plain folder.
 
-Each show becomes one .m3u8 playlist in the Booth shows folder, beside a breaks/ folder holding its breaks.
+Each show becomes one .m3u8 playlist in the shows folder, beside a breaks/ folder holding its breaks.
 The playlist lists the user's own files where they are (nothing is copied or moved) and the breaks between
 them, so any player that opens playlists plays the show: foobar2000, MusicBee, VLC, Winamp, Music on a Mac.
 Paths are written relative to the playlist, with forward slashes, whenever the music is on the same drive or
@@ -63,7 +63,7 @@ def file_name(title: str) -> str:
     name = re.sub(r'[<>"?*\x00-\x1f\x7f]', "", name)
     name = re.sub(r"\s+", " ", name).strip(" .")[:100].strip(" .")
     if not name or name.split(".")[0].lower() in _RESERVED:
-        name = f"Booth show {name}".strip()
+        name = f"Radio Booth show {name}".strip()
     return name
 
 
@@ -163,7 +163,7 @@ def deliver(
     if not folder.resolve().is_relative_to(root):
         raise PlaylistError(f"Refusing to write outside {out_root}.")
     music_root = music_root.resolve()
-    host = _line(package.get("dj", {}).get("name") or "") or "Booth"
+    host = _line(package.get("dj", {}).get("name") or "") or "Radio Booth"
 
     lines = ["#EXTM3U", f"#PLAYLIST:{_line(title)}", f"{MARK}{_line(show_id)}"]
     tracks = breaks = missing = 0
@@ -249,7 +249,7 @@ def _show(root: Path, show_id: str) -> Show:
     """The show with this id in the shows folder `root`."""
     show = next((s for s in shows(root) if s.show_id == show_id), None)
     if show is None:
-        raise PlaylistError("That show isn't in your Booth shows folder any more.")
+        raise PlaylistError("That show isn't in your shows folder any more.")
     return show
 
 

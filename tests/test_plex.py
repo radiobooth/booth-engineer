@@ -162,7 +162,7 @@ def test_a_scan_with_only_songs_the_catalog_cant_hold_keeps_waiting():
             return reply
 
     busy = [{"key": "3", "type": "artist", "title": "Music", "refreshing": True}]
-    with pytest.raises(plex.PlexScanning, match="no songs Booth can use yet"):
+    with pytest.raises(plex.PlexScanning, match="no songs Radio Booth can use yet"):
         plex.build_catalog(Odd(busy), during_scan=True)
 
 
@@ -180,7 +180,7 @@ def test_a_library_still_scanning_with_no_songs_yet_keeps_waiting():
                 return {"MediaContainer": {"Metadata": [], "totalSize": 0}}
             return super().get(path, params)
 
-    with pytest.raises(plex.PlexScanning, match="no songs Booth can use yet"):
+    with pytest.raises(plex.PlexScanning, match="no songs Radio Booth can use yet"):
         plex.build_catalog(Empty(busy), during_scan=True)
     # Done scanning and still empty: not a wait any more (link.handle fails it as having no songs).
     assert plex.build_catalog(Empty([{"key": "3", "type": "artist", "title": "Music"}]))[0]["tracks"] == []

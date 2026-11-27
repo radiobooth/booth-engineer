@@ -26,7 +26,9 @@ def guided(
 ) -> int:
     """The whole setup. keep_pairing=False when the saved pairing is known to be dead, so it isn't offered."""
     say("Radio Booth setup\n")
-    say("Booth reads the titles and details of your music in Plex to plan shows, and puts each finished")
+    say(
+        "Radio Booth reads the titles and details of your music in Plex to plan shows, and puts each finished"
+    )
     say("show into Plex as a playlist. Your music files never leave this computer.\n")
     try:
         settings = plex_step(config.load(), ask=ask, open_browser=open_browser)
@@ -41,16 +43,16 @@ def guided(
         return 1
     say("\nAll set.")
     background = False
-    if yes("Start Booth automatically when you sign in to this computer? (Recommended)", ask):
+    if yes("Start Radio Booth automatically when you sign in to this computer? (Recommended)", ask):
         try:
             say(autostart.install())
             background = sys.platform != "win32"  # Windows starts it at the next sign-in
         except OSError as e:
-            say(f"Couldn't set that up ({e}). You can start Booth yourself instead.")
+            say(f"Couldn't set that up ({e}). You can start Radio Booth yourself instead.")
     say("\nNow ask for a show on your phone. It shows up in Plex as a playlist a few minutes later.")
     if background:
         return 0
-    say("Booth is running in this window. Leave it open; close it to stop Booth.\n")
+    say("Radio Booth is running in this window. Leave it open; close it to stop Radio Booth.\n")
     from radiobooth.cli import build_parser, run
 
     return run(build_parser().parse_args(["run"]))
@@ -111,7 +113,7 @@ def plex_step(settings: dict, *, ask, open_browser) -> dict:
             Path(path).mkdir(parents=True, exist_ok=True)
         except OSError as e:
             raise SetupError(
-                f"Your {onboard.BREAKS_LIBRARY!r} Plex library uses {path}, and Booth can't make that"
+                f"Your {onboard.BREAKS_LIBRARY!r} Plex library uses {path}, and Radio Booth can't make that"
                 f" folder ({e.strerror or e}). In Plex, point the library at a folder that exists, then"
                 " run setup again."
             ) from None
@@ -134,7 +136,7 @@ def still_signed_in(url: str, token: str) -> bool:
     try:
         PlexClient(url, token, timeout=10).get("/library/sections")
     except PlexAuthError:
-        say("Plex no longer accepts Booth's saved sign-in, so let's sign in again.")
+        say("Plex no longer accepts Radio Booth's saved sign-in, so let's sign in again.")
         return False
     except PlexError:
         return False
@@ -143,7 +145,7 @@ def still_signed_in(url: str, token: str) -> bool:
 
 def remote_breaks_dir(breaks: dict | None, server_name: str | None, ask) -> str:
     """Plex runs on another computer: the breaks folder has to be one both can reach."""
-    say(f"\nYour Plex server {server_name!r} runs on another computer, so Booth needs a shared folder")
+    say(f"\nYour Plex server {server_name!r} runs on another computer, so Radio Booth needs a shared folder")
     say("for the DJ's breaks that Plex sees too:")
     if breaks is None:
         say("  1. Make a folder on the Plex computer (or a drive it uses), e.g. 'Radio Booth'.")
@@ -162,18 +164,18 @@ def remote_breaks_dir(breaks: dict | None, server_name: str | None, ask) -> str:
 
 
 def pair_step(settings: dict, server: str, name: str, *, ask, offer_keep: bool = True) -> dict:
-    say("Step 3 of 3: your Booth account")
+    say("Step 3 of 3: your Radio Booth account")
     if (
         offer_keep
         and settings.get("device_token")
-        and yes("This computer is already connected to your Booth account. Keep that connection?", ask)
+        and yes("This computer is already connected to your Radio Booth account. Keep that connection?", ask)
     ):
         return settings
     try:
         link = Link(server)
     except LinkError as e:
         raise SetupError(str(e)) from None
-    say(f"On your phone, open your Booth page ({link.server}) and tap 'Get a pairing code'.")
+    say(f"On your phone, open your Radio Booth page ({link.server}) and tap 'Get a pairing code'.")
     while True:
         code = ask("Type the code here: ").strip()
         if not code:
@@ -187,5 +189,5 @@ def pair_step(settings: dict, server: str, name: str, *, ask, offer_keep: bool =
                 )
                 continue
             raise SetupError(str(e)) from None
-        say(f"Connected this computer to your Booth account as {name!r}.")
+        say(f"Connected this computer to your Radio Booth account as {name!r}.")
         return settings | {"server": server, "device_token": token, "name": name}

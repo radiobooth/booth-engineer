@@ -150,7 +150,7 @@ def station(
                     ) from None
                 raise
             plex.base_url, plex.token = saved_url.rstrip("/"), saved_token
-            log("Plex refused the sign-in Booth started with; using the one saved by setup.")
+            log("Plex refused the sign-in Radio Booth started with; using the one saved by setup.")
             return step()
 
     def catalog(during_scan: bool = False) -> dict:
@@ -256,7 +256,7 @@ def folder_station(
         # A first read of a big folder can take an hour. Waiting for it here would hold up every check-in
         # (and other shows' deliveries); this show is tried again at the next one instead.
         if reading and reading():  # the page shows how far it's got; the message stays the same, logged once
-            raise FolderBusy("Booth is still reading your music folder; the show starts after that.")
+            raise FolderBusy("Radio Booth is still reading your music folder; the show starts after that.")
         mark(True)
         try:
             return history.annotate(read_folder(settings, on_scan), who)

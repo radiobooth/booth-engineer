@@ -19,4 +19,6 @@ Home client for Radio Booth. Python package `radiobooth`, command `booth`, manag
   commit SHA and uv/tool versions are pinned exactly: bump those only to releases at least 7 days old.
 - No secrets in the repo. Plex tokens and pairing tokens come from the environment or local config.
 - Open source, closed contribution: don't add contributor tooling that invites PRs.
-- Radio jargon is fine in code names; user-facing text says "Booth", "show", "break", "DJ".
+- Radio jargon is fine in code names; user-facing text says "Radio Booth" (two words, never just "Booth"), "show",
+  "break", "DJ". Lowercase `radiobooth` only for domains, handles and package/repo names. Booth DJ and Booth
+  Engineer are internal component names: fine in code, docs for developers and logs, not in listener text.

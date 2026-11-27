@@ -3,25 +3,25 @@
   <img alt="Radio Booth" src="images/logo-horizontal-on-light.svg" width="280">
 </picture>
 
-# Other ways to set up Booth
+# Other ways to set up Radio Booth
 
-[Getting started](getting-started.md) covers the usual setups: Booth runs on a Windows PC or Mac, either the
+[Getting started](getting-started.md) covers the usual setups: Radio Booth runs on a Windows PC or Mac, either the
 one with your music or another one on your home network that reaches it (a NAS, a media PC). This page covers
 the rest:
 
 - [Linux](#linux)
 - [Docker, for example on a NAS](#docker-for-example-on-a-nas)
-- [Booth as a command on a Mac](#booth-as-a-command-on-a-mac)
+- [Radio Booth as a command on a Mac](#booth-as-a-command-on-a-mac)
 - [What isn't supported yet](#what-isnt-supported-yet)
 
 <a id="plex-runs-on-a-different-computer"></a><a id="what-you-set-up-on-the-plex-side-once"></a>
 
-Plex or your music on a different computer from Booth? That's in Getting started now:
+Plex or your music on a different computer from Radio Booth? That's in Getting started now:
 [Music on another computer](getting-started.md#music-on-another-computer).
 
 ## Linux
 
-There's no double-click app for Linux yet; Booth installs as a command. You need
+There's no double-click app for Linux yet; Radio Booth installs as a command. You need
 [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```sh
@@ -30,10 +30,10 @@ booth setup
 ```
 
 `booth setup` is the same guided setup as the apps: it prints a Plex sign-in link to open in any browser,
-asks a few questions, and pairs with your Booth account. To update Booth later, run the
+asks a few questions, and pairs with your Radio Booth account. To update Radio Booth later, run the
 `uv tool install` line again with the newer version and `--force`.
 
-If you say yes to starting automatically, Booth installs a systemd user service called `radiobooth`.
+If you say yes to starting automatically, Radio Booth installs a systemd user service called `radiobooth`.
 Check it with `systemctl --user status radiobooth` and read its log with `journalctl --user -u radiobooth`.
 A user service only runs while you're signed in. On a headless machine, let it run without a sign-in:
 
@@ -55,7 +55,7 @@ NFS, not a desktop file-manager mount, which goes away when you sign out). Then 
 
 ## Docker, for example on a NAS
 
-Running Booth in a container on the NAS that runs Plex keeps it on all the time, with no other computer
+Running Radio Booth in a container on the NAS that runs Plex keeps it on all the time, with no other computer
 involved. There isn't a published image yet, so build it from this repository (a NAS that can build images
 from a Git address can do the same):
 
@@ -78,7 +78,7 @@ docker build -t booth-engineer https://github.com/radiobooth/booth-engineer.git#
 
    Open the Plex sign-in link it prints in a browser on any device. When it asks where the folder is from
    this computer, type `/breaks`. Say **no** to starting automatically; Docker does that instead. Setup ends
-   by running Booth in the window: press Ctrl+C to stop it.
+   by running Radio Booth in the window: press Ctrl+C to stop it.
 3. **Start it for good:**
 
    ```sh
@@ -88,7 +88,7 @@ docker build -t booth-engineer https://github.com/radiobooth/booth-engineer.git#
      booth-engineer
    ```
 
-Docker's normal network and host networking both work. Either way, Booth in a container treats Plex as
+Docker's normal network and host networking both work. Either way, Radio Booth in a container treats Plex as
 being on another computer, since the two don't see the same folders, which is why it asks for `/breaks`.
 
 Settings and the pairing live in the `booth-config` volume. You can also set everything by environment
@@ -97,10 +97,10 @@ instead of running setup (`PLEX_URL`, `PLEX_TOKEN`, `BOOTH_BREAKS_LIBRARY`, `BOO
 
 <a id="an-intel-mac"></a>
 
-## Booth as a command on a Mac
+## Radio Booth as a command on a Mac
 
 The Radio Booth app works on Apple silicon and Intel Macs alike (from version 0.1.3). If you'd rather have
-Booth as a command, for example on a Mac you reach over SSH, install it with
+Radio Booth as a command, for example on a Mac you reach over SSH, install it with
 [uv](https://docs.astral.sh/uv/getting-started/installation/), in Terminal:
 
 ```sh
@@ -112,11 +112,11 @@ Setup is the same as the app's, and saying yes to starting automatically works t
 
 ## What isn't supported yet
 
-- **Plex servers we can't write a folder for.** Booth delivers breaks as files Plex scans, so it needs a
-  folder that Plex watches and that Booth can write to. Shared Plex servers you don't own won't work, and
+- **Plex servers we can't write a folder for.** Radio Booth delivers breaks as files Plex scans, so it needs a
+  folder that Plex watches and that Radio Booth can write to. Shared Plex servers you don't own won't work, and
   neither will hosted Plex services that don't give you a folder.
-- **A shared folder over the internet.** Booth and the Plex computer need to be on the same home network,
-  unless Booth runs on the Plex computer itself.
+- **A shared folder over the internet.** Radio Booth and the Plex computer need to be on the same home network,
+  unless Radio Booth runs on the Plex computer itself.
 - **Making the `Radio Booth` library from another computer.** Setup only makes it automatically when Plex
   runs on the same computer. Otherwise you make it in Plex, as above.
 - **Music servers other than Plex.** Not yet.

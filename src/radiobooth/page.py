@@ -152,13 +152,13 @@ HTML = f"""<!doctype html>
   </section>
 
   <section id="off">
-    <p class="label">Booth at home</p>
-    <h2 id="off-title">Booth is off</h2>
+    <p class="label">Radio Booth at home</p>
+    <h2 id="off-title">Radio Booth is off</h2>
     <p id="off-text"></p>
   </section>
 
   <section id="status" class="hidden">
-    <p class="label">Booth at home</p>
+    <p class="label">Radio Booth at home</p>
     <h2 id="status-title"></h2>
     <p id="status-text"></p>
     <p class="muted" id="status-meta"></p>
@@ -169,10 +169,10 @@ HTML = f"""<!doctype html>
   <section id="phone" class="hidden">
     <p class="label">New show</p>
     <div class="phone-card">
-      <img id="phone-qr" class="hidden" alt="QR code for your Booth page">
+      <img id="phone-qr" class="hidden" alt="QR code for your Radio Booth page">
       <div>
         <h2>Make a show on your phone</h2>
-        <p>Your Booth page is where you ask for shows, hear the DJs, rate a show and flag a break.</p>
+        <p>Your Radio Booth page is where you ask for shows, hear the DJs, rate a show and flag a break.</p>
         <p id="phone-go"><span id="phone-scan"></span><a id="phone-link" target="_blank" rel="noopener"></a>.</p>
         <div class="actions"><a class="button" id="phone-open" target="_blank" rel="noopener">Open it here</a>
         </div>
@@ -191,8 +191,8 @@ HTML = f"""<!doctype html>
 
   <section id="setup">
     <p class="label">Setup</p>
-    <h2 id="setup-title">Let's get Booth ready</h2>
-    <p class="muted" id="setup-intro">Booth reads the titles and details of your music, in Plex or in your
+    <h2 id="setup-title">Let's get Radio Booth ready</h2>
+    <p class="muted" id="setup-intro">Radio Booth reads the titles and details of your music, in Plex or in your
       music files' tags, to plan shows, and makes each finished show a playlist. Your music files stay on
       this computer, unless you ask to download a show on your phone.</p>
 
@@ -207,12 +207,12 @@ HTML = f"""<!doctype html>
           <label for="music-path">Your music folder</label>
           <input type="text" class="path" id="music-path" spellcheck="false" autocomplete="off">
           <p class="muted">Copy its path from the address bar of File Explorer, or in Finder hold Option and
-            choose Copy as Pathname. Booth reads the tags of the music files in it and its subfolders. It never
+            choose Copy as Pathname. Radio Booth reads the tags of the music files in it and its subfolders. It never
             changes, moves or uploads them.</p>
           <label for="shows-path">Folder for your shows</label>
           <input type="text" class="path" id="shows-path" spellcheck="false" autocomplete="off">
           <p class="muted">Each show is a playlist file here, with its DJ breaks beside it. Open it in your
-            music player. Booth makes the folder if it isn't there.</p>
+            music player. Radio Booth makes the folder if it isn't there.</p>
           <div class="actions"><button type="submit" id="files-use">Use these folders</button>
             <button type="button" class="quiet" id="files-cancel">Cancel</button></div>
         </form>
@@ -231,8 +231,8 @@ HTML = f"""<!doctype html>
     <div class="step" id="step-pair">
       <div class="num">2</div>
       <div>
-        <h2>Your Booth account</h2>
-        <p id="pair-text">On your phone, open your Booth page and tap <b>Get a pairing code</b>.
+        <h2>Your Radio Booth account</h2>
+        <p id="pair-text">On your phone, open your Radio Booth page and tap <b>Get a pairing code</b>.
           Type the code here.</p>
         <form class="actions" id="pair-form">
           <input type="text" id="pair-code" autocomplete="off" spellcheck="false" aria-label="Pairing code"
@@ -257,11 +257,11 @@ HTML = f"""<!doctype html>
     <div class="hidden" id="scan-progress">
       <progress id="scan-bar" max="1" value="0"></progress>
       <p class="muted" id="scan-text"></p>
-      <p class="note">The first time takes a while for a big collection. After that, Booth reads only what's
-        new or changed. You can close this page: Booth keeps going.</p>
+      <p class="note">The first time takes a while for a big collection. After that, Radio Booth reads only what's
+        new or changed. You can close this page: Radio Booth keeps going.</p>
     </div>
     <p id="report-text"></p>
-    <details class="hidden" id="report-box"><summary>What Booth found in your tags</summary>
+    <details class="hidden" id="report-box"><summary>What Radio Booth found in your tags</summary>
       <pre id="report"></pre></details>
     <div class="actions"><button class="quiet" id="rescan">Read my music again</button></div>
     <div class="error hidden" id="scan-error"></div>
@@ -292,8 +292,8 @@ HTML = f"""<!doctype html>
     </div>
     <ul class="shows hidden" id="people"></ul>
     <div class="hidden" id="person-add">
-      <p class="muted">Share this Booth with someone who has their own Radio Booth account. On their phone,
-        signed in as them, they open their Booth page and tap <b>Get a pairing code</b>. Their shows come from
+      <p class="muted">Share this Radio Booth with someone who has their own Radio Booth account. On their phone,
+        signed in as them, they open their Radio Booth page and tap <b>Get a pairing code</b>. Their shows come from
         this computer's music and go to the same place as yours, with their name at the start of each
         playlist.</p>
       <form class="actions" id="person-form">
@@ -303,12 +303,12 @@ HTML = f"""<!doctype html>
       </form>
     </div>
     <div class="row">
-      <div><b>Change Booth's setup</b>
+      <div><b>Change Radio Booth's setup</b>
         <p class="muted">Where your music is, or a new pairing.</p></div>
       <button class="quiet" id="change">Change</button>
     </div>
     <div class="row">
-      <div><b>Turn Booth off</b>
+      <div><b>Turn Radio Booth off</b>
         <p class="muted" id="quit-text">Until you open Radio Booth again.</p></div>
       <button class="quiet" id="quit">Turn off</button>
     </div>
@@ -317,7 +317,7 @@ HTML = f"""<!doctype html>
   </section>
 
   <section>
-    <details><summary>What Booth has been doing</summary><pre id="log"></pre></details>
+    <details><summary>What Radio Booth has been doing</summary><pre id="log"></pre></details>
   </section>
 
   <footer id="footer"><span id="footer-text"></span><a id="terms" href="{LICENSE_URL}" target="_blank"
@@ -330,7 +330,7 @@ HTML = f"""<!doctype html>
 LOCKED = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Radio Booth</title><link rel="icon" href="{FAVICON}"><style>{STYLE}</style></head>
-<body><main><header>{MARK}<h1>Radio Booth</h1></header><section><h2>Open Booth from your computer</h2>
+<body><main><header>{MARK}<h1>Radio Booth</h1></header><section><h2>Open Radio Booth from your computer</h2>
 <p>This page only opens from the Radio Booth app. Open <b>Radio Booth</b> from the Start menu (Windows) or
 Applications (Mac), and it brings you back here.</p></section></main></body></html>
 """
@@ -345,20 +345,20 @@ const PAGE_VERSION = "__BOOTH_VERSION__";  // the version that served this page
 const edited = new Set();  // fields typed in and not yet sent: a reload would lose them
 let adding = false, peopleShown = "", plexUsers = null, plexUsersAsked = false, filesOpen = false;
 const SHOW_STATUS = {
-  queued: "Waiting for Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
-  delivered: "In Plex", failed: "Didn't work", expired: "Expired before Booth could deliver it",
+  queued: "Waiting for Radio Booth", making: "Your DJ is putting it together", ready: "Sending to Plex",
+  delivered: "In Plex", failed: "Didn't work", expired: "Expired before Radio Booth could deliver it",
 };
-const FOLDER_STATUS = {ready: "Saving the playlist", delivered: "In your Booth shows folder"};
-// Music in a folder: shows are playlist files in the Booth shows folder, not in Plex.
+const FOLDER_STATUS = {ready: "Saving the playlist", delivered: "In your shows folder"};
+// Music in a folder: shows are playlist files in the shows folder, not in Plex.
 const inFolder = () => !!(last && last.music && last.music.kind === "folder");
-const arrives = () => inFolder() ? "in your Booth shows folder" : "in Plex";
+const arrives = () => inFolder() ? "in your shows folder" : "in Plex";
 
 async function post(action, body = {}) {
   const r = await fetch("/api/" + action, {
     method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
+  if (!r.ok) throw new Error(data.error || "Radio Booth didn't answer.");
   return data;
 }
 
@@ -410,21 +410,21 @@ function renderPhone(s) {
   show(qr, !!s.phone_qr);
   show($("phone-link"), !!url);
   show($("phone-open"), !!url);
-  if (!url) { $("phone-scan").textContent = "On your phone, open your Booth page"; return; }
+  if (!url) { $("phone-scan").textContent = "On your phone, open your Radio Booth page"; return; }
   $("phone-scan").textContent = s.phone_qr ? "Scan the code with your phone's camera, or open " : "On your phone, open ";
   $("phone-link").href = $("phone-open").href = url;
   $("phone-link").textContent = url.replace(/^https?:\/\//, "").replace(/\/$/, "");
 }
 
 const STATUS = {
-  on_air: ["Booth is on the air", "Shows you ask for on your phone show up {where} as a playlist a few minutes later."],
-  starting: ["Booth is starting", "Connecting to your Booth account..."],
-  offline: ["Booth can't reach Radio Booth", "Is this computer online? Booth keeps trying by itself."],
-  needs_plex: ["Plex needs you to sign in again", "Plex stopped accepting Booth's sign-in. Sign in again below."],
-  needs_pairing: ["Connect Booth to your account again", "This computer was removed from your Radio Booth. To use it again, get a new pairing code on your phone and type it below."],
-  needs_folder: ["Booth can't find {folder}", "Is the drive or shared folder connected? Booth keeps checking."],
-  stopped: ["Booth is paused", ""],
-  not_set_up: ["Booth isn't set up yet", ""],
+  on_air: ["Radio Booth is on the air", "Shows you ask for on your phone show up {where} as a playlist a few minutes later."],
+  starting: ["Radio Booth is starting", "Connecting to your Radio Booth account..."],
+  offline: ["Radio Booth can't reach Radio Booth", "Is this computer online? Radio Booth keeps trying by itself."],
+  needs_plex: ["Plex needs you to sign in again", "Plex stopped accepting Radio Booth's sign-in. Sign in again below."],
+  needs_pairing: ["Connect Radio Booth to your account again", "This computer was removed from your Radio Booth. To use it again, get a new pairing code on your phone and type it below."],
+  needs_folder: ["Radio Booth can't find {folder}", "Is the drive or shared folder connected? Radio Booth keeps checking."],
+  stopped: ["Radio Booth is paused", ""],
+  not_set_up: ["Radio Booth isn't set up yet", ""],
 };
 
 function render(s) {
@@ -437,7 +437,7 @@ function render(s) {
 
   // Status
   show($("status"), ready);
-  const [title, text] = STATUS[e.state] || ["Booth", ""];
+  const [title, text] = STATUS[e.state] || ["Radio Booth", ""];
   $("status-title").textContent = title.replace("{folder}", files ? "your music or shows folder" : "the breaks folder");
   $("status-text").textContent = text.replace("{where}", arrives());
   const meta = [];
@@ -445,7 +445,7 @@ function render(s) {
   if (e.last_show) meta.push("Last show: " + e.last_show.playlist + ", " + ago(e.last_show.at));
   $("status-meta").textContent = meta.join(" · ");
   const where = s.platform === "win32" ? " from the Start menu" : s.platform === "darwin" ? " from Applications" : "";
-  $("keeps-running").textContent = "You can close this page. Booth keeps running in the background; open Radio Booth" +
+  $("keeps-running").textContent = "You can close this page. Radio Booth keeps running in the background; open Radio Booth" +
     where + " to come back here.";
   show($("keeps-running"), e.state !== "stopped");
   const actions = $("status-actions");
@@ -453,7 +453,7 @@ function render(s) {
   if (["offline", "stopped", "needs_folder"].includes(e.state))
     actions.append(button("Try again now", () => post("restart_engine").then(refresh), true));
 
-  // New show (on the phone) and the shows here to copy or remove: once Booth is set up
+  // New show (on the phone) and the shows here to copy or remove: once Radio Booth is set up
   const canAsk = ready && e.state !== "needs_pairing";
   show($("phone"), canAsk);
   renderPhone(s);
@@ -470,7 +470,7 @@ function render(s) {
   const needsPair = !s.account.paired || e.state === "needs_pairing";
   const st = s.setup, plexBusy = st.step !== "idle" && st.step !== "done";
   show($("setup"), !ready || needsPlex || needsPair || changing || plexBusy);
-  $("setup-title").textContent = ready ? "Booth's setup" : "Let's get Booth ready";
+  $("setup-title").textContent = ready ? "Radio Booth's setup" : "Let's get Radio Booth ready";
   show($("setup-intro"), !ready);
 
   const plexDone = s.music.ready && !needsPlex && !plexBusy;
@@ -481,8 +481,8 @@ function render(s) {
     : st.step === "working" ? "Looking at your Plex server..."
     : st.step === "server" ? "Which Plex server has your music?"
     : st.step === "library" ? "Which Plex library is your music in?"
-    : st.step === "plex_wait" ? "Sign in to Plex and allow Radio Booth. Booth never sees your Plex password."
-    : !files && s.plex.ready ? "Plex stopped accepting Booth's sign-in. Sign in again, or use a folder instead."
+    : st.step === "plex_wait" ? "Sign in to Plex and allow Radio Booth. Radio Booth never sees your Plex password."
+    : !files && s.plex.ready ? "Plex stopped accepting Radio Booth's sign-in. Sign in again, or use a folder instead."
     : "Is your music in Plex, or in a folder of music files?";
   $("plex-go").textContent = s.music.ready && !files ? "Sign in to Plex again" : s.music.ready ? "Use Plex instead" : "It's in Plex";
   $("files-go").textContent = s.music.ready && files ? "Change folders" : s.music.ready ? "Use a folder instead" : "It's in a folder";
@@ -512,19 +512,19 @@ function render(s) {
   $("step-pair").classList.toggle("done", pairDone);
   $("pair-text").textContent = pairDone && !changing
     ? "Connected as " + JSON.stringify(s.account.name) + "."
-    : "On your phone, open your Booth page and tap “Get a pairing code”. Type the code here.";
+    : "On your phone, open your Radio Booth page and tap “Get a pairing code”. Type the code here.";
   show($("pair-form"), (!pairDone || changing) && $("pair-ask").classList.contains("hidden"));
 
-  // People sharing this Booth, and whose shows the list shows
+  // People sharing this Radio Booth, and whose shows the list shows
   const people = s.account.people || [];
   const own = s.account.account_name || "You";
   $("people-text").textContent = people.length
-    ? "Booth makes shows for " + [own, ...people.map((p) => p.name)].join(", ") + "."
-    : "Booth makes shows for " + (s.account.account_name || "your account") + ". Someone else with their own Radio Booth account can use it too.";
+    ? "Radio Booth makes shows for " + [own, ...people.map((p) => p.name)].join(", ") + "."
+    : "Radio Booth makes shows for " + (s.account.account_name || "your account") + ". Someone else with their own Radio Booth account can use it too.";
   if (people.length && !plexUsersAsked && !files) {  // whom their playlists can be shared with, asked for once
     plexUsersAsked = true;
     fetch("/api/plex_users", {cache: "no-store"}).then((r) => r.json().then((d) => {
-      if (!r.ok) throw new Error(d.error || "Booth didn't answer.");
+      if (!r.ok) throw new Error(d.error || "Radio Booth didn't answer.");
       plexUsers = d.users;
       peopleShown = "";
       if (last) render(last);
@@ -621,7 +621,7 @@ function render(s) {
   $("log").textContent = e.log.join("\n") || "Nothing yet.";
   // Only the text changes: the link stays put, so it keeps focus and clicks across refreshes.
   $("footer").classList.remove("hidden");
-  $("footer-text").textContent = s.restarting ? "Booth is starting again with the new version..." : "Booth " + s.version + " · this page is only on this computer · ";
+  $("footer-text").textContent = s.restarting ? "Radio Booth is starting again with the new version..." : "Radio Booth " + s.version + " · this page is only on this computer · ";
   $("terms").classList.toggle("hidden", !!s.restarting);
 }
 
@@ -629,7 +629,7 @@ async function refresh() {
   try {
     const r = await fetch("/api/state", {cache: "no-store"});
     if (r.status === 403) { location.reload(); return; }
-    if (turningOff) return;  // Booth is about to stop: don't bring the buttons back meanwhile
+    if (turningOff) return;  // Radio Booth is about to stop: don't bring the buttons back meanwhile
     const s = await r.json();
     if (s.version !== PAGE_VERSION && newVersion(s.version)) return;
     render(s);
@@ -651,16 +651,16 @@ function unsaved() {
 }
 
 function newVersion(version) {
-  // Booth updated itself: this page is the old one. Reload when that loses nothing, else offer it.
+  // Radio Booth updated itself: this page is the old one. Reload when that loses nothing, else offer it.
   if (!unsaved()) { location.reload(); return true; }
-  $("updated-text").textContent = "Booth updated to " + version + ". Refresh the page to see what's new.";
+  $("updated-text").textContent = "Radio Booth updated to " + version + ". Refresh the page to see what's new.";
   show($("updated"), true);
   return false;
 }
 
 function showOff() {
-  // Nothing on the page works while Booth is off, so show only that, and how to turn it on again.
-  // The page keeps checking: it comes back by itself when Booth does.
+  // Nothing on the page works while Radio Booth is off, so show only that, and how to turn it on again.
+  // The page keeps checking: it comes back by itself when Radio Booth does.
   document.body.classList.add("off");
   document.body.classList.remove("on-air");
   $("light").textContent = "Off air";
@@ -668,7 +668,7 @@ function showOff() {
   const restarting = last && last.restarting;
   const p = last ? last.platform : "";
   const where = p === "win32" ? " from the Start menu" : p === "darwin" ? " from Applications" : "";
-  $("off-title").textContent = restarting ? "Booth is updating" : "Booth is off";
+  $("off-title").textContent = restarting ? "Radio Booth is updating" : "Radio Booth is off";
   $("off-text").textContent = restarting
     ? "It's starting again with the new version. This page comes back by itself in a moment."
     : "Shows you ask for wait until it's on again. To turn it on, open Radio Booth" + where +
@@ -693,7 +693,7 @@ function renderShows(list, listed = true) {
     let text = (here && FOLDER_STATUS[s.status]) || SHOW_STATUS[s.status] || s.status;
     if (s.waiting_for_earlier) text = "Up next, after your earlier show";
     if (!s.for_computer && s.status === "delivered" && s.on_disk === false) {
-      text = here ? "Removed from your Booth shows folder" : "Removed from Plex";
+      text = here ? "Removed from your shows folder" : "Removed from Plex";
     }
     else
     if (s.status === "delivered" && s.playlist) text += ": " + s.playlist;
@@ -775,9 +775,9 @@ function renderCopy(c) {
 function removeButton(s) {
   const b = el("button", {type: "button", className: "quiet remove", textContent: "Remove"});
   b.onclick = async () => {
-    const where = inFolder() ? "your Booth shows folder" : "Plex";
+    const where = inFolder() ? "your shows folder" : "Plex";
     if (!confirm("Remove “" + (s.playlist || s.title) + "” from " + where + "? Its playlist, DJ breaks" +
-      " and any copy or one file Booth made of it are deleted. Your music stays where it is.")) return;
+      " and any copy or one file Radio Booth made of it are deleted. Your music stays where it is.")) return;
     b.disabled = true;
     try {
       await post("remove_show", {show_id: s.show_id, title: s.title || ""});
@@ -788,7 +788,7 @@ function removeButton(s) {
   return b;
 }
 
-// The music folder: how reading it goes, and what Booth found in the tags.
+// The music folder: how reading it goes, and what Radio Booth found in the tags.
 function renderScan(s, files) {
   const scan = s.engine.scan, report = s.engine.report;
   show($("scan"), files && s.music.ready && !!(scan || report));
@@ -839,7 +839,7 @@ async function loadShows() {
     const r = await fetch("/api/shows" + (who ? "?who=" + encodeURIComponent(who) : ""), {cache: "no-store"});
     const data = await r.json().catch(() => ({}));
     if (ask !== showsAsk) return;
-    if (!r.ok) throw new Error(data.error || "Booth didn't answer.");
+    if (!r.ok) throw new Error(data.error || "Radio Booth didn't answer.");
     renderShows(data.shows);
     // Quicker while a show asked for in the last hour is on its way, unless another computer makes it.
     const soon = (s) => ["queued", "making", "ready"].includes(s.status) && !s.for_computer &&
@@ -882,7 +882,7 @@ function wire() {
       const {name} = await post("add_person", {code: $("person-code").value});
       $("person-code").value = "";
       adding = false;
-      $("settings-ok").textContent = "Booth makes shows for " + name + " too now.";
+      $("settings-ok").textContent = "Radio Booth makes shows for " + name + " too now.";
       show($("settings-ok"), true);
       setTimeout(() => show($("settings-ok"), false), 10000);
     } catch (x) { error("settings-error", x.message); }
@@ -940,7 +940,7 @@ function wire() {
       const r = await post("pair", {code: $("pair-code").value});
       $("pair-code").value = "";
       if (r.ask) {  // another person's code, and this computer still makes shows for someone: ask which
-        $("pair-ask-text").textContent = "That code is from " + r.ask.theirs + "’s account. Booth makes shows"
+        $("pair-ask-text").textContent = "That code is from " + r.ask.theirs + "’s account. Radio Booth makes shows"
           + " for " + r.ask.own + " here now. Add " + r.ask.theirs + " as another person, or switch this"
           + " computer to " + r.ask.theirs + "’s account? (Switching stops " + r.ask.own + "’s shows here.)";
         $("pair-add").textContent = "Add " + r.ask.theirs + " too";
@@ -981,7 +981,7 @@ function wire() {
     if (last) render(last);
   };
   $("quit").onclick = async () => {
-    if (!confirm("Turn Booth off? Shows you ask for wait until Booth is on again.")) return;
+    if (!confirm("Turn Radio Booth off? Shows you ask for wait until Radio Booth is on again.")) return;
     await post("quit").catch(() => {});
     gone = 3;
     turningOff = true;
